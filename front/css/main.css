@@ -1,0 +1,104 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 100vw;
+  height: 100vh;
+  background-color: #f5f2ea;
+  font-family: 'Inter', sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ===== ШАПКА ===== */
+.header {
+  position: absolute;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+}
+
+.header h1 {
+  color: #3d5435;
+  font-family: 'Playfair Display', serif;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+/* ===== ДВЕ КНОПКИ ПО ЦЕНТРУ ===== */
+.center-buttons {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+/* ===== ДВЕ КНОПКИ СПРАВА ===== */
+.right-buttons {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  right: 250px;
+}
+
+/* ===== ОБЩИЙ СТИЛЬ КНОПОК ===== */
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #6b8f5e;
+  color: #f5f2ea;
+  text-decoration: none;
+  border-radius: 50px;
+  text-align: center;
+  font-size: 27px;
+  font-weight: 500;
+  border: none;
+  transition: all 0.3s ease;
+  letter-spacing: 0.5px;
+}
+
+.button:hover {
+  background-color: #4a6741;
+  transform: translateY(-3px);
+}
+
+.button:active {
+  transform: translateY(-1px);
+}
+
+/* ===== ЦЕНТРАЛЬНЫЕ КНОПКИ ===== */
+.button:not(.small):not(.settings) {
+  width: 600px;
+  height: 150px;
+}
+
+/* ===== ПРАВЫЕ КНОПКИ ===== */
+.button.small {
+  width: 150px;
+  height: 150px;
+  border-radius: 20px;
+  font-size: 21px;
+}
+
+/* ===== КНОПКА НАСТРОЕК ===== */
+.settings {
+  position: absolute;
+  bottom: 40px;
+  left: 40px;
+  width: 200px;
+  height: 200px;
+  border-radius: 20px;
+  font-size: 35px;
+}
