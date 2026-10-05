@@ -1,44 +1,427 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teplytsa</title>
-    <link rel="stylesheet" href="/css/main.css">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Умная AI-Теплица</title>
+  <meta name="description" content="Панель управления умной теплицей: 12 участков, влага, свет, полив и проветривание.">
+  <meta name="theme-color" content="#4f9a48">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="AI-Теплица">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
 
-  <!-- Декоративные элементы фона -->
-  <div class="bg-circle bg-circle-1"></div>
-  <div class="bg-circle bg-circle-2"></div>
-  <div class="bg-circle bg-circle-3"></div>
-
-  <div class="header">
-    <h1>Умная AI-Теплица</h1>
+  <!-- Декоративный фон -->
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
   </div>
 
-  <div class="center-buttons">
-    <a href="#vlag" class="button">
-      <span class="btn-text">Влага</span>
-    </a>
-    <a href="#svet" class="button">
-      <span class="btn-text">Свет</span>
-    </a>
+  <div class="app">
+
+    <!-- ===== Шапка ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">🌿</div>
+        <div class="brand-text">
+          <h1>Умная AI-Теплица</h1>
+          <p>Микроклимат · полив · проветривание</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <div class="status-pill" id="conn-pill" title="Состояние связи с сервером">
+          <span class="dot"></span>
+          <span id="conn-text">Автономный режим</span>
+        </div>
+        <button class="icon-btn" type="button" id="pwa-install" data-action="install-pwa" title="Установить приложение на телефон" hidden>⬇</button>
+        <button class="icon-btn" type="button" data-action="refresh" title="Обновить данные">⟳</button>
+        <button class="icon-btn" type="button" data-action="toggle-theme" title="Светлая / тёмная тема">◐</button>
+      </div>
+    </header>
+
+    <!-- ===== Навигация ===== -->
+    <nav class="tabs" id="tabs" aria-label="Разделы">
+      <button class="tab" type="button" data-view="dashboard">Панель</button>
+      <button class="tab" type="button" data-view="zones">Участки · 12</button>
+      <button class="tab" type="button" data-view="moisture">Влага</button>
+      <button class="tab" type="button" data-view="light">Свет</button>
+      <button class="tab" type="button" data-view="watering">Полив</button>
+      <button class="tab" type="button" data-view="ventilation">Проветривание</button>
+      <button class="tab" type="button" data-view="settings">Режим</button>
+      <button class="tab" type="button" data-view="logs">Журнал</button>
+    </nav>
+
+    <main class="views" id="views">
+
+      <!-- ===== ПАНЕЛЬ ===== -->
+      <section class="view" data-view="dashboard">
+        <div class="kpis">
+          <article class="kpi kpi-temp">
+            <div class="kpi-head"><span class="kpi-icon">🌡️</span><span class="kpi-label">Температура</span></div>
+            <div class="kpi-value"><b data-bind="sensors.temperature" data-format="fixed1">—</b><i>°C</i></div>
+            <canvas class="spark" data-spark="temperature"></canvas>
+          </article>
+
+          <article class="kpi kpi-moist">
+            <div class="kpi-head"><span class="kpi-icon">💧</span><span class="kpi-label">Влажность почвы</span></div>
+            <div class="kpi-value"><b data-bind="sensors.moisture" data-format="fixed0">—</b><i>%</i></div>
+            <canvas class="spark" data-spark="moisture"></canvas>
+          </article>
+
+          <article class="kpi kpi-light">
+            <div class="kpi-head"><span class="kpi-icon">☀️</span><span class="kpi-label">Освещённость</span></div>
+            <div class="kpi-value"><b data-bind="sensors.light" data-format="int">—</b><i>лк</i></div>
+            <canvas class="spark" data-spark="light"></canvas>
+          </article>
+
+          <article class="kpi kpi-tank">
+            <div class="kpi-head"><span class="kpi-icon">🛢️</span><span class="kpi-label">Бак с водой</span></div>
+            <div class="kpi-value"><b data-bind="tank" data-format="fixed0">—</b><i>%</i></div>
+            <canvas class="spark" data-spark="tank"></canvas>
+          </article>
+        </div>
+
+        <div class="grid-2">
+          <article class="card">
+            <header class="card-head">
+              <h2>Динамика влажности</h2>
+              <span class="badge">Цель: <b data-bind="target" data-format="fixed0">—</b>%</span>
+            </header>
+            <canvas class="chart" id="chart-moisture" height="220"></canvas>
+            <footer class="legend">
+              <span><i class="sw sw-line"></i> Влажность</span>
+              <span><i class="sw sw-dash"></i> Целевое значение</span>
+            </footer>
+          </article>
+
+          <article class="card">
+            <header class="card-head">
+              <h2>Управление исполнителями</h2>
+              <span class="badge" id="mode-badge">Режим: Авто</span>
+            </header>
+
+            <div class="device" data-device="watering">
+              <div class="device-info">
+                <span class="device-icon">💦</span>
+                <div>
+                  <b>Полив</b>
+                  <small data-device-status="watering">выключен</small>
+                </div>
+              </div>
+              <div class="device-actions">
+                <button class="btn btn-ghost" type="button" data-action="pulse" data-device="watering">Полить 10 с</button>
+                <button class="switch" type="button" role="switch" aria-checked="false" data-device="watering" data-action="toggle" aria-label="Полив"></button>
+              </div>
+            </div>
+
+            <div class="device" data-device="ventilation">
+              <div class="device-info">
+                <span class="device-icon">🌬️</span>
+                <div>
+                  <b>Проветривание</b>
+                  <small data-device-status="ventilation">выключено</small>
+                </div>
+              </div>
+              <div class="device-actions">
+                <button class="btn btn-ghost" type="button" data-action="pulse" data-device="ventilation">Проветрить 30 с</button>
+                <button class="switch" type="button" role="switch" aria-checked="false" data-device="ventilation" data-action="toggle" aria-label="Проветривание"></button>
+              </div>
+            </div>
+
+            <div class="device" data-device="lighting">
+              <div class="device-info">
+                <span class="device-icon">🔆</span>
+                <div>
+                  <b>Досветка</b>
+                  <small data-device-status="lighting">выключена</small>
+                </div>
+              </div>
+              <div class="device-actions">
+                <button class="switch" type="button" role="switch" aria-checked="false" data-device="lighting" data-action="toggle" aria-label="Досветка"></button>
+              </div>
+            </div>
+
+            <button class="btn btn-primary btn-wide" type="button" data-action="next-mode">Сменить режим</button>
+          </article>
+        </div>
+
+        <article class="card">
+          <header class="card-head">
+            <h2>Последние события</h2>
+            <button class="btn btn-ghost btn-sm" type="button" data-action="goto" data-view="logs">Весь журнал</button>
+          </header>
+          <ul class="log-list" id="log-preview"></ul>
+        </article>
+      </section>
+
+      <!-- ===== УЧАСТКИ (12 секций парника) ===== -->
+      <section class="view" data-view="zones" hidden>
+        <article class="card">
+          <header class="card-head">
+            <h2>Участки теплицы</h2>
+            <span class="badge">12 секций <b id="zones-source">эмулятор</b></span>
+          </header>
+          <p class="muted">
+            Теплица-парник разделена на 12 участков (ячеек кассеты). Каждый участок имеет
+            собственные датчики и исполнители. Нажмите на карточку, чтобы выбрать участок,
+            или управляйте поливом, проветриванием и досветкой прямо из карточки.
+          </p>
+          <div class="zone-grid" id="zone-grid"></div>
+        </article>
+
+        <div class="grid-2">
+          <article class="card">
+            <header class="card-head"><h2>Микроклимат участков</h2></header>
+            <canvas class="chart" id="chart-zones" height="220"></canvas>
+            <footer class="legend">
+              <span><i class="sw sw-line"></i> Влажность по 12 участкам</span>
+              <span><i class="sw sw-dash"></i> Целевое значение</span>
+            </footer>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Сводка по участкам</h2></header>
+            <div class="stat-row"><span>Участков в норме</span><b id="zones-ok">—</b></div>
+            <div class="stat-row"><span>Требуют полива</span><b id="zones-dry">—</b></div>
+            <div class="stat-row"><span>Перегрев</span><b id="zones-hot">—</b></div>
+            <div class="stat-row"><span>Активных поливов</span><b id="zones-watering">—</b></div>
+            <p class="muted">Данные обновляются каждые 2 секунды. Источник:
+              <b id="zones-source-2">эмулятор</b>.</p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===== ВЛАГА ===== -->
+      <section class="view" data-view="moisture" hidden>
+        <div class="grid-2">
+          <article class="card card-center">
+            <header class="card-head"><h2>Датчик влажности</h2></header>
+            <div class="gauge-wrap">
+              <svg class="gauge" viewBox="0 0 120 120" aria-hidden="true">
+                <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+                <circle class="gauge-value" id="gauge-moisture" cx="60" cy="60" r="52"></circle>
+              </svg>
+              <div class="gauge-text">
+                <b data-bind="sensors.moisture" data-format="fixed0">—</b><i>%</i>
+                <small id="moisture-verdict">норма</small>
+              </div>
+            </div>
+            <p class="muted">Порог включения полива: <b data-bind="thresholds.moisture" data-format="fixed0">—</b>%</p>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Целевая влажность</h2></header>
+            <label class="field">
+              <span>Целевое значение: <b data-bind="target" data-format="fixed0">—</b>%</span>
+              <input type="range" min="20" max="90" step="1" data-model="target">
+            </label>
+            <label class="field">
+              <span>Порог автоматического полива: <b data-bind="thresholds.moisture" data-format="fixed0">—</b>%</span>
+              <input type="range" min="10" max="80" step="1" data-model="thresholds.moisture">
+            </label>
+            <div class="row">
+              <button class="btn btn-primary" type="button" data-action="pulse" data-device="watering">Полить сейчас</button>
+              <button class="btn btn-ghost" type="button" data-action="calibrate">Калибровать</button>
+            </div>
+          </article>
+        </div>
+
+        <article class="card">
+          <header class="card-head"><h2>История влажности</h2></header>
+          <canvas class="chart" id="chart-moisture-2" height="220"></canvas>
+        </article>
+      </section>
+
+      <!-- ===== СВЕТ ===== -->
+      <section class="view" data-view="light" hidden>
+        <div class="grid-2">
+          <article class="card card-center">
+            <header class="card-head"><h2>Текущая освещённость</h2></header>
+            <div class="big-number"><b data-bind="sensors.light" data-format="int">—</b><i>лк</i></div>
+            <p class="muted" id="light-verdict">оценка освещения</p>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Параметры досветки</h2></header>
+            <div class="device">
+              <div class="device-info">
+                <span class="device-icon">🔆</span>
+                <div><b>Фитолампы</b><small data-device-status="lighting">выключены</small></div>
+              </div>
+              <button class="switch" type="button" role="switch" aria-checked="false" data-device="lighting" data-action="toggle" aria-label="Фитолампы"></button>
+            </div>
+            <label class="field">
+              <span>Порог включения: <b data-bind="thresholds.light" data-format="int">—</b> лк</span>
+              <input type="range" min="2000" max="30000" step="500" data-model="thresholds.light">
+            </label>
+            <label class="field">
+              <span>Длительность фотопериода: <b data-bind="photoperiod" data-format="int">—</b> ч</span>
+              <input type="range" min="8" max="20" step="1" data-model="photoperiod">
+            </label>
+          </article>
+        </div>
+
+        <article class="card">
+          <header class="card-head"><h2>История освещённости</h2></header>
+          <canvas class="chart" id="chart-light" height="220"></canvas>
+        </article>
+      </section>
+
+      <!-- ===== ПОЛИВ ===== -->
+      <section class="view" data-view="watering" hidden>
+        <div class="grid-2">
+          <article class="card">
+            <header class="card-head"><h2>Насос и бак</h2></header>
+            <div class="device">
+              <div class="device-info">
+                <span class="device-icon">💦</span>
+                <div><b>Насос полива</b><small data-device-status="watering">выключен</small></div>
+              </div>
+              <button class="switch" type="button" role="switch" aria-checked="false" data-device="watering" data-action="toggle" aria-label="Насос полива"></button>
+            </div>
+            <div class="meter">
+              <div class="meter-head"><span>Уровень воды в баке</span><b><span data-bind="tank" data-format="fixed0">—</span>%</b></div>
+              <div class="meter-bar"><span id="tank-bar" style="width:0"></span></div>
+            </div>
+            <label class="field">
+              <span>Длительность ручного полива: <b data-bind="wateringDuration" data-format="int">—</b> с</span>
+              <input type="range" min="5" max="120" step="5" data-model="wateringDuration">
+            </label>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Автоматизация</h2></header>
+            <label class="check">
+              <input type="checkbox" data-model="auto.watering">
+              <span>Поливать автоматически при низкой влажности</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" data-model="auto.ventilation">
+              <span>Проветривать при перегреве</span>
+            </label>
+            <label class="field">
+              <span>Порог влажности: <b data-bind="thresholds.moisture" data-format="fixed0">—</b>%</span>
+              <input type="range" min="10" max="80" step="1" data-model="thresholds.moisture">
+            </label>
+            <label class="field">
+              <span>Порог температуры: <b data-bind="thresholds.temperature" data-format="fixed1">—</b> °C</span>
+              <input type="range" min="20" max="40" step="0.5" data-model="thresholds.temperature">
+            </label>
+          </article>
+        </div>
+
+        <article class="card">
+          <header class="card-head"><h2>Журнал полива</h2></header>
+          <ul class="log-list" id="log-watering"></ul>
+        </article>
+      </section>
+
+      <!-- ===== ПРОВЕТРИВАНИЕ ===== -->
+      <section class="view" data-view="ventilation" hidden>
+        <div class="grid-2">
+          <article class="card">
+            <header class="card-head"><h2>Форточка и вентилятор</h2></header>
+            <div class="device">
+              <div class="device-info">
+                <span class="device-icon">🌬️</span>
+                <div><b>Вытяжной вентилятор</b><small data-device-status="ventilation">выключен</small></div>
+              </div>
+              <button class="switch" type="button" role="switch" aria-checked="false" data-device="ventilation" data-action="toggle" aria-label="Вентилятор"></button>
+            </div>
+            <label class="field">
+              <span>Открытие форточки: <b data-bind="windowOpen" data-format="int">—</b>%</span>
+              <input type="range" min="0" max="100" step="5" data-model="windowOpen">
+            </label>
+            <label class="field">
+              <span>Длительность цикла: <b data-bind="ventilationDuration" data-format="int">—</b> с</span>
+              <input type="range" min="15" max="300" step="15" data-model="ventilationDuration">
+            </label>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Комфорт растений</h2></header>
+            <div class="stat-row"><span>Температура</span><b><span data-bind="sensors.temperature" data-format="fixed1">—</span> °C</b></div>
+            <div class="stat-row"><span>Влажность почвы</span><b><span data-bind="sensors.moisture" data-format="fixed0">—</span> %</b></div>
+            <div class="stat-row"><span>Точка росы (оценка)</span><b><span data-bind="dewPoint" data-format="fixed1">—</span> °C</b></div>
+            <p class="muted" id="vent-verdict">Система оценивает необходимость проветривания…</p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===== РЕЖИМ ===== -->
+      <section class="view" data-view="settings" hidden>
+        <article class="card">
+          <header class="card-head"><h2>Режим работы теплицы</h2></header>
+          <div class="modes" id="modes">
+            <button class="mode" type="button" data-mode="auto"><b>Авто</b><small>решения принимает AI</small></button>
+            <button class="mode" type="button" data-mode="eco"><b>Эко</b><small>экономия воды и света</small></button>
+            <button class="mode" type="button" data-mode="boost"><b>Интенсив</b><small>максимальный рост</small></button>
+            <button class="mode" type="button" data-mode="manual"><b>Ручной</b><small>только команды оператора</small></button>
+          </div>
+        </article>
+
+        <div class="grid-2">
+          <article class="card">
+            <header class="card-head"><h2>Подключение к серверу</h2></header>
+            <label class="field">
+              <span>Адрес API</span>
+              <input type="text" placeholder="http://127.0.0.1:8000" data-model="apiBase">
+            </label>
+            <div class="row">
+              <button class="btn btn-primary" type="button" data-action="connect">Подключиться</button>
+              <button class="btn btn-ghost" type="button" data-action="refresh">Проверить снова</button>
+            </div>
+            <p class="muted">Если сервер недоступен, панель работает в демонстрационном режиме на локальных данных.</p>
+          </article>
+
+          <article class="card">
+            <header class="card-head"><h2>Обслуживание</h2></header>
+            <div class="row">
+              <button class="btn btn-ghost" type="button" data-action="export">Экспорт данных</button>
+              <button class="btn btn-ghost" type="button" data-action="reset">Сбросить настройки</button>
+            </div>
+            <p class="muted">Сброс вернёт целевые значения, пороги и режим к заводским.</p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ===== ЖУРНАЛ ===== -->
+      <section class="view" data-view="logs" hidden>
+        <article class="card">
+          <header class="card-head">
+            <h2>Журнал событий</h2>
+            <div class="row row-tight">
+              <button class="btn btn-ghost btn-sm" type="button" data-action="filter-logs" data-filter="all">Все</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-action="filter-logs" data-filter="info">Инфо</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-action="filter-logs" data-filter="warn">Предупреждения</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-action="clear-logs">Очистить</button>
+            </div>
+          </header>
+          <ul class="log-list log-list-full" id="log-full"></ul>
+        </article>
+      </section>
+
+    </main>
+
+    <footer class="footer">
+      <span>TriEblanaiPraktika · демо-панель теплицы</span>
+      <span id="clock">—</span>
+    </footer>
   </div>
 
-  <div class="right-buttons">
-    <a href="#poliv" class="button small">
-      <span class="btn-text">Полив</span>
-    </a>
-    <a href="#provetr" class="button small">
-      <span class="btn-text">Проветривание</span>
-    </a>
-  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 
-  <a href="#settings" class="button settings">
-    <span class="btn-text">Настройки</span>
-  </a>
-
+  <script src="js/app.js"></script>
 </body>
 </html>
