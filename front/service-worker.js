@@ -1,14 +1,19 @@
 /* Service worker PWA «Умная AI-Теплица».
    Кэширует оболочку приложения, чтобы панель открывалась офлайн.
-   Запросы к /api/ всегда идут в сеть (данные датчиков не кэшируются). */
+   Запросы к /api/ всегда идут в сеть (данные датчиков не кэшируются).
+
+   Хостинг отдаёт .js и .css с кэшем на 45 дней, поэтому ссылки версионируются
+   (?v=N): при выпуске новой версии поднимите N здесь, в js/app.js
+   (регистрация service worker) и в front/index.html. */
 'use strict';
 
-const CACHE = 'ai-greenhouse-v2';
+const VERSION = '1';
+const CACHE = `ai-greenhouse-v4-${VERSION}`;
 const ASSETS = [
   './',
   './index.html',
-  './css/main.css',
-  './js/app.js',
+  `./css/main.css?v=${VERSION}`,
+  `./js/app.js?v=${VERSION}`,
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'

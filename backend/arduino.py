@@ -34,10 +34,10 @@ except Exception:  # pragma: no cover
     serial = None  # type: ignore
 
 try:  # запуск как модуль: python -m backend.server
-    from .db import DEVICES, ZONE_COUNT, Database  # type: ignore
+    from .db import DEVICES, ZONE_COUNT, DatabaseLike  # type: ignore
 except ImportError:  # запуск как файл: python backend/server.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from db import DEVICES, ZONE_COUNT, Database  # type: ignore
+    from db import DEVICES, ZONE_COUNT, DatabaseLike  # type: ignore
 
 
 class ArduinoLink:
@@ -45,7 +45,7 @@ class ArduinoLink:
 
     def __init__(
         self,
-        db: Database,
+        db: DatabaseLike,
         port: Optional[str] = None,
         baudrate: int = 115200,
         interval: float = 2.0,

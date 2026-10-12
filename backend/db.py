@@ -8,6 +8,9 @@
     settings     — глобальные настройки и пороги (одна строка id=1);
     state        — глобальное состояние: бак, форточка, источник данных;
     logs         — журнал событий.
+
+Второй бэкенд — PostgreSQL (backend/db_postgres.py) с тем же набором методов.
+Бэкенд выбирается функцией open_database().
 """
 from __future__ import annotations
 
@@ -15,7 +18,10 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+
+if TYPE_CHECKING:  # psycopg нужен только при работе с PostgreSQL
+    from .db_postgres import PostgresDatabase
 
 ZONE_COUNT = 12
 ZONE_NAMES = [f"Участок {i}" for i in range(1, ZONE_COUNT + 1)]
@@ -276,3 +282,21 @@ class Database:
                 "  FROM readings) WHERE rn <= ?)",
                 (keep_per_zone,),
             )
+
+
+# Любой из поддерживаемых бэкендов: SQLite (Database) или PostgreSQL (PostgresDatabase).
+DatabaseLike = Union[Database, "PostgresDatabase"]
+
+
+def open_database(path: str | Path | None = None, dsn: Optional[str] = None) -> DatabaseLike:
+    """Выбирает бэкенд: при заданном DSN — PostgreSQL, иначе SQLite-файл."""
+    if dsn:
+        try:
+            from .db_postgres import PostgresDatabase
+        except ImportError:
+            from db_postgres import PostgresDatabase  # type: ignore
+
+        return PostgresDatabase(dsn)
+    if path is None:
+        raise ValueError("Не указан ни путь к файлу SQLite (path), ни строка подключения (dsn)")
+    return Database(path)

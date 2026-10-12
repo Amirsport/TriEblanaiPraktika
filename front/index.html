@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/main.css?v=1">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -378,6 +378,10 @@
               <span>Адрес API</span>
               <input type="text" placeholder="http://127.0.0.1:8000" data-model="apiBase">
             </label>
+            <label class="field">
+              <span>API-ключ</span>
+              <input type="password" placeholder="пусто, если сервер запущен без ключа" data-model="apiToken" autocomplete="off">
+            </label>
             <div class="row">
               <button class="btn btn-primary" type="button" data-action="connect">Подключиться</button>
               <button class="btn btn-ghost" type="button" data-action="refresh">Проверить снова</button>
@@ -415,13 +419,13 @@
     </main>
 
     <footer class="footer">
-      <span>TriEblanaiPraktika · демо-панель теплицы</span>
+      <span>демо-панель теплицы</span>
       <span id="clock">—</span>
     </footer>
   </div>
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=1"></script>
 </body>
 </html>

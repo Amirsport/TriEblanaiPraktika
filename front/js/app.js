@@ -9,6 +9,9 @@
 const STORAGE_KEY = 'greenhouse.state.v1';
 const TICK_MS = 2000;
 const MAX_POINTS = 60;
+// Версия ссылок на assets: поднимайте вместе с VERSION в service-worker.js
+// и ссылками в index.html — хостинг кэширует .js/.css на 45 дней.
+const ASSET_VERSION = '1';
 
 const MODE_NAMES = { auto: 'Авто', eco: 'Эко', boost: 'Интенсив', manual: 'Ручной' };
 
@@ -31,6 +34,7 @@ const DEFAULTS = {
   wateringDuration: 10,
   ventilationDuration: 30,
   apiBase: '',
+  apiToken: '',
   sensors: { temperature: 24.6, moisture: 48, light: 12400 },
   thresholds: { moisture: 35, temperature: 30, light: 8000 },
   auto: { watering: true, ventilation: true, lighting: false },
@@ -75,8 +79,8 @@ function mergeDefaults(target, source) {
   for (const [key, value] of Object.entries(source)) {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       target[key] = mergeDefaults(typeof target[key] === 'object' && target[key] !== null ? target[key] : {}, value);
-    } else if (target[key] === undefined) {
-      target[key] = value;
+    } else if (target[key] === undefined || typeof target[key] !== 'object') {
+      target[key] = value; // скаляры (адрес API, ключ, тема…) берём из сохранённого состояния
     }
   }
   return target;
@@ -214,7 +218,7 @@ async function postJSON(path, payload) {
   try {
     await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload)
     });
     return true;
@@ -933,6 +937,11 @@ function tick() {
 
 /* ------------------------------ связь с сервером -------------------------- */
 
+function apiHeaders(extra = {}) {
+  const token = (state.apiToken || '').trim();
+  return token ? { ...extra, 'X-Api-Token': token } : extra;
+}
+
 async function loadRemote(notify = false) {
   const base = (state.apiBase || '').replace(/\/$/, '');
   const onHttp = location.protocol === 'http:' || location.protocol === 'https:';
@@ -948,8 +957,9 @@ async function loadRemote(notify = false) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3000);
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: controller.signal, headers: apiHeaders() });
     clearTimeout(timer);
+    if (response.status === 401) throw new Error('неверный API-ключ');
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const data = await response.json();
@@ -1002,7 +1012,7 @@ async function loadRemote(notify = false) {
     if (notify || wasOffline) {
       toast(`Сервер теплицы на связи (${state.source === 'arduino' ? 'Arduino' : 'эмулятор'})`);
       try {
-        const logsResp = await fetch(`${base}/api/logs?limit=40`);
+        const logsResp = await fetch(`${base}/api/logs?limit=40`, { headers: apiHeaders() });
         if (logsResp.ok) {
           const logsData = await logsResp.json();
           state.logs = (logsData.logs || []).map((entry) => ({
@@ -1061,7 +1071,7 @@ async function initPWA() {
   const onHttp = location.protocol === 'http:' || location.protocol === 'https:';
   if ('serviceWorker' in navigator && onHttp) {
     try {
-      await navigator.serviceWorker.register('service-worker.js');
+      await navigator.serviceWorker.register(`service-worker.js?v=${ASSET_VERSION}`);
     } catch (error) {
       console.warn('Service worker не зарегистрирован:', error);
     }

@@ -5,6 +5,13 @@
     python backend/server.py                          # эмулятор датчиков, порт 8000
     python backend/server.py --serial COM3            # реальная Arduino
     python backend/server.py --port 8000 --db data/greenhouse.sqlite3
+    python backend/server.py --dsn postgresql://greenhouse:пароль@localhost:5432/greenhouse
+
+Бэкенд БД выбирается ключом --dsn (или переменной окружения GREENHOUSE_DSN):
+с DSN данные идут в PostgreSQL, без него — в файл SQLite.
+
+Доступ к API закрывается ключом --token (или GREENHOUSE_TOKEN): тогда все
+запросы /api/* требуют заголовок X-Api-Token либо параметр ?token=...
 
 API (JSON):
     GET  /api/health                     состояние сервиса
@@ -24,8 +31,10 @@ API (JSON):
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import mimetypes
+import os
 import re
 import sys
 import threading
@@ -38,11 +47,11 @@ from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 try:  # запуск как модуль: python -m backend.server
-    from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, Database
+    from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database
     from .arduino import ArduinoLink
 except ImportError:  # запуск как файл: python backend/server.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, Database  # type: ignore
+    from db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database  # type: ignore
     from arduino import ArduinoLink  # type: ignore
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,13 +73,22 @@ def _now_iso() -> str:
 class Application:
     """Связывает БД, канал Arduino и правила автоматики."""
 
-    def __init__(self, db: Database, arduino: ArduinoLink):
+    def __init__(self, db: DatabaseLike, arduino: ArduinoLink, token: Optional[str] = None):
         self.db = db
         self.arduino = arduino
+        self.token = token or None
         self._timers: Dict[Tuple[int, str], float] = {}
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._zone_names = {zone["id"]: zone["name"] for zone in db.zones()}
+
+    # ------------------------------------------------------------------- доступ
+    def authorized(self, headers: Any, query: Dict[str, str]) -> bool:
+        """Проверяет API-ключ. Без заданного ключа доступ открыт (локальный режим)."""
+        if not self.token:
+            return True
+        provided = headers.get("X-Api-Token") or query.get("token") or ""
+        return hmac.compare_digest(provided, self.token)
 
     # ---------------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -313,7 +331,7 @@ class Handler(BaseHTTPRequestHandler):
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Api-Token")
 
     def _json(self, payload: Any, status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -371,6 +389,9 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_api(self, method: str, path: str) -> None:
         app = self.app
         query = self._query()
+
+        if not app.authorized(self.headers, query):
+            return self._error("Неверный или отсутствующий API-ключ", 401)
 
         try:
             if method == "GET" and path == "/api/health":
@@ -473,12 +494,11 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
 
-def create_server(host: str, port: int, database: Path, serial_port: Optional[str],
-                  baud: int, simulator: bool) -> ThreadingHTTPServer:
-    db = Database(database)
-    db.initialize()
-    link = ArduinoLink(db, port=serial_port, baudrate=baud, allow_simulator=simulator)
-    app = Application(db, link)
+def create_server(host: str, port: int, database: DatabaseLike, serial_port: Optional[str],
+                  baud: int, simulator: bool, token: Optional[str] = None) -> ThreadingHTTPServer:
+    database.initialize()
+    link = ArduinoLink(database, port=serial_port, baudrate=baud, allow_simulator=simulator)
+    app = Application(database, link, token)
 
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
@@ -487,22 +507,39 @@ def create_server(host: str, port: int, database: Path, serial_port: Optional[st
     return server
 
 
+def _mask_dsn(dsn: str) -> str:
+    """Скрывает пароль в строке подключения, чтобы он не попал в вывод."""
+    return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", dsn)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Сервер умной теплицы (12 участков)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB,
+                        help="файл SQLite (используется, если не задан --dsn)")
+    parser.add_argument("--dsn", default=os.environ.get("GREENHOUSE_DSN"),
+                        help="строка подключения PostgreSQL, например "
+                             "postgresql://greenhouse:пароль@localhost:5432/greenhouse")
+    parser.add_argument("--token", default=os.environ.get("GREENHOUSE_TOKEN"),
+                        help="API-ключ: если задан, все запросы /api/* требуют заголовок "
+                             "X-Api-Token или параметр ?token=...")
     parser.add_argument("--serial", dest="serial_port", default=None, help="COM-порт Arduino, например COM3")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--no-simulator", action="store_true", help="запретить эмулятор (нужна реальная плата)")
     parser.add_argument("--open", action="store_true", help="открыть панель в браузере")
     args = parser.parse_args()
 
-    server = create_server(args.host, args.port, args.db,
-                           args.serial_port, args.baud, not args.no_simulator)
+    database = open_database(args.db, args.dsn)
+    server = create_server(args.host, args.port, database,
+                           args.serial_port, args.baud, not args.no_simulator, args.token)
     url = f"http://{args.host}:{server.server_port}/"
     print(f"Теплица: {url}")
-    print(f"Участков: {ZONE_COUNT}, БД: {args.db}")
+    print(f"Участков: {ZONE_COUNT}, БД: {_mask_dsn(args.dsn) if args.dsn else args.db}")
+    print(f"API-ключ: {'включён' if args.token else 'выключен'}")
+    if not args.token and args.host not in ("127.0.0.1", "localhost", "::1"):
+        print("ВНИМАНИЕ: сервер опубликован по сети без API-ключа — команды теплице "
+              "доступны любому. Задайте --token или GREENHOUSE_TOKEN.", file=sys.stderr)
     print("Датчики: " + (f"Arduino {args.serial_port}" if args.serial_port else "эмулятор (Arduino не подключена)"))
     if args.open:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()

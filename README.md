@@ -74,13 +74,17 @@ py -m http.server 5500 --directory front
 ### 2. Бэкенд с базой данных
 
 Backend — на стандартной библиотеке Python (`http.server`) + **SQLite**.
-Никаких внешних зависимостей для работы сервера не требуется.
+Для работы сервера внешние зависимости не нужны; для режима PostgreSQL
+достаточно одного драйвера `psycopg` (см. ниже).
 
 ```
 backend/
-  server.py     REST API, автоматика, раздача PWA и статики front/
-  db.py         схема БД и запросы (12 участков, история, журнал)
-  arduino.py    канал связи с Arduino + встроенный эмулятор датчиков
+  server.py                REST API, автоматика, раздача PWA и статики front/
+  db.py                    схема БД и запросы, выбор бэкенда (open_database)
+  db_postgres.py           тот же слой доступа, но для PostgreSQL
+  schema_postgres.sql      DDL для PostgreSQL (можно выполнить в pgAdmin)
+  migrate_to_postgres.py   перенос данных из SQLite в PostgreSQL
+  arduino.py               канал связи с Arduino + встроенный эмулятор датчиков
 ```
 
 Таблицы: `zones` (12 участков), `readings` (история показаний),
@@ -95,10 +99,28 @@ py backend/server.py                     # эмулятор датчиков, ht
 py backend/server.py --port 8000 --open  # открыть панель в браузере
 py backend/server.py --serial COM3       # работа с реальной Arduino
 py backend/server.py --no-simulator      # требовать плату (эмулятор запрещён)
+py backend/server.py --host 0.0.0.0 --token "длинный-секрет"   # доступ по сети только с ключом
 ```
 
 Сервер сам закрывает **все** запросы панели: и API, и статику, поэтому
 фронтенд открывается по адресу сервера.
+
+#### API-ключ
+
+Если сервер доступен по сети (`--host 0.0.0.0`) или опубликован в интернет,
+задайте ключ — ключом `--token` или переменной `GREENHOUSE_TOKEN`. Тогда все
+запросы `/api/*` требуют заголовок `X-Api-Token` (либо параметр `?token=...`)
+и без него возвращают `401`:
+
+```powershell
+$env:GREENHOUSE_TOKEN = "длинный-секрет"
+py backend/server.py --host 0.0.0.0
+curl -H "X-Api-Token: длинный-секрет" http://127.0.0.1:8000/api/state
+```
+
+В панели ключ вводится в поле **«API-ключ»** на вкладке «Подключение к серверу»
+и уходит в том же заголовке. **Без ключа** сервер работает как прежде —
+поведение локального режима не меняется.
 
 #### REST API
 
@@ -120,12 +142,81 @@ py backend/server.py --no-simulator      # требовать плату (эму
 
 `zone_id = 0` в `POST /api/devices` — команда сразу всем 12 участкам.
 
+При заданном API-ключе любой из методов ниже требует заголовок
+`X-Api-Token` (или `?token=...`), иначе вернётся `401`.
+
 Пример:
 
 ```powershell
 curl http://127.0.0.1:8000/api/state
 curl -X POST http://127.0.0.1:8000/api/devices -H "Content-Type: application/json" -d "{\"zone_id\":3,\"device\":\"watering\",\"on\":true,\"seconds\":10}"
 ```
+
+#### PostgreSQL и pgAdmin
+
+Тот же сервер и тот же REST API умеют работать с **PostgreSQL** вместо файла
+SQLite: состав таблиц и все запросы совпадают, но время хранится в `TIMESTAMPTZ`,
+флаги — в `BOOLEAN`, а ключи — в `BIGSERIAL`. Ответы API при этом не меняются.
+
+```powershell
+# 1) драйвер (нужен только для режима PostgreSQL)
+py -m pip install -r backend/requirements.txt
+
+# 2) база и роль — один раз, из psql или pgAdmin → Query Tool
+#    CREATE ROLE greenhouse LOGIN CREATEDB PASSWORD 'пароль';
+#    CREATE DATABASE greenhouse OWNER greenhouse;
+
+# 3) чтобы не вводить пароль каждый раз — строка в %APPDATA%\postgresql\pgpass.conf
+#    localhost:5432:*:greenhouse:пароль
+#    (формат: хост:порт:база:роль:пароль, * — любая база)
+
+# 4) сервер на PostgreSQL
+py backend/server.py --dsn "postgresql://greenhouse@localhost:5432/greenhouse"
+
+# либо через переменную окружения, чтобы не указывать ключ каждый раз
+$env:GREENHOUSE_DSN = "postgresql://greenhouse@localhost:5432/greenhouse"
+py backend/server.py
+```
+
+Без `--dsn` (и без `GREENHOUSE_DSN`) сервер по-прежнему пишет в SQLite —
+ничего переписывать не нужно. Пароль не хранится ни в репозитории, ни в командах:
+его подхватывает `pgpass.conf` (если файла нет, сервер спросит пароль).
+
+Схема создаётся автоматически при первом запуске, вручную её можно выполнить
+из файла [`backend/schema_postgres.sql`](backend/schema_postgres.sql).
+
+**Перенос уже накопленных данных из SQLite:**
+
+```powershell
+py backend/migrate_to_postgres.py --dsn "postgresql://greenhouse@localhost:5432/greenhouse"
+py backend/migrate_to_postgres.py --dsn "..." --replace               # сначала очистить таблицы в PostgreSQL
+py backend/migrate_to_postgres.py --dsn "..." --history-limit 5000    # только свежие показания
+```
+
+Скрипт копирует `zones`, `readings`, `zone_devices`, `settings`, `state`, `logs`
+и повторный запуск можно делать без опаски — строки обновляются по ключу.
+
+**Просмотр в pgAdmin:**
+
+1. Правый клик на **Servers** → **Register → Server…**
+2. Вкладка *General*: Name — «Теплица».
+3. Вкладка *Connection*: Host — `localhost`, Port — `5432`,
+   Maintenance database — `greenhouse`, Username — `greenhouse`, пароль роли
+   (галочка *Save password* — чтобы не вводить каждый раз).
+4. **Save** → `Databases → greenhouse → Schemas → public → Tables`.
+5. Правый клик на таблице → **View/Edit Data → All Rows**.
+
+Те же подключения можно загрузить разом из файла
+[`pgadmin-servers.json`](pgadmin-servers.json): **File → Import Servers…** →
+указать файл → **Import**.
+
+**Чтобы добавить ещё одну базу или таблицу:**
+
+* новая база — `CREATE DATABASE имя OWNER greenhouse;` и запуск сервера с её DSN;
+* новая таблица — добавить операторы `CREATE TABLE` в
+  [`backend/schema_postgres.sql`](backend/schema_postgres.sql), соответствующие
+  запросы в [`backend/db_postgres.py`](backend/db_postgres.py) и (если нужно
+  переносить данные) строку в `TRANSFERS` там же.
 
 ### 3. Датчики через Arduino
 
@@ -152,8 +243,11 @@ curl -X POST http://127.0.0.1:8000/api/devices -H "Content-Type: application/jso
 
 ```
 front/
+  index.html             разметка панели
+  css/, js/              стили и логика
   manifest.webmanifest   манифест PWA (иконки, тема, ярлыки)
   service-worker.js      кэш оболочки, офлайн-режим
+  .htaccess              тип содержимого манифеста и заголовки кэша для хостинга
   icons/                 иконки 192/512 + maskable
 ```
 
@@ -170,9 +264,88 @@ front/
 # 1) сервер (он же раздаёт панель и PWA)
 py backend/server.py --open
 
+#    или сразу на PostgreSQL (пароль берётся из pgpass.conf)
+py backend/server.py --dsn "postgresql://greenhouse@localhost:5432/greenhouse" --open
+
 # 2) на телефоне открыть http://<IP-компьютера>:8000/ и установить приложение
 ```
 
 Для доступа с телефона запустите сервер с `--host 0.0.0.0` и откройте адрес
 компьютера в локальной сети.
+
+### 6. Публикация: панель на reg.ru, API и база — дома
+
+Проверено по официальной документации reg.ru (help.reg.ru и приложение к оферте):
+на shared-хостинге с ISPmanager **есть только MySQL, PostgreSQL нет**;
+Python работает лишь как WSGI-приложение под Passenger (`passenger_wsgi.py`),
+а суточный лимит CPU — 2,5–13 %, за превышение хостинг блокируется.
+Поэтому бэкенд теплицы — с COM-портом Arduino, циклом автоматики и PostgreSQL —
+остаётся на домашнем ПК, а на хостинг уезжает только статичная панель:
+
+```
+front/   →  https://ваш-домен.ru        (FTP 21 или SFTP 22, корень сайта)
+backend  →  домашний ПК: PostgreSQL + Arduino, наружу через HTTPS-туннель
+```
+
+Порядок:
+
+1. Загрузить содержимое папки `front/` в корень сайта
+   (`/var/www/uXXXXXXX/data/www/<домен>/`): `index.html`, `css/`, `js/`,
+   `icons/`, `manifest.webmanifest`, `service-worker.js`.
+   Панель должна лежать в корне — иначе service worker не получит нужную область
+   видимости и приложение не установится.
+2. В ISPmanager включить бесплатный **Let's Encrypt** и редирект HTTP→HTTPS.
+3. Поднять туннель к домашнему серверу — его выдаёт Cloudflare Tunnel.
+   Проще всего скриптом [`_run_public.ps1`](_run_public.ps1), он поднимает
+   и сервер, и туннель, и печатает готовый адрес:
+
+   ```powershell
+   $env:GREENHOUSE_TOKEN = "длинный-секрет"          # ключ панели, обязателен
+   $env:GREENHOUSE_DSN   = "postgresql://greenhouse@localhost:5432/greenhouse"
+   powershell -ExecutionPolicy Bypass -File _run_public.ps1
+   ```
+
+   Скрипт требует `cloudflared` (`winget install Cloudflare.cloudflared`),
+   сохраняет адрес туннеля в `data/tunnel-url.txt` и печатает команду остановки.
+   Туннель запускается в режиме `--protocol http2`: QUIC(UDP) часто режется
+   домашним антивирусом или файрволом.
+4. В панели на вкладке «Режим» → «Подключение к серверу» указать **Адрес API**
+   (адрес из `data/tunnel-url.txt`) и **API-ключ**, нажать «Подключиться».
+
+**Постоянный адрес.** Быстрый туннель без аккаунта Cloudflare каждый раз получает
+новое имя вида `https://<случайное-имя>.trycloudflare.com`, поэтому после
+перезапуска адрес в панели нужно менять. Постоянный адрес даёт **именованный
+туннель**, но для него домен должен быть переведён на NS-серверы Cloudflare
+(на reg.ru это смена NS в личном кабинете, DNS-зону придётся перенести) — это
+самостоятельный шаг, который лучше делать осознанно. CNAME `api.ai-parnik.ru`
+на быстрый туннель не поможет: Cloudflare отвечает только на своё случайное имя.
+
+**Демонстрация «здесь и сейчас»:** пока домашний ПК включён и запущен
+`_run_public.ps1`, панель на `ai-parnik.ru` полностью рабочая. Как только ПК
+выключается, панель переходит в демо-режим — данные в ней становятся местной
+симуляцией, а не показаниями теплицы.
+
+Ограничения, о которых стоит помнить:
+
+* адрес API обязан быть **https** — иначе браузер заблокирует запросы
+  как mixed content (на http-сайте панель останется в демо-режиме);
+* **без API-ключа публиковать сервер нельзя** — команды насосам и вентиляции
+  сможет отдать любой, кто узнает адрес;
+* пока домашний ПК выключен, панель работает в демо-режиме;
+* ключ панель хранит в `localStorage` браузера, поэтому на чужом устройстве
+  его лучше не вводить.
+
+#### Обновление панели на хостинге
+
+nginx отдаёт `.js` и `.css` с кэшем на 45 дней, а `.html` и `.webmanifest` — через
+Apache. Поэтому заголовки задаёт файл [`front/.htaccess`](front/.htaccess): он
+добавляет манифесту тип `application/manifest+json` (без него браузер не
+предложит установку и не включит приложение) и запрещает кэшировать сам HTML.
+
+Скрипты и стили идут мимо `.htaccess`, поэтому их ссылки версионируются:
+`css/main.css?v=N` и `js/app.js?v=N` в [`front/index.html`](front/index.html),
+то же `N` в `ASSET_VERSION` в [`front/js/app.js`](front/js/app.js) и в `VERSION`
+в [`front/service-worker.js`](front/service-worker.js). При выпуске новой версии
+поднимите `N` в этих трёх файлах и загрузите файлы заново — обновление дойдёт
+и до тех, у кого панель уже установлена.
 

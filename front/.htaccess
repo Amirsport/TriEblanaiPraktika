@@ -1,0 +1,16 @@
+# Настройки хостинга для PWA-панели (reg.ru/nginx+apache читает .htaccess).
+# Всё обёрнуто в IfModule, чтобы при отсутствии модуля сайт не сломался.
+
+# Тип содержимого для манифеста: без него браузер отказывается ставить приложение.
+<IfModule mod_mime.c>
+  AddType application/manifest+json .webmanifest
+</IfModule>
+
+# Код панели обновляется часто, а хостинг по умолчанию отдаёт его
+# с кэшем на 45 дней. Ставим перепроверку: браузер спросит сервер и получит
+# 304, если файл не менялся. Иконки остаются с длинным кэшем.
+<IfModule mod_headers.c>
+  <FilesMatch "\.(html|js|css|webmanifest)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+</IfModule>
