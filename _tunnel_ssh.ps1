@@ -10,6 +10,14 @@
 # Важно: ssh запускается без ключа -N — localhost.run выдаёт адрес туннеля
 # в сессионном канале, а с -N сессия не создаётся и адрес не приходит.
 #
+# Два режима подключения (см. https://localhost.run/docs/forever-free/):
+#   анонимный (по умолчанию): -RemoteUserHost 'nokey@localhost.run'
+#       адрес меняется при каждом переподключении;
+#   с ключом: -RemoteUserHost 'localhost.run'
+#       адрес сохраняется между переподключениями, но ключ нужно один раз
+#       добавить в аккаунт на https://admin.localhost.run/ (иначе адрес не выдаётся).
+# Ключ берётся из ~/.ssh (например id_rsa) и ssh-agent, пароль не требуется.
+#
 # Запуск:
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -Port 8000 -MaxHours 12
