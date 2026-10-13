@@ -27,9 +27,15 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 try:  # запуск как модуль: python -m backend.server
-    from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, ZONE_NAMES
+    from .db import DEFAULT_CLIP_LENGTH, DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, ZONE_NAMES
 except ImportError:  # запуск как файл: python backend/server.py
-    from db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, ZONE_NAMES  # type: ignore
+    from db import (  # type: ignore
+        DEFAULT_CLIP_LENGTH,
+        DEFAULT_SETTINGS,
+        DEVICES,
+        ZONE_COUNT,
+        ZONE_NAMES,
+    )
 
 SCHEMA_FILE = Path(__file__).resolve().with_name("schema_postgres.sql")
 
@@ -106,6 +112,16 @@ def _match(row: Dict[str, Any]) -> Dict[str, Any]:
         if data.get(key) is not None:
             data[key] = int(data[key])
     data["played_at"] = to_iso(data.get("played_at"))
+    return data
+
+
+def _track(row: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    for key in ("clip_start", "clip_length"):
+        data[key] = float(data.get(key) or 0)
+    if data.get("id") is not None:
+        data["id"] = int(data["id"])
+    data["updated_at"] = to_iso(data.get("updated_at"))
     return data
 
 
@@ -577,6 +593,93 @@ class PostgresDatabase:
             row = db.execute("SELECT COUNT(*) AS n FROM narutodle_matches").fetchone()
         return int(row["n"])
 
+    # -------------------------------------------------------------- songless
+    def songless_track_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM songless_tracks").fetchone()
+        return int(row["n"])
+
+    def songless_tracks(self) -> List[Dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM songless_tracks ORDER BY anime").fetchall()
+        return [_track(row) for row in rows]
+
+    def songless_save_tracks(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет треки и обновляет справочные сведения уже известных.
+
+        Запись (audio), начало и длина фрагмента при повторном наполнении
+        не трогаются: это то, что владелец сайта настраивает под свою версию
+        трека, и затирать это нельзя.
+        """
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                db.execute(
+                    "INSERT INTO songless_tracks (anime, song, artist, year, audio, "
+                    "clip_start, clip_length, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (anime) DO UPDATE SET "
+                    "song = EXCLUDED.song, artist = EXCLUDED.artist, year = EXCLUDED.year, "
+                    "updated_at = EXCLUDED.updated_at",
+                    (
+                        str(row.get("anime") or ""),
+                        str(row.get("song") or ""),
+                        str(row.get("artist") or ""),
+                        str(row.get("year") or ""),
+                        str(row.get("audio") or ""),
+                        float(row.get("clip_start") or 0),
+                        float(row.get("clip_length") or DEFAULT_CLIP_LENGTH),
+                        datetime.now(timezone.utc),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def songless_set_audio(self, anime: str, audio: str,
+                           clip_start: Optional[float] = None,
+                           clip_length: Optional[float] = None) -> bool:
+        """Привязывает запись к треку; пустая строка — снова «без записи»."""
+        fields = ["audio = %s", "updated_at = %s"]
+        values: List[Any] = [audio, datetime.now(timezone.utc)]
+        if clip_start is not None:
+            fields.append("clip_start = %s")
+            values.append(float(clip_start))
+        if clip_length is not None:
+            fields.append("clip_length = %s")
+            values.append(float(clip_length))
+        values.append(anime)
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE songless_tracks SET " + ", ".join(fields) + " WHERE anime = %s",
+                tuple(values),
+            )
+            return cursor.rowcount > 0
+
+    def songless_set_clip(self, anime: str,
+                          clip_start: Optional[float] = None,
+                          clip_length: Optional[float] = None) -> bool:
+        """Меняет место и длину фрагмента, не трогая саму запись."""
+        fields = ["updated_at = %s"]
+        values: List[Any] = [datetime.now(timezone.utc)]
+        if clip_start is not None:
+            fields.append("clip_start = %s")
+            values.append(float(clip_start))
+        if clip_length is not None:
+            fields.append("clip_length = %s")
+            values.append(float(clip_length))
+        values.append(anime)
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE songless_tracks SET " + ", ".join(fields) + " WHERE anime = %s",
+                tuple(values),
+            )
+            return cursor.rowcount > 0
+
+    def songless_delete_track(self, anime: str) -> bool:
+        """Убирает трек из набора (например, чтобы удалить лишнюю строку)."""
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM songless_tracks WHERE anime = %s", (anime,))
+            return cursor.rowcount > 0
+
 
 # Правила переноса данных из SQLite (используются backend/migrate_to_postgres.py):
 # таблица, колонки и ключ, по которому разрешаются конфликты повторного запуска.
@@ -599,6 +702,8 @@ TRANSFERS: Tuple[Tuple[str, Tuple[str, ...], Tuple[str, ...]], ...] = (
     ("narutodle_matches", ("id", "room", "round_number", "target", "player1_id", "player1_name",
                            "player2_id", "player2_name", "winner_id", "winner_name", "loser_name",
                            "winner_attempts", "loser_attempts", "reason", "played_at"), ("id",)),
+    ("songless_tracks", ("id", "anime", "song", "artist", "year", "audio", "clip_start",
+                         "clip_length", "updated_at"), ("id",)),
 )
 
 # Колонки, значения которых при переносе нужно привести к типу PostgreSQL.

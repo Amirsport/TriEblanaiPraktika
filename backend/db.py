@@ -11,7 +11,9 @@
     users        — аккаунты панели (логин, хеш пароля, роль);
     auth_sessions— выданные токены входа;
     user_states  — сохранённое состояние панели каждого пользователя;
-    secret_data  — именованные записи секретной страницы /TriEblanaiPraktika.
+    secret_data  — именованные записи секретной страницы /TriEblanaiPraktika;
+    narutodle_characters / narutodle_matches — игра «Narutodle» и её журнал;
+    songless_tracks — игра «Аниме-сонглесс»: треки и записи к ним.
 
 Второй бэкенд — PostgreSQL (backend/db_postgres.py) с тем же набором методов.
 Бэкенд выбирается функцией open_database().
@@ -30,6 +32,9 @@ if TYPE_CHECKING:  # psycopg нужен только при работе с Post
 
 ZONE_COUNT = 12
 ZONE_NAMES = [f"Участок {i}" for i in range(1, ZONE_COUNT + 1)]
+
+# Длина фрагмента трека по умолчанию («Аниме-сонглесс»), секунды.
+DEFAULT_CLIP_LENGTH = 8.0
 DEVICES = ("watering", "ventilation", "lighting")
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
@@ -177,6 +182,22 @@ CREATE TABLE IF NOT EXISTS narutodle_matches (
 );
 CREATE INDEX IF NOT EXISTS idx_narutodle_matches_played ON narutodle_matches(id DESC);
 CREATE INDEX IF NOT EXISTS idx_narutodle_matches_players ON narutodle_matches(player1_id, player2_id);
+
+-- Треки «Аниме-сонглесса»: справочные сведения плюс запись, которую слушают.
+-- Самих записей в репозитории нет: audio указывает на свой файл в папке игры
+-- или на внешнюю ссылку, и пока он пуст, раунд на треке не строится.
+CREATE TABLE IF NOT EXISTS songless_tracks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    anime       TEXT    NOT NULL,
+    song        TEXT    NOT NULL DEFAULT '',
+    artist      TEXT    NOT NULL DEFAULT '',
+    year        TEXT    NOT NULL DEFAULT '',
+    audio       TEXT    NOT NULL DEFAULT '',
+    clip_start  REAL    NOT NULL DEFAULT 0,
+    clip_length REAL    NOT NULL DEFAULT 8,
+    updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_songless_tracks_anime ON songless_tracks(anime);
 """
 
 
@@ -211,6 +232,15 @@ def _match(row: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("id", "round_number", "winner_attempts", "loser_attempts"):
         if data.get(key) is not None:
             data[key] = int(data[key])
+    return data
+
+
+def _track(row: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    for key in ("clip_start", "clip_length"):
+        data[key] = float(data.get(key) or 0)
+    if data.get("id") is not None:
+        data["id"] = int(data["id"])
     return data
 
 
@@ -651,6 +681,93 @@ class Database:
         with self.connect() as db:
             row = db.execute("SELECT COUNT(*) AS n FROM narutodle_matches").fetchone()
         return int(row["n"])
+
+    # -------------------------------------------------------------- songless
+    def songless_track_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM songless_tracks").fetchone()
+        return int(row["n"])
+
+    def songless_tracks(self) -> List[Dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM songless_tracks ORDER BY anime").fetchall()
+        return [_track(dict(row)) for row in rows]
+
+    def songless_save_tracks(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет треки и обновляет справочные сведения уже известных.
+
+        Запись (audio), начало и длина фрагмента при повторном наполнении
+        не трогаются: это то, что владелец сайта настраивает под свою версию
+        трека, и затирать это нельзя.
+        """
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                db.execute(
+                    "INSERT INTO songless_tracks (anime, song, artist, year, audio, "
+                    "clip_start, clip_length, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(anime) DO UPDATE SET "
+                    "song = excluded.song, artist = excluded.artist, year = excluded.year, "
+                    "updated_at = excluded.updated_at",
+                    (
+                        str(row.get("anime") or ""),
+                        str(row.get("song") or ""),
+                        str(row.get("artist") or ""),
+                        str(row.get("year") or ""),
+                        str(row.get("audio") or ""),
+                        float(row.get("clip_start") or 0),
+                        float(row.get("clip_length") or DEFAULT_CLIP_LENGTH),
+                        _now(),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def songless_set_audio(self, anime: str, audio: str,
+                           clip_start: Optional[float] = None,
+                           clip_length: Optional[float] = None) -> bool:
+        """Привязывает запись к треку; пустая строка — снова «без записи»."""
+        fields = ["audio = ?", "updated_at = ?"]
+        values: List[Any] = [audio, _now()]
+        if clip_start is not None:
+            fields.append("clip_start = ?")
+            values.append(float(clip_start))
+        if clip_length is not None:
+            fields.append("clip_length = ?")
+            values.append(float(clip_length))
+        values.append(anime)
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE songless_tracks SET " + ", ".join(fields) + " WHERE anime = ?",
+                tuple(values),
+            )
+            return cursor.rowcount > 0
+
+    def songless_set_clip(self, anime: str,
+                          clip_start: Optional[float] = None,
+                          clip_length: Optional[float] = None) -> bool:
+        """Меняет место и длину фрагмента, не трогая саму запись."""
+        fields = ["updated_at = ?"]
+        values: List[Any] = [_now()]
+        if clip_start is not None:
+            fields.append("clip_start = ?")
+            values.append(float(clip_start))
+        if clip_length is not None:
+            fields.append("clip_length = ?")
+            values.append(float(clip_length))
+        values.append(anime)
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE songless_tracks SET " + ", ".join(fields) + " WHERE anime = ?",
+                tuple(values),
+            )
+            return cursor.rowcount > 0
+
+    def songless_delete_track(self, anime: str) -> bool:
+        """Убирает трек из набора (например, чтобы удалить лишнюю строку)."""
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM songless_tracks WHERE anime = ?", (anime,))
+            return cursor.rowcount > 0
 
 
 # Любой из поддерживаемых бэкендов: SQLite (Database) или PostgreSQL (PostgresDatabase).

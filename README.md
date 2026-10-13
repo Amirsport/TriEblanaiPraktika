@@ -17,6 +17,8 @@ front/
   games/index.html              игровая комната — только по прямой ссылке, красная палитра
   games/narutodle/index.html    дуэль на двоих: один персонаж на двоих игроков
   games/narutodle/portraits/    свои картинки персонажей (необязательно)
+  games/animesongless/index.html угадай аниме по фрагменту опенинга: соло и онлайн
+  games/animesongless/audio/    свои записи опенингов (необязательно)
 ```
 
 ### Как запустить
@@ -95,6 +97,9 @@ backend/
   narutodle.py             движок дуэли: раунды, комнаты, сравнение графов
   narutodle_data.py        набор персонажей и цвета деревень (источник для базы)
   seed_narutodle.py        наполнение базы персонажами и привязка картинок
+  songless.py              движок «Аниме-сонглесса»: соло-заходы и комнаты
+  songless_data.py         набор опенингов (источник для базы)
+  seed_songless.py         наполнение базы треками и привязка записей
 ```
 
 Таблицы: `zones` (12 участков), `readings` (история показаний),
@@ -103,7 +108,8 @@ backend/
 `users` (аккаунты панели), `auth_sessions` (выданные токены входа),
 `user_states` (сохранённое состояние панели по пользователям),
 `secret_data` (данные служебной страницы), `narutodle_characters` (персонажи
-дуэли: графы, цвет, картинка), `narutodle_matches` (журнал партий Narutodle).
+дуэли: графы, цвет, картинка), `narutodle_matches` (журнал партий Narutodle),
+`songless_tracks` (треки «Аниме-сонглесса»: сведения и запись к ним).
 
 #### Запуск
 
@@ -258,6 +264,60 @@ py backend/server.py
 Пока `description` пуст, на карточке видно «Описание появится позже»; пока пуст
 `href`, кнопка неактивна. Добавить игру — вписать описание, положить её страницу
 рядом (например `front/games/reaction/index.html`) и указать путь в `href`.
+
+##### Вторая игра: Аниме-сонглесс
+
+`front/games/animesongless/index.html` — «угадай аниме по фрагменту опенинга».
+Играется фрагмент записи, вариантов ответа четыре: верное название аниме и три
+«обманки». За верный ответ даются очки, за скорость — добавка.
+
+Два режима:
+
+- **соло** — заход без соперников: три ошибки (или три пропуска по времени) и
+  партия закончена, лучший результат хранится в браузере
+  (`greenhouse.songless.best`);
+- **онлайн** — комната на 2–8 человек по ссылке или коду: пять раундов на всех,
+  раунд идёт одновременно, после каждого раунда видно, кто что выбрал, а в конце
+  — общая таблица очков (очки, число верных ответов и потраченное время).
+  Хозяин комнаты нажимает «Начать игру», когда собрались хотя бы двое.
+
+Раунд длится 20 секунд, разбор раунда показывается 8 секунд и сменяется
+следующим сам. Очки: 100 за верный ответ плюс до 60 за оставшееся время.
+
+**Загадка не уходит в ответы API, пока раунд идёт** — ни игроку, ни зрителю:
+страница получает варианты и адрес фрагмента, а название аниме узнаёт только
+после разбора. Фрагмент отдаётся отдельным адресом с номером раунда
+(`/api/games/songless/rooms/<код>/clip?round=N`), поэтому по имени файла аниме
+тоже не угадать.
+
+###### Записи опенингов добавляет владелец сайта
+
+В репозитории есть **только справочные сведения** о треках (аниме, опенинг,
+исполнитель, год) — сами записи защищены авторским правом, поэтому их кладёт
+владелец сайта. Набор живёт в таблице `songless_tracks`, а наполняет и правит
+его [`backend/seed_songless.py`](backend/seed_songless.py):
+
+```powershell
+# справочный набор в базу (SQLite — по умолчанию, PostgreSQL — с --dsn)
+python backend/seed_songless.py --dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse"
+
+# свои записи: файлы копируются в front/games/animesongless/audio и привязываются по имени
+python backend/seed_songless.py --dsn "..." --audio "C:\music" --map music.json
+
+# или ссылкой, с точным местом фрагмента
+python backend/seed_songless.py --dsn "..." --url "Наруто=https://example.org/op.mp3"
+python backend/seed_songless.py --dsn "..." --start "Наруто=42" --length 10
+
+# что в базе и что из этого можно играть
+python backend/seed_songless.py --dsn "..." --list
+```
+
+Повторный запуск обновляет справочные сведения и **не затирает** привязанные
+записи, начало и длину фрагмента. Куда класть файлы и что нельзя выкладывать —
+в [`front/games/animesongless/audio/README.md`](front/games/animesongless/audio/README.md).
+
+Пока в наборе меньше четырёх треков с записью, страница честно пишет, что играть
+нечего, и подсказывает, куда положить файлы: синтетических «заглушек» в игре нет.
 
 ##### Первая игра: Narutodle — дуэль
 
@@ -420,6 +480,18 @@ https://ai-parnik.ru/games/narutodle/?srv=https://84ede091ea2cf4.lhr.life&room=N
 | POST | `/api/games/narutodle/rooms/<код>/giveup` | сдаться в раунде (Bearer) |
 | POST | `/api/games/narutodle/rooms/<код>/rematch` | новый раунд (Bearer) |
 | GET | `/api/games/narutodle/matches?limit=&scope=` | журнал матчей: свои; `scope=all` — только `admin` (Bearer) |
+| GET | `/api/games/songless/status` | сколько треков в наборе и что из них можно играть |
+| POST | `/api/games/songless/solo` | начать соло-заход (Bearer) |
+| GET | `/api/games/songless/solo/<id>` | состояние захода (Bearer) |
+| POST | `/api/games/songless/solo/<id>/answer` | `{"choice":0..3}` — ответ (Bearer) |
+| GET | `/api/games/songless/solo/<id>/clip?round=` | фрагмент текущего раунда (Bearer) |
+| POST | `/api/games/songless/rooms` | создать комнату (Bearer) |
+| POST | `/api/games/songless/rooms/<код>/join` | войти в комнату (Bearer) |
+| POST | `/api/games/songless/rooms/<код>/start` | начать партию: хозяин комнаты (Bearer) |
+| GET | `/api/games/songless/rooms/<код>` | состояние партии (Bearer) |
+| POST | `/api/games/songless/rooms/<код>/answer` | `{"choice":0..3}` — ответ (Bearer) |
+| POST | `/api/games/songless/rooms/<код>/rematch` | новая партия (Bearer) |
+| GET | `/api/games/songless/rooms/<код>/clip?round=` | фрагмент текущего раунда (Bearer) |
 
 `zone_id = 0` в `POST /api/devices` — команда сразу всем 12 участкам.
 Логин одновременно является и паролем: `X-Api-Token` нужен для «теплицы»,

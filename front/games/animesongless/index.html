@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light" data-palette="red">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Аниме-сонглесс · Умная AI-Теплица</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#c5342b">
+  <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
+  <link rel="stylesheet" href="../../css/main.css?v=11">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* «Аниме-сонглесс»: та же тема, что у панели, в красной палитре
+       (data-palette="red" выше). Здесь — раскладка страницы.
+
+       Ссылка-приглашение выглядит так:
+         .../games/animesongless/?srv=<адрес API>&room=<КОД>
+       Адрес сервера подставляется в настройки подключения автоматически,
+       поэтому приглашённому не нужно ничего настраивать руками. API-ключ
+       в ссылку не попадает: игровой раздел пускает по аккаунту.
+
+       Записей опенингов у игры нет — их добавляет владелец сайта
+       (см. backend/seed_songless.py). Пока треков с записью меньше четырёх,
+       страница честно говорит, что играть нечего. */
+
+    .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+    button.status-pill { font-family: inherit; cursor: pointer; }
+    button.status-pill:hover { color: var(--text); border-color: var(--accent); }
+    a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
+
+    [hidden] { display: none !important; }
+
+    .stack { display: flex; flex-direction: column; gap: 20px; }
+
+    .auth-card { width: min(420px, 100%); margin: 0 auto; }
+    .auth-card h2 { text-align: center; }
+
+    .modes { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .mode {
+      display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+      padding: 16px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--surface-solid);
+    }
+    .mode h3 { font-family: 'Playfair Display', Georgia, serif; font-size: 18px; }
+    .mode p { font-size: 13px; color: var(--text-dim); }
+    .mode .btn { align-self: stretch; }
+
+    .code-box {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 14px 16px; border-radius: var(--radius-sm);
+      background: var(--accent-soft); border: 1px dashed var(--accent);
+    }
+    .code-value {
+      font-size: 30px; font-weight: 700; letter-spacing: 6px;
+      color: var(--accent); line-height: 1.1;
+    }
+    .link-box input { font-size: 12.5px; }
+
+    .players { display: flex; gap: 10px; flex-wrap: wrap; }
+    .player {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 14px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--surface-solid);
+      font-size: 13.5px;
+    }
+    .player.mine { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .player small { color: var(--text-dim); }
+    .player.ready { border-color: rgba(46, 160, 67, 0.55); }
+
+    /* Полоса времени раунда */
+    .timer {
+      height: 8px; border-radius: 999px; overflow: hidden;
+      background: var(--accent-soft); border: 1px solid var(--border);
+    }
+    .timer span {
+      display: block; height: 100%; width: 100%; background: var(--accent);
+      transition: width 0.3s linear;
+    }
+    .timer.calm span { background: #2f9a43; }
+    .timer.low span { background: var(--danger); }
+
+    .clip-box { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+    .options { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .option {
+      display: flex; align-items: center; gap: 10px; text-align: left;
+      padding: 14px 16px; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600;
+      border: 1px solid var(--border); background: var(--surface-solid);
+      color: var(--text); font-family: inherit; cursor: pointer;
+      transition: transform 0.12s ease, border-color 0.12s ease;
+    }
+    .option:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
+    .option:disabled { cursor: default; opacity: 0.92; }
+    .option .key {
+      display: inline-grid; place-items: center; flex: 0 0 auto;
+      width: 24px; height: 24px; border-radius: 8px; font-size: 12px;
+      background: var(--accent-soft); color: var(--accent);
+    }
+    .option.picked { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .option.right { border-color: #2f9a43; background: rgba(46, 160, 67, 0.16); color: var(--text); }
+    .option.wrong { border-color: var(--danger); background: rgba(197, 52, 43, 0.12); color: var(--text-dim); }
+
+    .result {
+      display: flex; flex-direction: column; gap: 12px;
+      padding: 18px; border-radius: var(--radius-sm);
+      border-left: 4px solid var(--accent); background: var(--surface);
+      backdrop-filter: blur(14px); box-shadow: var(--shadow);
+    }
+    .result.win  { border-left-color: #2f9a43; }
+    .result.lose { border-left-color: var(--danger); }
+    .result h2 { font-family: 'Playfair Display', Georgia, serif; font-size: 21px; }
+    .answer-name { font-size: 17px; font-weight: 600; }
+    .answer-attrs { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
+    .answer-attrs span { padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); }
+
+    .lives { display: flex; gap: 4px; font-size: 16px; }
+
+    .matches { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .matches th {
+      text-align: left; padding: 4px 8px; font-size: 11.5px; font-weight: 600;
+      color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .matches td { padding: 8px; border-top: 1px solid var(--border); }
+    .matches tr.win td.place { color: #2f9a43; font-weight: 700; }
+    .matches .dim { color: var(--text-dim); }
+    .matches .ok { color: #2f9a43; }
+    .matches .no { color: var(--danger); }
+
+    .stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13.5px; color: var(--text-dim); }
+    .stats b { color: var(--text); }
+
+    .boards { display: flex; flex-direction: column; gap: 10px; }
+    .waiting { display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 13.5px; }
+    .spinner {
+      width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto;
+      border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 560px) {
+      .brand-text h1 { font-size: 18px; }
+      .code-value { font-size: 24px; letter-spacing: 4px; }
+      .option { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="app">
+
+    <!-- ===== Шапка ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
+        <div class="brand-text">
+          <h1>Аниме-сонглесс</h1>
+          <p>Угадайте аниме по фрагменту опенинга</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="status-pill" type="button" id="conn-pill" title="Состояние подключения к серверу">
+          <span class="dot"></span>
+          <span id="conn-text">подключаемся…</span>
+        </button>
+        <div class="user-pill" id="user-pill" hidden>
+          <span aria-hidden="true">👤</span>
+          <span id="user-name">—</span>
+        </div>
+        <button class="icon-btn" type="button" id="logout" title="Выйти из аккаунта" hidden>⎋</button>
+        <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
+        <a class="icon-btn" href="../" title="Вернуться в игровую комнату">←</a>
+      </div>
+    </header>
+
+    <!-- ===== Адрес сервера (нужен, если он не пришёл в ссылке) ===== -->
+    <section class="card" id="server-card" hidden>
+      <header class="card-head">
+        <h2>Сервер игры</h2>
+        <span class="badge" id="server-badge">не подключён</span>
+      </header>
+      <p class="muted">
+        Игра идёт на сервере теплицы. Обычно адрес приходит в ссылке-приглашении,
+        но его можно вписать и руками.
+      </p>
+      <label class="field">
+        <span>Адрес API</span>
+        <input type="text" id="srv-input" placeholder="https://ваш-адрес-сервера" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" type="button" id="srv-save">Подключиться</button>
+      </div>
+      <p class="muted">Пустой адрес — обращения к тому же домену, с которого открыта страница.</p>
+    </section>
+
+    <!-- ===== Вход и регистрация ===== -->
+    <section class="card auth-card" id="auth-card" hidden>
+      <h2 id="auth-title">Регистрация</h2>
+      <p class="muted" id="auth-hint">
+        Аккаунт нужен, чтобы соперники видели, с кем играют. Он же открывает панель теплицы.
+      </p>
+      <label class="field">
+        <span>Логин</span>
+        <input type="text" id="auth-user" autocomplete="username" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Пароль</span>
+        <input type="password" id="auth-pass" autocomplete="current-password">
+      </label>
+      <label class="field" id="auth-confirm-field">
+        <span>Повторите пароль</span>
+        <input type="password" id="auth-confirm" autocomplete="new-password">
+      </label>
+      <p class="login-error" id="auth-error" hidden></p>
+      <button class="btn btn-primary btn-wide" type="button" id="auth-submit">Зарегистрироваться</button>
+      <button class="link-btn" type="button" id="auth-toggle">У меня уже есть аккаунт</button>
+    </section>
+
+    <!-- ===== Выбор режима ===== -->
+    <section class="card" id="lobby" hidden>
+      <header class="card-head">
+        <h2>Как играем</h2>
+        <span class="badge" id="lobby-badge">—</span>
+      </header>
+      <p class="muted" id="lobby-hint">
+        Слушайте фрагмент опенинга и выбирайте, из какого он аниме: четыре варианта,
+        один верный. За скорость начисляются дополнительные очки.
+      </p>
+      <div class="modes">
+        <div class="mode">
+          <h3>Соло</h3>
+          <p>
+            Заход без соперников: три ошибки — и партия закончена. Очки копятся
+            за точность и скорость.
+          </p>
+          <button class="btn btn-primary" type="button" id="solo-start">Начать соло</button>
+          <p class="muted" id="solo-best"></p>
+        </div>
+        <div class="mode">
+          <h3>Онлайн</h3>
+          <p>
+            Комната на несколько человек: пять раундов на всех, у каждого свой счёт.
+            Приглашайте ссылкой — один на один или компанией.
+          </p>
+          <button class="btn btn-primary" type="button" id="create-room">Создать комнату</button>
+          <label class="field">
+            <span>Или код комнаты</span>
+            <input type="text" id="room-code" maxlength="4" placeholder="ABCD"
+                   autocomplete="off" spellcheck="false" style="text-transform: uppercase;">
+          </label>
+          <button class="btn btn-ghost" type="button" id="join-room">Войти по коду</button>
+        </div>
+      </div>
+      <p class="muted" id="pool-hint"></p>
+    </section>
+
+    <!-- ===== Ожидание игроков ===== -->
+    <section class="card" id="wait-card" hidden>
+      <header class="card-head">
+        <h2>Комната создана</h2>
+        <span class="badge" id="wait-count">игроков: 1</span>
+      </header>
+      <div class="code-box">
+        <div>
+          <div class="muted" style="font-size: 12.5px;">Код комнаты</div>
+          <div class="code-value" id="wait-code">----</div>
+        </div>
+        <button class="btn btn-primary" type="button" id="copy-code">Скопировать код</button>
+      </div>
+      <label class="field link-box">
+        <span>Ссылка-приглашение <b>— адрес сервера уже внутри</b></span>
+        <input type="text" id="invite-link" readonly>
+      </label>
+      <div class="row">
+        <button class="btn btn-ghost" type="button" id="copy-link">Скопировать ссылку</button>
+        <button class="btn btn-primary" type="button" id="start-game">Начать игру</button>
+        <button class="btn btn-ghost" type="button" id="leave-wait">Закрыть комнату</button>
+      </div>
+      <div class="players" id="wait-players"></div>
+      <p class="muted" id="wait-hint">
+        Нужен хотя бы один соперник: пять раундов, у каждого свой счёт.
+      </p>
+    </section>
+
+    <!-- ===== Раунд (соло и онлайн) ===== -->
+    <section class="stack" id="game" hidden>
+      <section class="card" id="round-card">
+        <header class="card-head">
+          <h2><span id="game-mode">Раунд</span> <span id="game-round">1</span></h2>
+          <span class="badge" id="game-badge">—</span>
+        </header>
+        <div class="players" id="game-players"></div>
+        <div class="timer calm" id="timer"><span id="timer-fill"></span></div>
+        <div class="clip-box">
+          <button class="btn btn-primary" type="button" id="clip-play">▶ Слушать фрагмент</button>
+          <span class="muted" id="clip-state"></span>
+          <audio id="clip" preload="auto"></audio>
+        </div>
+        <div class="options" id="options"></div>
+        <p class="muted" id="game-hint"></p>
+        <div class="row">
+          <button class="btn btn-ghost" type="button" id="leave-round">Выйти в лобби</button>
+        </div>
+      </section>
+
+      <section class="stack" id="reveal" hidden>
+        <div class="result" id="reveal-box">
+          <h2 id="reveal-title">Раунд разобран</h2>
+          <div class="answer-name" id="reveal-anime">—</div>
+          <div class="answer-attrs" id="reveal-attrs"></div>
+          <p class="muted" id="reveal-text"></p>
+        </div>
+        <section class="card" id="reveal-choices-card" hidden>
+          <header class="card-head">
+            <h2>Кто что выбрал</h2>
+            <span class="badge" id="reveal-choices-badge">—</span>
+          </header>
+          <div class="board-wrap">
+            <table class="matches" id="reveal-choices"></table>
+          </div>
+        </section>
+      </section>
+
+      <!-- Соло: итог захода -->
+      <section class="card" id="solo-finish" hidden>
+        <header class="card-head">
+          <h2>Заход закончен</h2>
+          <span class="badge" id="solo-finish-badge">—</span>
+        </header>
+        <p class="muted" id="solo-finish-text"></p>
+        <div class="stats">
+          <span>очков: <b id="solo-finish-score">0</b></span>
+          <span>угадано: <b id="solo-finish-correct">0</b></span>
+          <span>лучший результат: <b id="solo-best-final">0</b></span>
+        </div>
+        <div class="row">
+          <button class="btn btn-primary" type="button" id="solo-again">Ещё заход</button>
+          <button class="btn btn-ghost" type="button" id="solo-exit">В лобби</button>
+        </div>
+      </section>
+
+      <!-- Онлайн: итоговая таблица -->
+      <section class="card" id="online-final" hidden>
+        <header class="card-head">
+          <h2>Партия закончена</h2>
+          <span class="badge" id="online-final-badge">—</span>
+        </header>
+        <div class="board-wrap">
+          <table class="matches" id="online-standings"></table>
+        </div>
+        <div class="row">
+          <button class="btn btn-primary" type="button" id="play-again">Ещё партию</button>
+          <button class="btn btn-ghost" type="button" id="online-exit">В лобби</button>
+        </div>
+      </section>
+    </section>
+
+    <footer class="footer">
+      <span>аниме-сонглесс · фрагменты опенингов добавляет владелец сайта</span>
+      <span id="clock">—</span>
+    </footer>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    /* Настройки подключения — те же, что у страницы игр: адрес приходит
+       в ссылке (?srv=). API-ключ игре не нужен: играет аккаунт. */
+    const CONN_KEY = 'greenhouse.games.conn.v1';
+    const AUTH_KEY = 'greenhouse.auth.v1';
+    const THEME_KEY = 'greenhouse.games.theme';
+    const BEST_KEY = 'greenhouse.songless.best';
+    const GAME = '/api/games/songless';
+
+    const POLL_MS = 1200;            // как часто переспрашиваем сервер в партии
+    const POLL_IDLE_MS = 3000;       // в ожидании игроков и после итога можно реже
+    const REVEAL_SECONDS = 8;        // столько показывается разбор раунда
+    const REQUEST_TIMEOUT_MS = 8000;
+
+    const $ = (selector) => document.querySelector(selector);
+
+    let apiBase = '';
+    let auth = { token: '', user: null };
+    let rules = { rounds: 5, min_players: 2, max_players: 8, answer_seconds: 20, solo_lives: 3 };
+    let pool = { tracks: 0, playable: 0, ready: false };
+    let mode = '';                   // 'solo' или 'online'
+    let state = null;                // состояние соло-захода или комнаты
+    let pollTimer = null;
+    let tickTimer = null;
+    let busy = false;
+    let deadlineMs = 0;              // до какого момента идёт раунд (или показывается разбор)
+    let clipRound = 0;               // номер раунда, для которого загружен фрагмент
+    let clipTimer = null;
+    let clipLength = 0;
+    let optionsKey = '';             // что уже нарисовано: чтобы не перерисовывать зря
+    let revealKey = '';
+
+    /* ------------------------------- утилиты -------------------------------- */
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function toast(message, kind) {
+      const box = $('#toasts');
+      const node = document.createElement('div');
+      node.className = 'toast' + (kind ? ' ' + kind : '');
+      node.textContent = message;
+      box.appendChild(node);
+      setTimeout(() => {
+        node.classList.add('out');
+        setTimeout(() => node.remove(), 320);
+      }, 4200);
+    }
+
+    function readJson(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' ? value : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeJson(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function show(selector, visible) {
+      const node = $(selector);
+      if (node) node.hidden = !visible;
+    }
+
+    async function copyText(text, message) {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(message);
+      } catch (error) {
+        toast('Скопируйте вручную: ' + text, 'warn');
+      }
+    }
+
+    /* ------------------------------ сеть ------------------------------------ */
+
+    const root = () => (apiBase || '').replace(/\/+$/, '');
+
+    async function api(path, options = {}) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const headers = { 'Content-Type': 'application/json' };
+      if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+      try {
+        const response = await fetch(root() + path, {
+          method: options.method || 'GET',
+          headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(data.error || ('Сервер ответил HTTP ' + response.status));
+          error.status = response.status;
+          throw error;
+        }
+        return data;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function setConnection(kind, text) {
+      const pill = $('#conn-pill');
+      pill.classList.toggle('online', kind === 'online');
+      pill.classList.toggle('err', kind === 'err');
+      $('#conn-text').textContent = text;
+      const badge = $('#server-badge');
+      if (badge) badge.textContent = text;
+    }
+
+    /* Адрес приходит в ссылке-приглашении: тогда настраивать ничего не нужно. */
+    function applyServerFromLink() {
+      const fromLink = (new URLSearchParams(location.search).get('srv') || '').trim();
+      const stored = readJson(CONN_KEY) || {};
+      if (fromLink) {
+        apiBase = fromLink.replace(/\/+$/, '');
+        writeJson(CONN_KEY, { apiBase: apiBase, apiToken: stored.apiToken || '' });
+        return;
+      }
+      apiBase = (stored.apiBase || '').replace(/\/+$/, '');
+    }
+
+    const roomFromLink = () => (new URLSearchParams(location.search).get('room') || '').toUpperCase();
+
+    function inviteLink(code) {
+      const params = new URLSearchParams();
+      if (root()) params.set('srv', root());
+      params.set('room', code);
+      return location.origin + location.pathname + '?' + params.toString();
+    }
+
+    /* --------------------------- вход в аккаунт ----------------------------- */
+
+    function loadAuth() {
+      const saved = readJson(AUTH_KEY);
+      auth = saved && saved.token
+        ? { token: saved.token, user: saved.user || null }
+        : { token: '', user: null };
+      renderUser();
+    }
+
+    function saveAuth() {
+      if (auth.token) {
+        writeJson(AUTH_KEY, { token: auth.token, user: auth.user });
+      } else {
+        try {
+          localStorage.removeItem(AUTH_KEY);
+        } catch (error) {
+          /* приватный режим: просто не запомним */
+        }
+      }
+      renderUser();
+    }
+
+    function renderUser() {
+      const name = auth.user ? auth.user.username : '';
+      $('#user-name').textContent = name || '—';
+      show('#user-pill', Boolean(name));
+      show('#logout', Boolean(auth.token));
+    }
+
+    function setAuthMode(form) {
+      const register = form !== 'login';
+      $('#auth-title').textContent = register ? 'Регистрация' : 'Вход в игру';
+      $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
+      $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
+      $('#auth-hint').textContent = register
+        ? 'Аккаунт нужен, чтобы соперники видели, с кем играют. Он же открывает панель теплицы.'
+        : 'Войдите тем же логином, что и в панели теплицы.';
+      show('#auth-confirm-field', register);
+      show('#auth-error', false);
+      $('#auth-card').dataset.mode = register ? 'register' : 'login';
+    }
+
+    async function submitAuth() {
+      const form = $('#auth-card').dataset.mode === 'login' ? 'login' : 'register';
+      const username = ($('#auth-user').value || '').trim();
+      const password = $('#auth-pass').value || '';
+      const fail = (message) => {
+        const box = $('#auth-error');
+        box.textContent = message;
+        show('#auth-error', true);
+      };
+
+      if (!username || !password) return fail('Заполните логин и пароль');
+      if (form === 'register' && password !== $('#auth-confirm').value) return fail('Пароли не совпадают');
+
+      const button = $('#auth-submit');
+      button.disabled = true;
+      try {
+        const data = await api('/api/auth/' + form, { method: 'POST', body: { username, password } });
+        auth = { token: data.token, user: data.user };
+        saveAuth();
+        toast(form === 'register' ? 'Аккаунт создан — можно играть' : 'С возвращением, ' + (data.user && data.user.username));
+        show('#auth-card', false);
+        await afterAuth();
+      } catch (error) {
+        fail(error.message || 'Не удалось выполнить запрос');
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function signOut() {
+      if (auth.token) {
+        api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      }
+      auth = { token: '', user: null };
+      saveAuth();
+      leaveTable();
+      showAuth('register');
+    }
+
+    /* ------------------------------ экраны ---------------------------------- */
+
+    function showAuth(form) {
+      setAuthMode(form);
+      show('#auth-card', true);
+      hideTables();
+      $('#auth-user').focus();
+    }
+
+    function hideTables() {
+      ['#lobby', '#wait-card', '#game', '#reveal', '#solo-finish', '#online-final'].forEach(
+        (selector) => show(selector, false));
+    }
+
+    function showLobby() {
+      stopPolling();
+      mode = '';
+      state = null;
+      optionsKey = '';
+      revealKey = '';
+      hideTables();
+      show('#lobby', true);
+      renderBest();
+      renderPool();
+    }
+
+    /* Уход из партии: сбрасываем экраны и адрес ссылки. */
+    function leaveTable() {
+      stopPolling();
+      stopClip();
+      mode = '';
+      state = null;
+      clipRound = 0;
+      optionsKey = '';
+      revealKey = '';
+      hideTables();
+      history.replaceState(null, '', location.pathname);
+    }
+
+    /* --------------------------- состояние набора --------------------------- */
+
+    async function loadRules() {
+      try {
+        const data = await api(GAME + '/status');
+        rules = data;
+        pool = { tracks: data.tracks, playable: data.playable, ready: data.ready };
+      } catch (error) {
+        console.warn('Не удалось узнать состав набора:', error);
+      }
+      renderPool();
+      renderBest();
+    }
+
+    function renderPool() {
+      const node = $('#pool-hint');
+      if (!node) return;
+      if (pool.ready) {
+        node.textContent = 'Треков в наборе: ' + pool.tracks
+          + ', с записью: ' + pool.playable + '.';
+      } else {
+        node.textContent = 'Играть пока нечего: к набору не добавлено ни одной записи.'
+          + ' Владелец сайта кладёт файлы в front/games/animesongless/audio'
+          + ' или указывает ссылки в базе (backend/seed_songless.py).';
+      }
+      $('#solo-start').disabled = !pool.ready;
+      $('#create-room').disabled = !pool.ready;
+      $('#lobby-badge').textContent = pool.ready ? ('треков с записью: ' + pool.playable) : 'нет записей';
+    }
+
+    function renderBest() {
+      const best = readJson(BEST_KEY);
+      const score = best && best.score ? best.score : 0;
+      $('#solo-best').textContent = score ? ('Лучший результат: ' + score + ' очков') : 'Лучший результат: пока нет';
+    }
+
+    /* -------------------------------- звук ---------------------------------- */
+
+    const audio = $('#clip');
+
+    function stopClip() {
+      clearTimeout(clipTimer);
+      try {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      } catch (error) {
+        /* плеер мог быть ещё не готов */
+      }
+      clipLength = 0;
+    }
+
+    /* Фрагмент загружается один раз на раунд: адрес несёт номер раунда,
+       поэтому браузер не подсунет запись предыдущего. */
+    function loadClip(round) {
+      if (!state || !state.clip || clipRound === round) return;
+      clipRound = round;
+      clipLength = Number(state.clip.length) || 0;
+      audio.src = root() + state.clip.url;
+      audio.dataset.start = String(state.clip.start || 0);
+      audio.load();
+      setClipText('фрагмент ' + (clipLength ? clipLength + ' с' : ''));
+      /* Автозапуск пробуем сразу: после первого действия на странице браузер
+         обычно разрешает звук, а если нет — останется кнопка. */
+      playClip();
+    }
+
+    function playClip() {
+      if (!state || !state.clip) return;
+      const start = Number(audio.dataset.start || 0);
+      const length = clipLength || Number(state.clip.length) || 0;
+      const begin = () => {
+        try {
+          audio.currentTime = start;
+        } catch (error) {
+          /* запись ещё не готова — начнём с начала */
+        }
+        audio.play().then(() => {
+          setClipText('звучит…');
+          clearTimeout(clipTimer);
+          clipTimer = setTimeout(() => {
+            audio.pause();
+            setClipText('прослушано — можно ещё раз');
+          }, length * 1000);
+        }).catch(() => {
+          setClipText('нажмите «Слушать фрагмент»');
+        });
+      };
+      if (audio.readyState >= 1) begin();
+      else audio.addEventListener('loadedmetadata', begin, { once: true });
+    }
+
+    function setClipText(text) {
+      $('#clip-state').textContent = text;
+    }
+
+    audio.addEventListener('ended', () => setClipText('прослушано — можно ещё раз'));
+    $('#clip-play').addEventListener('click', () => {
+      if (audio.paused) playClip();
+      else {
+        audio.pause();
+        setClipText('пауза — можно продолжить');
+      }
+    });
+
+    /* ------------------------------ таймер ---------------------------------- */
+
+    function startTicking() {
+      if (tickTimer) return;
+      tickTimer = setInterval(renderTimer, 200);
+    }
+
+    function renderTimer() {
+      const fill = $('#timer-fill');
+      const bar = $('#timer');
+      if (!state) return;
+      const left = timerLeft();
+      const total = timerTotal();
+      const share = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0;
+      fill.style.width = (share * 100).toFixed(1) + '%';
+      bar.classList.toggle('low', share <= 0.25);
+      bar.classList.toggle('calm', share > 0.25);
+    }
+
+    function timerTotal() {
+      if (!state) return rules.answer_seconds || 20;
+      return state.phase === 'reveal' ? REVEAL_SECONDS : (rules.answer_seconds || 20);
+    }
+
+    function timerLeft() {
+      if (!state || !deadlineMs) return 0;
+      return Math.max(0, (deadlineMs - Date.now()) / 1000);
+    }
+
+    function armTimer(seconds) {
+      if (seconds == null) return;
+      deadlineMs = Date.now() + Number(seconds) * 1000;
+      renderTimer();
+    }
+
+    /* ------------------------------- отрисовка ------------------------------ */
+
+    function renderPlayers(node, players, myId, kind) {
+      node.innerHTML = (players || []).map((player) => {
+        const mine = player.id === myId;
+        const answered = kind === 'round' && player.answered;
+        const icon = kind === 'wait' ? '🙋' : (answered ? '✅' : '🎧');
+        const note = kind === 'wait' ? 'в комнате' : (answered ? 'ответил' : 'думает');
+        return '<div class="player' + (mine ? ' mine' : '') + (answered ? ' ready' : '') + '">'
+          + '<span aria-hidden="true">' + icon + '</span>'
+          + '<span><b>' + escapeHtml(player.name) + '</b>'
+          + (kind === 'round' ? ' <small>' + player.score + ' очк.</small>' : '')
+          + '<br><small>' + note + '</small></span>'
+          + '</div>';
+      }).join('');
+    }
+
+    function renderOptions(payload) {
+      const options = payload.options || [];
+      const revealed = payload.phase === 'reveal' || payload.phase === 'finished';
+      const picked = payload.you ? payload.you.choice : payload.choice;
+      const key = [payload.round, revealed, picked, payload.correct_choice, options.join('|')].join(':');
+      if (key === optionsKey) return;
+      optionsKey = key;
+
+      const box = $('#options');
+      box.innerHTML = options.map((title, index) => {
+        const classes = ['option'];
+        if (revealed && payload.correct_choice === index) classes.push('right');
+        else if (revealed && picked === index) classes.push('wrong');
+        else if (!revealed && picked === index) classes.push('picked');
+        return '<button class="' + classes.join(' ') + '" type="button" data-index="' + index + '"'
+          + (revealed || picked != null ? ' disabled' : '') + '>'
+          + '<span class="key">' + (index + 1) + '</span>'
+          + escapeHtml(title) + '</button>';
+      }).join('');
+      Array.from(box.querySelectorAll('button')).forEach((button) => {
+        button.addEventListener('click', () => sendAnswer(Number(button.dataset.index)));
+      });
+    }
+
+    function renderReveal(payload) {
+      const revealed = payload.phase === 'reveal' || payload.phase === 'finished';
+      if (!revealed || !payload.answer) {
+        show('#reveal', false);
+        revealKey = '';
+        return;
+      }
+      const mine = payload.you ? payload.you : payload;
+      const correct = payload.correct_choice;
+      const picked = mine.choice;
+      const missed = Boolean(mine.missed);
+      const key = [payload.round, picked, correct, missed, payload.answer.anime].join(':');
+      show('#reveal', true);
+      if (key === revealKey) return;
+      revealKey = key;
+
+      const answer = payload.answer;
+      $('#reveal-anime').textContent = answer.anime;
+      $('#reveal-attrs').innerHTML = [
+        answer.song ? 'Опенинг: ' + answer.song : '',
+        answer.artist ? 'Исполнитель: ' + answer.artist : '',
+        answer.year ? 'Год: ' + answer.year : ''
+      ].filter(Boolean).map((text) => '<span>' + escapeHtml(text) + '</span>').join('');
+
+      const box = $('#reveal-box');
+      const right = picked === correct;
+      box.className = 'result ' + (right ? 'win' : 'lose');
+      $('#reveal-title').textContent = missed ? 'Время вышло' : (right ? 'Верно!' : 'Мимо');
+      $('#reveal-text').textContent = right
+        ? 'Правильный ответ, +' + (mine.points || 0) + ' очков.'
+        : (picked == null
+          ? 'Ответа не было.'
+          : 'Вы выбрали «' + (payload.options[picked] || '—') + '».');
+
+      const choices = payload.choices || {};
+      const names = Object.keys(choices);
+      show('#reveal-choices-card', names.length > 0);
+      if (names.length) {
+        const rows = names.map((name) => {
+          const index = choices[name];
+          const ok = index === correct;
+          const answerText = index == null ? 'не ответил' : (payload.options[index] || '—');
+          return '<tr class="' + (ok ? 'win' : '') + '">'
+            + '<td>' + escapeHtml(name) + '</td>'
+            + '<td class="' + (ok ? 'ok' : 'no') + '">' + escapeHtml(answerText) + '</td>'
+            + '<td class="dim">' + (ok ? 'верно' : (index == null ? '—' : 'мимо')) + '</td>'
+            + '</tr>';
+        }).join('');
+        $('#reveal-choices').innerHTML = '<thead><tr><th>Игрок</th><th>Ответ</th><th>Итог</th></tr></thead>'
+          + '<tbody>' + rows + '</tbody>';
+        $('#reveal-choices-badge').textContent = 'верный ответ: ' + (payload.options[correct] || '—');
+      }
+    }
+
+    function renderGame(payload) {
+      show('#game', true);
+      show('#round-card', true);
+      show('#wait-card', false);
+      show('#online-final', false);
+      show('#solo-finish', false);
+
+      const solo = payload.mode === 'solo';
+      $('#game-mode').textContent = solo ? 'Заход, раунд' : 'Раунд';
+      $('#game-round').textContent = solo
+        ? payload.round
+        : payload.round + ' из ' + payload.rounds_planned;
+      if (solo) {
+        $('#game-badge').textContent = 'очков: ' + payload.score;
+        $('#game-hint').textContent = 'Жизни: ' + '❤'.repeat(payload.lives)
+          + '·'.repeat(Math.max(0, payload.lives_total - payload.lives));
+      } else {
+        $('#game-badge').textContent = 'очков: ' + payload.you.score;
+        $('#game-hint').textContent = 'Очки начисляются за верный ответ и скорость.';
+        renderPlayers($('#game-players'), payload.players, payload.you.id, 'round');
+      }
+      show('#game-players', !solo);
+
+      renderOptions(payload);
+      loadClip(payload.round);
+      if (payload.phase === 'reveal') {
+        audio.pause();
+        armTimer(payload.reveal_in);
+        setClipText('раунд разобран');
+      } else {
+        armTimer(payload.seconds_left);
+      }
+      renderReveal(payload);
+    }
+
+    function renderSoloFinish(payload) {
+      show('#game', true);
+      show('#round-card', false);
+      show('#reveal', false);
+      show('#online-final', false);
+      show('#solo-finish', true);
+      stopClip();
+      const best = readJson(BEST_KEY);
+      const wasBest = payload.score > ((best && best.score) || 0);
+      if (wasBest) writeJson(BEST_KEY, { score: payload.score, at: new Date().toISOString() });
+      const record = wasBest ? payload.score : ((best && best.score) || 0);
+      $('#solo-finish-score').textContent = payload.score;
+      $('#solo-finish-correct').textContent = payload.correct;
+      $('#solo-best-final').textContent = record;
+      $('#solo-finish-badge').textContent = 'раундов: ' + payload.rounds;
+      $('#solo-finish-text').textContent = wasBest
+        ? 'Это ваш лучший заход — записали в рекорды.'
+        : 'Ошибки кончились: три промаха — и партия закончена.';
+      renderBest();
+    }
+
+    function renderOnlineFinal(payload) {
+      show('#game', true);
+      show('#round-card', false);
+      show('#reveal', false);
+      show('#solo-finish', false);
+      show('#online-final', true);
+      stopClip();
+      const myId = payload.you.id;
+      const rows = (payload.standings || []).map((row) => {
+        const mine = row.id === myId;
+        return '<tr class="' + (row.winner ? 'win' : '') + '">'
+          + '<td class="place">' + row.place + '</td>'
+          + '<td>' + escapeHtml(row.name) + (mine ? ' <small class="dim">(вы)</small>' : '') + '</td>'
+          + '<td>' + row.score + '</td>'
+          + '<td class="dim">' + row.correct + '</td>'
+          + '<td class="dim">' + row.time + ' с</td>'
+          + '</tr>';
+      }).join('');
+      $('#online-standings').innerHTML = '<thead><tr><th>#</th><th>Игрок</th><th>Очки</th>'
+        + '<th>Верных</th><th>Время</th></tr></thead><tbody>' + rows + '</tbody>';
+      const mine = (payload.standings || []).find((row) => row.id === myId);
+      $('#online-final-badge').textContent = mine
+        ? ('ваше место: ' + mine.place + ' из ' + payload.standings.length)
+        : 'итог';
+    }
+
+    function renderWaiting(payload) {
+      show('#wait-card', true);
+      show('#game', false);
+      show('#reveal', false);
+      $('#wait-code').textContent = payload.code;
+      $('#invite-link').value = inviteLink(payload.code);
+      $('#wait-count').textContent = 'игроков: ' + payload.players.length;
+      renderPlayers($('#wait-players'), payload.players, payload.you.id, 'wait');
+      $('#start-game').disabled = payload.players.length < payload.min_players;
+      $('#start-game').hidden = !payload.host;
+      $('#wait-hint').textContent = payload.host
+        ? (payload.players.length < payload.min_players
+          ? 'Нужен хотя бы один соперник: отправьте ссылку или код.'
+          : 'Можно начинать: пять раундов, у каждого свой счёт.')
+        : 'Ждём, когда хозяин комнаты начнёт игру.';
+    }
+
+    function renderScreen() {
+      if (!state) return;
+      const payload = state;
+      if (payload.mode === 'solo') {
+        if (payload.finished) renderSoloFinish(payload);
+        else renderGame(payload);
+        return;
+      }
+      if (payload.phase === 'waiting') renderWaiting(payload);
+      else if (payload.phase === 'finished') renderOnlineFinal(payload);
+      else renderGame(payload);
+    }
+
+    /* --------------------------- опрос сервера ------------------------------ */
+
+    function stopPolling() {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = null;
+      clearInterval(tickTimer);
+      tickTimer = null;
+    }
+
+    function schedulePoll(delay) {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(refresh, delay);
+    }
+
+    function statePath() {
+      if (!state) return '';
+      return mode === 'solo' ? GAME + '/solo/' + state.run : GAME + '/rooms/' + state.code;
+    }
+
+    async function refresh() {
+      if (!state) return;
+      if (document.hidden) {
+        schedulePoll(POLL_IDLE_MS);
+        return;
+      }
+      if (busy) {
+        schedulePoll(POLL_MS);
+        return;
+      }
+      busy = true;
+      try {
+        const data = await api(statePath());
+        applyState(data.state);
+        setConnection('online', 'на связи');
+        const playing = state.mode === 'solo'
+          ? !state.finished
+          : (state.phase === 'round' || state.phase === 'reveal');
+        schedulePoll(playing ? POLL_MS : POLL_IDLE_MS);
+      } catch (error) {
+        if (error.status === 401) {
+          sessionExpired();
+          return;
+        }
+        if (error.status === 400) {
+          tableGone(error.message);
+          return;
+        }
+        setConnection('err', root() ? 'сервер не отвечает' : 'адрес не задан');
+        schedulePoll(POLL_IDLE_MS);
+      } finally {
+        busy = false;
+      }
+    }
+
+    function applyState(payload) {
+      state = payload;
+      startTicking();
+      renderScreen();
+    }
+
+    function sessionExpired() {
+      stopPolling();
+      auth = { token: '', user: null };
+      saveAuth();
+      toast('Сессия истекла — войдите заново', 'warn');
+      showAuth('login');
+    }
+
+    /* Партии больше нет (комната истекла или заход потерян): возвращаем в лобби. */
+    function tableGone(message) {
+      stopClip();
+      toast(message || 'Партия больше недоступна', 'warn');
+      showLobby();
+    }
+
+    /* ------------------------------ команды --------------------------------- */
+
+    async function startSolo() {
+      busy = true;
+      try {
+        const data = await api(GAME + '/solo', { method: 'POST' });
+        mode = 'solo';
+        clipRound = 0;
+        applyState(data.state);
+        schedulePoll(POLL_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function createRoom() {
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms', { method: 'POST' });
+        mode = 'online';
+        clipRound = 0;
+        history.replaceState(null, '', inviteLink(data.state.code));
+        applyState(data.state);
+        schedulePoll(POLL_MS);
+        toast('Комната ' + data.state.code + ' создана — отправьте ссылку');
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function joinRoom(code) {
+      const value = (code || '').trim().toUpperCase();
+      if (value.length !== 4) {
+        toast('Код комнаты — четыре символа', 'warn');
+        return false;
+      }
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + value + '/join', { method: 'POST' });
+        mode = 'online';
+        clipRound = 0;
+        history.replaceState(null, '', inviteLink(data.state.code));
+        applyState(data.state);
+        schedulePoll(POLL_MS);
+        return true;
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'err');
+        return false;
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function startOnlineGame() {
+      if (!state) return;
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + state.code + '/start', { method: 'POST' });
+        clipRound = 0;
+        applyState(data.state);
+        schedulePoll(POLL_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'warn');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function sendAnswer(index) {
+      if (!state || busy) return;
+      const path = state.mode === 'solo'
+        ? GAME + '/solo/' + state.run + '/answer'
+        : GAME + '/rooms/' + state.code + '/answer';
+      busy = true;
+      try {
+        const data = await api(path, { method: 'POST', body: { choice: index } });
+        if (state.mode !== 'solo') clipRound = 0;
+        applyState(data.state);
+        schedulePoll(POLL_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, error.status === 400 ? 'warn' : 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function playAgain() {
+      if (!state || state.mode !== 'online') return;
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + state.code + '/rematch', { method: 'POST' });
+        clipRound = 0;
+        applyState(data.state);
+        schedulePoll(POLL_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'warn');
+      } finally {
+        busy = false;
+      }
+    }
+
+    /* ------------------------------ запуск ---------------------------------- */
+
+    async function checkConnection() {
+      const served = ['http:', 'https:'].includes(location.protocol);
+      if (!root() && !served) {
+        setConnection('err', 'адрес не задан');
+        return false;
+      }
+      try {
+        await api('/api/health');
+        setConnection('online', 'на связи');
+        return true;
+      } catch (error) {
+        if (error.status === 401) {
+          // Сервер жив, просто закрыт общим ключом — игре это не мешает.
+          setConnection('online', 'на связи');
+          return true;
+        }
+        setConnection('err', root() ? 'сервер не отвечает' : 'API на этом домене нет');
+        return false;
+      }
+    }
+
+    async function afterAuth() {
+      const ok = await checkConnection();
+      if (!ok) {
+        $('#srv-input').value = root();
+        show('#server-card', true);
+        return;
+      }
+      show('#server-card', false);
+      await loadRules();
+
+      const code = roomFromLink();
+      if (code && pool.ready) {
+        await joinRoom(code);
+        return;
+      }
+      showLobby();
+    }
+
+    function initClock() {
+      const node = $('#clock');
+      const update = () => {
+        node.textContent = new Date().toLocaleString('ru-RU', {
+          day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+      };
+      update();
+      setInterval(update, 1000);
+    }
+
+    async function boot() {
+      applyTheme(readJson(THEME_KEY) || readJson('greenhouse.state.v1') || {});
+      initClock();
+      applyServerFromLink();
+      loadAuth();
+
+      $('#srv-input').value = root();
+
+      $('#auth-submit').addEventListener('click', submitAuth);
+      $('#auth-toggle').addEventListener('click', () => {
+        setAuthMode($('#auth-card').dataset.mode === 'login' ? 'register' : 'login');
+      });
+      $('#auth-card').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          submitAuth();
+        }
+      });
+      $('#solo-start').addEventListener('click', startSolo);
+      $('#solo-again').addEventListener('click', startSolo);
+      $('#solo-exit').addEventListener('click', showLobby);
+      $('#create-room').addEventListener('click', createRoom);
+      $('#join-room').addEventListener('click', () => joinRoom($('#room-code').value));
+      $('#room-code').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          joinRoom($('#room-code').value);
+        }
+      });
+      $('#start-game').addEventListener('click', startOnlineGame);
+      $('#copy-code').addEventListener('click', () => copyText(state ? state.code : '', 'Код скопирован'));
+      $('#copy-link').addEventListener('click', () => copyText($('#invite-link').value, 'Ссылка скопирована'));
+      $('#leave-wait').addEventListener('click', () => {
+        leaveTable();
+        showLobby();
+        toast('Комната закрыта у вас: ссылка перестанет работать, когда выйдут остальные');
+      });
+      $('#play-again').addEventListener('click', playAgain);
+      $('#online-exit').addEventListener('click', showLobby);
+      $('#leave-round').addEventListener('click', () => {
+        showLobby();
+        stopClip();
+      });
+      $('#logout').addEventListener('click', signOut);
+      $('#toggle-theme').addEventListener('click', toggleTheme);
+      $('#srv-save').addEventListener('click', async () => {
+        apiBase = ($('#srv-input').value || '').trim().replace(/\/+$/, '');
+        const stored = readJson(CONN_KEY) || {};
+        writeJson(CONN_KEY, { apiBase: apiBase, apiToken: stored.apiToken || '' });
+        await afterAuth();
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && state) refresh();
+      });
+      /* Номера 1–4 выбирают вариант ответа — так быстрее, чем мышью. */
+      document.addEventListener('keydown', (event) => {
+        if (!state || state.phase === 'reveal' || !/^[1-4]$/.test(event.key)) return;
+        const button = $('#options').querySelector('button[data-index="' + (Number(event.key) - 1) + '"]');
+        if (button && !button.disabled) button.click();
+      });
+
+      if (auth.token) {
+        try {
+          const data = await api('/api/auth/me');
+          auth.user = data.user || auth.user;
+          saveAuth();
+          await afterAuth();
+        } catch (error) {
+          if (error.status === 401) {
+            auth = { token: '', user: null };
+            saveAuth();
+            showAuth('login');
+          } else {
+            // Сервер молчит: покажем адрес и попросим войти, когда он ответит.
+            showAuth('login');
+            show('#server-card', true);
+          }
+        }
+        return;
+      }
+
+      if (!(await checkConnection())) {
+        $('#srv-input').value = root();
+        show('#server-card', true);
+      }
+      showAuth('register');
+    }
+
+    /* -------------------------------- тема ---------------------------------- */
+
+    function applyTheme(saved) {
+      document.documentElement.dataset.theme = saved && saved.theme === 'dark' ? 'dark' : 'light';
+    }
+
+    function toggleTheme() {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      writeJson(THEME_KEY, { theme: next });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      boot().catch((error) => toast('Не удалось запустить игру: ' + error.message, 'err'));
+    });
+  </script>
+</body>
+</html>

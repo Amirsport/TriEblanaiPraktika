@@ -63,6 +63,20 @@ API (JSON):
     POST /api/games/narutodle/rooms/<код>/guess    {"name":"..."} догадка
     POST /api/games/narutodle/rooms/<код>/giveup   сдаться в раунде
     POST /api/games/narutodle/rooms/<код>/rematch  новый раунд
+
+Игры «Аниме-сонглесс» (тоже по аккаунту):
+    GET  /api/games/songless/status                 сколько треков и что можно играть
+    POST /api/games/songless/solo                   начать соло-заход
+    GET  /api/games/songless/solo/<id>              состояние захода
+    POST /api/games/songless/solo/<id>/answer       {"choice": номер варианта}
+    GET  /api/games/songless/solo/<id>/clip?round=  фрагмент текущего раунда
+    POST /api/games/songless/rooms                  создать комнату
+    POST /api/games/songless/rooms/<код>/join       войти в комнату
+    POST /api/games/songless/rooms/<код>/start      начать партию (хозяин комнаты)
+    GET  /api/games/songless/rooms/<код>            состояние партии (опрос страницей)
+    POST /api/games/songless/rooms/<код>/answer     {"choice": номер варианта}
+    POST /api/games/songless/rooms/<код>/rematch    новая партия
+    GET  /api/games/songless/rooms/<код>/clip?round= фрагмент текущего раунда
 """
 from __future__ import annotations
 
@@ -92,6 +106,16 @@ try:  # запуск как модуль: python -m backend.server
     from .arduino import ArduinoLink
     from .narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError
     from .narutodle_data import attribute_list, seed_rows
+    from .songless import (
+        ANSWER_SECONDS,
+        MAX_PLAYERS,
+        MIN_PLAYERS,
+        ROUNDS_PER_GAME,
+        SOLO_LIVES,
+        Songless,
+        SonglessError,
+    )
+    from .songless_data import seed_rows as songless_seed_rows
 except ImportError:  # запуск как файл: python backend/server.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from auth import (  # type: ignore
@@ -102,6 +126,16 @@ except ImportError:  # запуск как файл: python backend/server.py
     from arduino import ArduinoLink  # type: ignore
     from narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError  # type: ignore
     from narutodle_data import attribute_list, seed_rows  # type: ignore
+    from songless import (  # type: ignore
+        ANSWER_SECONDS,
+        MAX_PLAYERS,
+        MIN_PLAYERS,
+        ROUNDS_PER_GAME,
+        SOLO_LIVES,
+        Songless,
+        SonglessError,
+    )
+    from songless_data import seed_rows as songless_seed_rows  # type: ignore
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONT = ROOT / "front"
@@ -118,6 +152,19 @@ AUTH_WINDOW_SECONDS = 60
 # приходят с одного адреса, и общий счётчик входа им мешал бы.
 GAME_ATTEMPTS = 30
 GAME_WINDOW_SECONDS = 60
+
+# Типы записей, которые принимает «Аниме-сонглесс» (по расширению файла).
+AUDIO_TYPES = {
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".wav": "audio/wav",
+    ".flac": "audio/flac",
+    ".webm": "audio/webm",
+}
 
 MODE_PRESETS: Dict[str, Optional[Dict[str, Any]]] = {
     "auto": {"moisture_target": 55, "moisture_threshold": 35, "temperature_threshold": 30, "light_threshold": 8000},
@@ -147,6 +194,8 @@ class Application:
         self.narutodle = Narutodle(characters=self._narutodle_characters(),
                                    on_finish=self._log_narutodle_match,
                                    provider=self.db.narutodle_characters)
+        self.songless = Songless(tracks=self._songless_tracks(),
+                                 provider=self.db.songless_tracks)
 
     # ------------------------------------------------------------------- доступ
     def authorized(self, headers: Any, query: Dict[str, str]) -> bool:
@@ -220,6 +269,22 @@ class Application:
     def reload_narutodle_characters(self) -> int:
         """Сбрасывает и перечитывает набор из базы (на случай правок на ходу)."""
         return self.narutodle.refresh()
+
+    def _songless_tracks(self) -> List[Dict[str, Any]]:
+        """Набор треков из базы; на пустой таблице заливает справочный набор.
+
+        Записей опенингов в наборе нет: аудио добавляет владелец сайта
+        (backend/seed_songless.py --audio или --url), и до этого играть
+        попросту нечего — это честно показано на странице игры.
+        """
+        if not self.db.songless_track_count():
+            seeded = self.db.songless_save_tracks(songless_seed_rows())
+            self.db.add_log(f"Сонглесс: набор треков залит в базу ({seeded})", "info")
+        return self.db.songless_tracks()
+
+    def reload_songless_tracks(self) -> int:
+        """Перечитывает набор треков из базы (на случай правок на ходу)."""
+        return self.songless.refresh()
 
     def _log_narutodle_match(self, record: Dict[str, Any]) -> None:
         """Пишет итог раунда в журнал матчей и в общий журнал событий."""
@@ -816,6 +881,9 @@ class Handler(BaseHTTPRequestHandler):
         client = self.client_address[0] if self.client_address else "?"
         query = self._query()
 
+        if path.startswith("/api/games/songless"):
+            return self._handle_songless_api(method, path)
+
         try:
             user = app.user_by_token(self._bearer_token())
 
@@ -892,6 +960,109 @@ class Handler(BaseHTTPRequestHandler):
     def _require_admin(user: Optional[Dict[str, Any]]) -> bool:
         return bool(user and user.get("role") == "admin")
 
+    def _handle_songless_api(self, method: str, path: str) -> None:
+        """«Аниме-сонглесс»: соло-заходы и комнаты на несколько игроков.
+
+        Вход — по аккаунту панели (Bearer): ссылку с кодом комнаты пересылают
+        друзьям, и общий ключ в ней был бы утечкой. Правильного варианта ответа
+        в ответах нет до конца раунда, а фрагмент отдаётся отдельным адресом —
+        по имени файла аниме тоже не угадать.
+        """
+        app = self.app
+        prefix = "/api/games/songless"
+        client = self.client_address[0] if self.client_address else "?"
+        query = self._query()
+
+        try:
+            user = app.user_by_token(self._bearer_token())
+
+            # Состояние набора открыто: страница должна объяснить, что играть
+            # пока нечего, ещё до входа в аккаунт.
+            if method == "GET" and path == f"{prefix}/status":
+                app.songless.refresh()
+                return self._json({
+                    "tracks": app.songless.track_count(),
+                    "playable": app.songless.playable_count(),
+                    "ready": app.songless.ready(),
+                    "rounds": ROUNDS_PER_GAME,
+                    "min_players": MIN_PLAYERS,
+                    "max_players": MAX_PLAYERS,
+                    "answer_seconds": ANSWER_SECONDS,
+                    "solo_lives": SOLO_LIVES,
+                })
+
+            if not user:
+                return self._error("Требуется вход в аккаунт", 401)
+
+            if method == "POST" and path == f"{prefix}/solo":
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много попыток за минуту — подождите немного", 429)
+                return self._json({"state": app.songless.solo_start(user)}, 201)
+
+            match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)", path)
+            if method == "GET" and match:
+                return self._json({"state": app.songless.solo_state(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)/answer", path)
+            if method == "POST" and match:
+                choice = self._body().get("choice")
+                return self._json({"state": app.songless.solo_answer(match.group(1), user, choice)})
+
+            match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)/clip", path)
+            if method == "GET" and match:
+                track = app.songless.solo_clip_track(match.group(1), user, self._round_param(query))
+                return self._send_clip(track)
+
+            if method == "POST" and path == f"{prefix}/rooms":
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много комнат за минуту — подождите немного", 429)
+                return self._json({"state": app.songless.create(user)}, 201)
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})", path)
+            if method == "GET" and match:
+                return self._json({"state": app.songless.state(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/join", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много попыток войти — подождите минуту", 429)
+                return self._json({"state": app.songless.join(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/start", path)
+            if method == "POST" and match:
+                return self._json({"state": app.songless.start(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/answer", path)
+            if method == "POST" and match:
+                choice = self._body().get("choice")
+                return self._json({"state": app.songless.answer(match.group(1), user, choice)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/rematch", path)
+            if method == "POST" and match:
+                return self._json({"state": app.songless.rematch(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/clip", path)
+            if method == "GET" and match:
+                track = app.songless.clip_track(match.group(1), user, self._round_param(query))
+                return self._send_clip(track)
+
+            return self._error(f"Не найдено: {method} {path}", 404)
+        except SonglessError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Внутренняя ошибка: {exc}", 500)
+
+    @staticmethod
+    def _round_param(query: Dict[str, str]) -> Optional[int]:
+        """Номер раунда из адреса фрагмента: он же защищает от кеша браузера."""
+        raw = query.get("round")
+        if raw in (None, ""):
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
     # ------------------------------------------------------------- static files
     def _serve_static(self, path: str) -> None:
         if path in ("", "/"):
@@ -920,6 +1091,46 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-cache")
+        self._cors()
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    # ------------------------------------------------------------- songless files
+    def _send_clip(self, track: Dict[str, Any]) -> None:
+        """Отдаёт запись трека: свой файл — потоком, внешнюю ссылку — перенаправлением.
+
+        Адрес фрагмента не выдаёт название аниме: клиент получает не имя файла
+        из базы, а служебный путь комнаты или захода.
+        """
+        audio = str(track.get("audio") or "")
+        if not audio:
+            return self._error("У этого трека нет записи", 404)
+
+        if audio.startswith(("http://", "https://")):
+            self.send_response(302)
+            self.send_header("Location", audio)
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self._cors()
+            self.end_headers()
+            return
+
+        base = (FRONT / "games" / "animesongless").resolve()
+        target = (base / audio.lstrip("/")).resolve()
+        try:
+            target.relative_to(base)
+        except ValueError:
+            return self._error("Недопустимый путь к записи", 403)
+        if not target.is_file():
+            return self._error("Файл записи не найден на сервере", 404)
+
+        body = target.read_bytes()
+        mime = AUDIO_TYPES.get(target.suffix.lower(), "application/octet-stream")
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=600")
         self._cors()
         self.end_headers()
         if self.command != "HEAD":

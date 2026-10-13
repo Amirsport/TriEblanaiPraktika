@@ -132,3 +132,20 @@ CREATE TABLE IF NOT EXISTS narutodle_matches (
 
 CREATE INDEX IF NOT EXISTS idx_narutodle_matches_played ON narutodle_matches (id DESC);
 CREATE INDEX IF NOT EXISTS idx_narutodle_matches_players ON narutodle_matches (player1_id, player2_id);
+
+-- Игра «Аниме-сонглесс»: справочные сведения о треках и запись, которую слушают.
+-- Самих записей в репозитории нет: audio указывает на свой файл в папке игры
+-- или на внешнюю ссылку, и пока он пуст, раунд на треке не строится.
+CREATE TABLE IF NOT EXISTS songless_tracks (
+    id          BIGSERIAL PRIMARY KEY,
+    anime       TEXT NOT NULL,
+    song        TEXT NOT NULL DEFAULT '',
+    artist      TEXT NOT NULL DEFAULT '',
+    year        TEXT NOT NULL DEFAULT '',
+    audio       TEXT NOT NULL DEFAULT '',
+    clip_start  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    clip_length DOUBLE PRECISION NOT NULL DEFAULT 8,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_songless_tracks_anime ON songless_tracks (anime);
