@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Миниигры · Теплица</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
+  <link rel="stylesheet" href="../css/main.css?v=10">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Страница миниигр: доступна только по прямой ссылке, ссылок на неё
+       в интерфейсе нет. Список игр задаётся в GAMES внизу страницы. */
+    .page { max-width: 960px; margin: 0 auto; padding: 0 18px 40px; }
+    .page-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 22px 0 16px; }
+    .page-brand { display: flex; align-items: center; gap: 12px; }
+    .page-brand img { width: 44px; height: 44px; border-radius: 13px; box-shadow: var(--shadow); }
+    .page-brand h1 { margin: 0; font-size: 19px; }
+    .page-brand p { margin: 2px 0 0; font-size: 13px; color: var(--text-dim); }
+    .page-actions { display: flex; align-items: center; gap: 8px; }
+
+    .summary { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .stat { padding: 6px 11px; border-radius: 999px; background: var(--accent-soft); font-size: 13px; color: var(--text-dim); }
+    .stat b { color: var(--text); font-size: 14px; }
+
+    .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+    .game {
+      display: flex; flex-direction: column; gap: 10px; padding: 18px;
+      background: var(--surface-solid); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+    }
+    .game-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .game-icon { font-size: 26px; line-height: 1; }
+    .game h2 { margin: 0; font-size: 17px; }
+    .game-desc { margin: 0; font-size: 13.5px; color: var(--text-dim); flex: 1 1 auto; }
+    .game-desc.pending { font-style: italic; }
+    .game-foot { display: flex; align-items: center; gap: 8px; }
+    .tag { font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--text-dim); }
+    .tag.ready { background: var(--accent); color: #fff; }
+
+    .note { font-size: 13px; color: var(--text-dim); margin: 12px 0 0; }
+
+    @media (max-width: 560px) {
+      .page-brand h1 { font-size: 17px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="page">
+
+    <header class="page-head">
+      <div class="page-brand">
+        <img src="../icons/icon-192.png" alt="">
+        <div>
+          <h1>Миниигры</h1>
+          <p>Небольшие игры для перерыва · страница открывается только по прямой ссылке</p>
+        </div>
+      </div>
+      <div class="page-actions">
+        <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
+        <a class="icon-btn" href="../" title="Вернуться к панели теплицы">←</a>
+      </div>
+    </header>
+
+    <div class="summary">
+      <span class="stat">игр в списке <b id="games-count">0</b></span>
+      <span class="stat">готовы к запуску <b id="games-ready">0</b></span>
+    </div>
+
+    <main class="grid" id="games-grid"></main>
+
+    <p class="note">
+      Описания игр появятся позже — сейчас на их месте заготовки. Чтобы вписать описание
+      или открыть игру, отредактируйте список <code>GAMES</code> в коде этой страницы:
+      поля <code>description</code> и <code>href</code>.
+    </p>
+
+    <footer class="footer">
+      <span>миниигры · прямой доступ</span>
+      <span id="clock">—</span>
+    </footer>
+  </div>
+
+  <script>
+    'use strict';
+
+    /* Список миниигр. Для каждой игры:
+         title       — название;
+         icon        — эмодзи-иконка;
+         description — описание; пустая строка показывает заглушку «Описание появится позже»;
+         href        — путь к странице игры; пока не задан, кнопка неактивна. */
+    const GAMES = [
+      { id: 'reaction', title: 'Реакция', icon: '⚡', description: '', href: '' },
+      { id: 'memory', title: 'Память', icon: '🧠', description: '', href: '' },
+      { id: 'fifteen', title: 'Пятнашки', icon: '🧩', description: '', href: '' },
+      { id: 'guess', title: 'Угадай число', icon: '🎯', description: '', href: '' }
+    ];
+
+    const THEME_KEY = 'greenhouse.games.theme';
+    const $ = (selector) => document.querySelector(selector);
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function renderGames() {
+      const grid = $('#games-grid');
+      const ready = GAMES.filter((game) => Boolean(game.href)).length;
+      $('#games-count').textContent = GAMES.length;
+      $('#games-ready').textContent = ready;
+
+      grid.innerHTML = GAMES.map((game) => {
+        const pending = !game.description;
+        const description = pending
+          ? 'Описание появится позже'
+          : escapeHtml(game.description);
+        const action = game.href
+          ? `<a class="btn btn-primary btn-sm" href="${escapeHtml(game.href)}">Играть</a>`
+          : '<button class="btn btn-ghost btn-sm" type="button" disabled>скоро</button>';
+        return `
+          <article class="game" id="game-${escapeHtml(game.id)}">
+            <div class="game-top">
+              <span class="game-icon" aria-hidden="true">${game.icon}</span>
+              <span class="tag${game.href ? ' ready' : ''}">${game.href ? 'доступна' : 'в разработке'}</span>
+            </div>
+            <h2>${escapeHtml(game.title)}</h2>
+            <p class="game-desc${pending ? ' pending' : ''}">${description}</p>
+            <div class="game-foot">${action}</div>
+          </article>`;
+      }).join('');
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+    }
+
+    function initTheme() {
+      let theme = '';
+      try {
+        theme = localStorage.getItem(THEME_KEY) || '';
+        if (!theme) {
+          const panel = JSON.parse(localStorage.getItem('greenhouse.state.v1') || '{}');
+          theme = (panel && panel.theme) || '';
+        }
+      } catch (error) {
+        theme = '';
+      }
+      applyTheme(theme);
+      $('#toggle-theme').addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        applyTheme(next);
+        try {
+          localStorage.setItem(THEME_KEY, next);
+        } catch (error) {
+          /* приватный режим — тема просто не сохранится */
+        }
+      });
+    }
+
+    function initClock() {
+      const node = $('#clock');
+      const update = () => {
+        node.textContent = new Date().toLocaleString('ru-RU', {
+          day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+      };
+      update();
+      setInterval(update, 1000);
+    }
+
+    function init() {
+      initTheme();
+      initClock();
+      renderGames();
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
