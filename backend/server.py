@@ -12,6 +12,15 @@
 
 Доступ к API закрывается ключом --token (или GREENHOUSE_TOKEN): тогда все
 запросы /api/* требуют заголовок X-Api-Token либо параметр ?token=...
+Исключение — разделы /api/auth/*, /api/admin/* и /api/secret/*: они защищены
+паролем пользователя (Bearer-токен), иначе войти было бы невозможно.
+
+Учётные записи панели хранятся в таблице users (пароли — PBKDF2-SHA256),
+токены входа — в auth_sessions, состояние панели пользователя — в user_states.
+Регистрация в панели свободная: любой может создать себе аккаунт, роль всегда
+«user». При первом запуске дополнительно создаётся администратор admin: пароль
+берётся из GREENHOUSE_ADMIN_PASSWORD, иначе генерируется и печатается в консоль.
+Секретная страница данных: /TriEblanaiPraktika (файл front/TriEblanaiPraktika).
 
 API (JSON):
     GET  /api/health                     состояние сервиса
@@ -27,6 +36,20 @@ API (JSON):
     POST /api/settings                   {"moisture_target":55,...}
     POST /api/mode                       {"mode":"auto|eco|boost|manual"}
     POST /api/logs/clear                 очистить журнал
+    POST /api/auth/login                 {"username":"...","password":"..."} → токен и состояние
+    POST /api/auth/register              {"username":"...","password":"..."} свободная регистрация
+    POST /api/auth/logout                (Bearer) завершить сессию
+    GET  /api/auth/me                    (Bearer) текущий пользователь и его состояние
+    GET  /api/auth/state                 (Bearer) сохранённое состояние панели
+    POST /api/auth/state                 (Bearer) {"...": "..."} сохранить состояние
+    POST /api/auth/password              (Bearer) {"current":"...","new":"..."} смена пароля
+    GET  /api/admin/users                (admin) список аккаунтов
+    POST /api/admin/users                (admin) {"username":"...","password":"...","role":"user"}
+    POST /api/admin/users/<id>/password  (admin) {"new":"..."} сброс пароля
+    DELETE /api/admin/users/<id>         (admin) удалить аккаунт (кроме последнего админа)
+    GET  /api/secret/data                записи секретной страницы
+    POST /api/secret/data                (admin) {"name":"...","value":"..."} создать/обновить
+    DELETE /api/secret/data/<id>         (admin) удалить запись
 """
 from __future__ import annotations
 
@@ -36,27 +59,43 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import sys
 import threading
 import time
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, urlparse
 
 try:  # запуск как модуль: python -m backend.server
+    from .auth import (
+        ROLES, SESSION_DAYS, hash_password, new_token, normalize_username, public_user,
+        validate_password, validate_role, validate_username, verify_password,
+    )
     from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database
     from .arduino import ArduinoLink
 except ImportError:  # запуск как файл: python backend/server.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from auth import (  # type: ignore
+        ROLES, SESSION_DAYS, hash_password, new_token, normalize_username, public_user,
+        validate_password, validate_role, validate_username, verify_password,
+    )
     from db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database  # type: ignore
     from arduino import ArduinoLink  # type: ignore
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONT = ROOT / "front"
 DEFAULT_DB = ROOT / "data" / "greenhouse.sqlite3"
+
+# Логин администратора, который создаётся при первом запуске сервера.
+ADMIN_NAME = "admin"
+
+# Ограничитель попыток входа и регистрации: не больше N за окно, в расчёте на адрес.
+AUTH_ATTEMPTS = 10
+AUTH_WINDOW_SECONDS = 60
 
 MODE_PRESETS: Dict[str, Optional[Dict[str, Any]]] = {
     "auto": {"moisture_target": 55, "moisture_threshold": 35, "temperature_threshold": 30, "light_threshold": 8000},
@@ -81,6 +120,8 @@ class Application:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._zone_names = {zone["id"]: zone["name"] for zone in db.zones()}
+        self._attempts: Dict[str, list] = {}
+        self._attempts_lock = threading.Lock()
 
     # ------------------------------------------------------------------- доступ
     def authorized(self, headers: Any, query: Dict[str, str]) -> bool:
@@ -89,6 +130,110 @@ class Application:
             return True
         provided = headers.get("X-Api-Token") or query.get("token") or ""
         return hmac.compare_digest(provided, self.token)
+
+    # ----------------------------------------------------------------- аккаунты
+    def ensure_admin(self, password: Optional[str] = None) -> Optional[str]:
+        """Создаёт администратора, пока аккаунтов нет.
+
+        Возвращает сгенерированный пароль (если он не задан явно) — чтобы
+        сервер мог один раз показать его в консоли. Иначе возвращает None.
+        """
+        if self.db.user_count():
+            return None
+        generated: Optional[str] = None
+        if not password:
+            generated = secrets.token_urlsafe(9)
+            password = generated
+        validate_password(password)
+        self.db.create_user(ADMIN_NAME, hash_password(password), "admin")
+        return generated
+
+    def user_by_token(self, token: str) -> Optional[Dict[str, Any]]:
+        return self.db.session_user(token) if token else None
+
+    def allow_attempt(self, client: str) -> bool:
+        """Свободная регистрация и вход открыты всем, поэтому попытки ограничиваем.
+
+        Скользящее окно на адрес: без него пароль можно было бы перебирать
+        без ограничений. Ограничитель живёт в памяти и обнуляется при перезапуске.
+        """
+        now = time.time()
+        with self._attempts_lock:
+            recent = [moment for moment in self._attempts.get(client, []) if now - moment < AUTH_WINDOW_SECONDS]
+            if len(recent) >= AUTH_ATTEMPTS:
+                self._attempts[client] = recent
+                return False
+            recent.append(now)
+            self._attempts[client] = recent
+        return True
+
+    def login(self, username: str, password: str) -> Dict[str, Any]:
+        """Проверяет логин и пароль и открывает сессию."""
+        user = self.db.find_user(normalize_username(username))
+        if not user or not verify_password(password, user.get("password_hash")):
+            raise ValueError("Неверный логин или пароль")
+        token = new_token()
+        expires = datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)
+        self.db.create_session(user["id"], token, expires)
+        self.db.add_log(f"Вход в панель: {user['username']}", "info")
+        return {
+            "token": token,
+            "user": public_user(user),
+            "state": self.db.user_state(user["id"]),
+            "expires_in_days": SESSION_DAYS,
+        }
+
+    def logout(self, token: str) -> None:
+        self.db.delete_session(token)
+
+    def register(self, username: str, password: str) -> Dict[str, Any]:
+        """Свободная регистрация: роль всегда «user», сразу открываем сессию.
+
+        Администратора самому себе выдать нельзя — роль меняет только владелец
+        аккаунта admin с секретной страницы. Регистрация открыта всем, поэтому
+        обработчик входа вызывается тем же путём, что и обычный вход.
+        """
+        user = self.create_user(username, password, "user")
+        result = self.login(user["username"], password)
+        result["created"] = True
+        return result
+
+    def create_user(self, username: str, password: str, role: str = "user") -> Dict[str, Any]:
+        name = validate_username(username)
+        validate_password(password)
+        user = self.db.create_user(name, hash_password(password), validate_role(role))
+        self.db.add_log(f"Создан пользователь {name} ({user['role']})", "info")
+        return user
+
+    def delete_user(self, user_id: int) -> Dict[str, Any]:
+        user = self.db.get_user(user_id)
+        if not user:
+            raise ValueError("Пользователь не найден")
+        if user["role"] == "admin" and len(self.admins()) <= 1:
+            raise ValueError("Нельзя удалить последнего администратора")
+        self.db.delete_user(user_id)
+        self.db.add_log(f"Удалён пользователь {user['username']}", "info")
+        return user
+
+    def admins(self) -> List[Dict[str, Any]]:
+        return [user for user in self.db.list_users() if user["role"] == "admin"]
+
+    def change_password(self, user_id: int, current: str, new: str) -> None:
+        """Смена пароля: свой пароль требует подтверждения текущим."""
+        user = self.db.find_user_by_id(user_id)
+        if not user or not verify_password(current, user.get("password_hash")):
+            raise ValueError("Текущий пароль указан неверно")
+        self.db.set_user_password(user_id, hash_password(validate_password(new)))
+        self.db.add_log(f"Смена пароля: {user['username']}", "info")
+
+    def reset_password(self, user_id: int, new: str) -> None:
+        """Сброс пароля администратором — текущий пароль не спрашивается."""
+        if not self.db.get_user(user_id):
+            raise ValueError("Пользователь не найден")
+        self.db.set_user_password(user_id, hash_password(validate_password(new)))
+
+    def save_user_state(self, user_id: int, payload: Dict[str, Any]) -> None:
+        self.db.save_user_state(user_id, payload)
 
     # ---------------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -330,8 +475,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Api-Token")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Api-Token, Authorization")
 
     def _json(self, payload: Any, status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -385,10 +530,29 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._error("Только API принимает POST", 405)
 
+    def do_DELETE(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path
+        if path.startswith("/api/"):
+            self._handle_api("DELETE", path)
+        else:
+            self._error("Только API принимает DELETE", 405)
+
     # ------------------------------------------------------------- API routes
+    def _bearer_token(self) -> str:
+        """Токен входа из заголовка Authorization: Bearer <token>."""
+        header = self.headers.get("Authorization") or ""
+        if header.lower().startswith("bearer "):
+            return header[7:].strip()
+        return ""
+
     def _handle_api(self, method: str, path: str) -> None:
         app = self.app
         query = self._query()
+
+        # Вход и секретная страница защищены паролем пользователя, а не общим
+        # ключом, иначе войти было бы невозможно. Общий ключ их не закрывает.
+        if path.startswith(("/api/auth/", "/api/admin/", "/api/secret/")):
+            return self._handle_accounts_api(method, path)
 
         if not app.authorized(self.headers, query):
             return self._error("Неверный или отсутствующий API-ключ", 401)
@@ -460,6 +624,117 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Внутренняя ошибка: {exc}", 500)
 
+    # -------------------------------------------- аккаунты и записи секретной стр.
+    def _handle_accounts_api(self, method: str, path: str) -> None:
+        """Вход, состояние пользователя, управление аккаунтами и данные страницы."""
+        app = self.app
+        try:
+            token = self._bearer_token()
+            user = app.user_by_token(token)
+            client = self.client_address[0] if self.client_address else "?"
+
+            if method == "POST" and path == "/api/auth/login":
+                if not app.allow_attempt(client):
+                    return self._error("Слишком много попыток входа. Подождите минуту и повторите", 429)
+                data = self._body()
+                try:
+                    result = app.login(str(data.get("username") or ""), str(data.get("password") or ""))
+                except ValueError as exc:
+                    return self._error(str(exc), 401)
+                return self._json(result)
+
+            if method == "POST" and path == "/api/auth/register":
+                if not app.allow_attempt(client):
+                    return self._error("Слишком много попыток регистрации. Подождите минуту и повторите", 429)
+                data = self._body()
+                try:
+                    result = app.register(str(data.get("username") or ""), str(data.get("password") or ""))
+                except ValueError as exc:
+                    return self._error(str(exc), 400)
+                return self._json(result, 201)
+
+            if method == "POST" and path == "/api/auth/logout":
+                app.logout(token)
+                return self._json({"ok": True})
+
+            if method == "GET" and path == "/api/auth/me":
+                if not user:
+                    return self._error("Требуется вход", 401)
+                return self._json({"user": user})
+
+            if path == "/api/auth/state":
+                if not user:
+                    return self._error("Требуется вход", 401)
+                if method == "GET":
+                    return self._json({"state": app.db.user_state(user["id"])})
+                if method == "POST":
+                    app.save_user_state(user["id"], self._body())
+                    return self._json({"ok": True, "saved_at": _now_iso()})
+
+            if method == "POST" and path == "/api/auth/password":
+                if not user:
+                    return self._error("Требуется вход", 401)
+                data = self._body()
+                app.change_password(user["id"], str(data.get("current") or ""), str(data.get("new") or ""))
+                app.logout(token)  # после смены пароля токен закрываем: нужен новый вход
+                return self._json({"ok": True, "relogin": True})
+
+            if path == "/api/admin/users":
+                if not self._require_admin(user):
+                    return self._error("Нужны права администратора", 403)
+                if method == "GET":
+                    return self._json({"users": app.db.list_users()})
+                if method == "POST":
+                    data = self._body()
+                    created = app.create_user(str(data.get("username") or ""),
+                                              str(data.get("password") or ""),
+                                              str(data.get("role") or "user"))
+                    return self._json({"user": created}, 201)
+
+            match = re.fullmatch(r"/api/admin/users/(\d+)/password", path)
+            if method == "POST" and match:
+                if not self._require_admin(user):
+                    return self._error("Нужны права администратора", 403)
+                app.reset_password(int(match.group(1)), str(self._body().get("new") or ""))
+                return self._json({"ok": True})
+
+            match = re.fullmatch(r"/api/admin/users/(\d+)", path)
+            if method == "DELETE" and match:
+                if not self._require_admin(user):
+                    return self._error("Нужны права администратора", 403)
+                return self._json({"ok": True, "user": app.delete_user(int(match.group(1)))})
+
+            if path == "/api/secret/data":
+                if method == "GET":
+                    return self._json({"data": app.db.secret_data()})
+                if not self._require_admin(user):
+                    return self._error("Нужны права администратора", 403)
+                if method == "POST":
+                    data = self._body()
+                    name = str(data.get("name") or "").strip()
+                    if not name:
+                        return self._error("Не указано имя записи (name)")
+                    entry = app.db.set_secret_data(name, str(data.get("value") or ""))
+                    return self._json({"entry": entry})
+
+            match = re.fullmatch(r"/api/secret/data/(\d+)", path)
+            if method == "DELETE" and match:
+                if not self._require_admin(user):
+                    return self._error("Нужны права администратора", 403)
+                if not app.db.delete_secret_data(int(match.group(1))):
+                    return self._error("Запись не найдена", 404)
+                return self._json({"ok": True})
+
+            return self._error(f"Не найдено: {method} {path}", 404)
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Внутренняя ошибка: {exc}", 500)
+
+    @staticmethod
+    def _require_admin(user: Optional[Dict[str, Any]]) -> bool:
+        return bool(user and user.get("role") == "admin")
+
     # ------------------------------------------------------------- static files
     def _serve_static(self, path: str) -> None:
         if path in ("", "/"):
@@ -495,14 +770,18 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def create_server(host: str, port: int, database: DatabaseLike, serial_port: Optional[str],
-                  baud: int, simulator: bool, token: Optional[str] = None) -> ThreadingHTTPServer:
+                  baud: int, simulator: bool, token: Optional[str] = None,
+                  admin_password: Optional[str] = None) -> ThreadingHTTPServer:
     database.initialize()
+    database.purge_sessions()
     link = ArduinoLink(database, port=serial_port, baudrate=baud, allow_simulator=simulator)
     app = Application(database, link, token)
 
     server = ThreadingHTTPServer((host, port), Handler)
     server.daemon_threads = True
     server.app = app  # type: ignore[attr-defined]
+    # Пароль админа показываем один раз — при самом первом создании аккаунта.
+    server.admin_password = app.ensure_admin(admin_password)  # type: ignore[attr-defined]
     app.start()
     return server
 
@@ -524,6 +803,9 @@ def main() -> None:
     parser.add_argument("--token", default=os.environ.get("GREENHOUSE_TOKEN"),
                         help="API-ключ: если задан, все запросы /api/* требуют заголовок "
                              "X-Api-Token или параметр ?token=...")
+    parser.add_argument("--admin-password", default=os.environ.get("GREENHOUSE_ADMIN_PASSWORD"),
+                        help="пароль администратора «admin» при самом первом запуске; "
+                             "если не задан, сервер сгенерирует и напечатает его")
     parser.add_argument("--serial", dest="serial_port", default=None, help="COM-порт Arduino, например COM3")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--no-simulator", action="store_true", help="запретить эмулятор (нужна реальная плата)")
@@ -532,11 +814,20 @@ def main() -> None:
 
     database = open_database(args.db, args.dsn)
     server = create_server(args.host, args.port, database,
-                           args.serial_port, args.baud, not args.no_simulator, args.token)
+                           args.serial_port, args.baud, not args.no_simulator, args.token,
+                           args.admin_password)
     url = f"http://{args.host}:{server.server_port}/"
     print(f"Теплица: {url}")
     print(f"Участков: {ZONE_COUNT}, БД: {_mask_dsn(args.dsn) if args.dsn else args.db}")
     print(f"API-ключ: {'включён' if args.token else 'выключен'}")
+    generated = getattr(server, "admin_password", None)
+    if generated:
+        print(f"Создан администратор «{ADMIN_NAME}». Пароль: {generated}")
+        print("Смените пароль после входа или задайте GREENHOUSE_ADMIN_PASSWORD до первого запуска.")
+    print(f"Секретная страница: {url}TriEblanaiPraktika")
+    # flush: сервер часто запускают как фоновый процесс, и буферизованный вывод
+    # со сгенерированным паролем администратора был бы потерян.
+    sys.stdout.flush()
     if not args.token and args.host not in ("127.0.0.1", "localhost", "::1"):
         print("ВНИМАНИЕ: сервер опубликован по сети без API-ключа — команды теплице "
               "доступны любому. Задайте --token или GREENHOUSE_TOKEN.", file=sys.stderr)

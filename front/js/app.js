@@ -7,11 +7,14 @@
 'use strict';
 
 const STORAGE_KEY = 'greenhouse.state.v1';
+const AUTH_KEY = 'greenhouse.auth.v1';
 const TICK_MS = 2000;
 const MAX_POINTS = 60;
+// Как часто состояние панели уезжает на сервер в аккаунт пользователя (мс).
+const STATE_SYNC_MS = 10000;
 // Версия ссылок на assets: поднимайте вместе с VERSION в service-worker.js
 // и ссылками в index.html — хостинг кэширует .js/.css на 45 дней.
-const ASSET_VERSION = '1';
+const ASSET_VERSION = '6';
 
 const MODE_NAMES = { auto: 'Авто', eco: 'Эко', boost: 'Интенсив', manual: 'Ручной' };
 
@@ -121,7 +124,418 @@ function saveState() {
   } catch (error) {
     console.warn('Не удалось сохранить состояние:', error);
   }
+  scheduleSync();
 }
+
+/* ------------------------------- авторизация ------------------------------ */
+
+let auth = loadAuth();          // токен, профиль и признак гостевого режима
+let syncReady = false;          // пока состояние не восстановлено, на сервер не пишем
+let syncTimer = null;           // отложенная отправка состояния
+let lastSyncedState = null;     // что уже сохранено на сервере
+let lastSyncAt = 0;             // когда сохраняли в прошлый раз
+let gateDismissed = false;      // экран входа закрыт «Без входа» в этой вкладке
+
+function loadAuth() {
+  try {
+    const raw = localStorage.getItem(AUTH_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      if (saved && typeof saved.token === 'string' && saved.token) {
+        return { token: saved.token, user: saved.user || null, guest: false };
+      }
+      if (saved && saved.guest) return { token: '', user: null, guest: true };
+    }
+  } catch (error) {
+    console.warn('Не удалось прочитать данные входа:', error);
+  }
+  return { token: '', user: null, guest: false };
+}
+
+function saveAuth() {
+  try {
+    if (auth.token) localStorage.setItem(AUTH_KEY, JSON.stringify({ token: auth.token, user: auth.user }));
+    else if (auth.guest) localStorage.setItem(AUTH_KEY, JSON.stringify({ guest: true }));
+    else localStorage.removeItem(AUTH_KEY);
+  } catch (error) {
+    console.warn('Не удалось сохранить данные входа:', error);
+  }
+}
+
+const isLoggedIn = () => Boolean(auth.token);
+/* Гостевой режим — вход без пароля. Управлять теплицей нельзя: команды
+   уходили бы на реальные насосы и лампы без учётной записи. Пока открыт
+   экран входа, панель и так недоступна, поэтому считаем ограничения только
+   после того, как экран закрыт. */
+const isLimited = () => !isLoggedIn() && state.online && !loginGateOpen();
+const loginGateOpen = () => {
+  const gate = $('#login-gate');
+  return Boolean(gate && !gate.hidden);
+};
+const apiRoot = () => (state.apiBase || '').replace(/\/$/, '');
+const authOnlyHeaders = () => (auth.token ? { Authorization: `Bearer ${auth.token}` } : {});
+
+/* Состояние для сервера: без секретов и без того, что и так приходит с сервера
+   (графики и признак связи), иначе каждый тик перезаписывал бы одно и то же. */
+function syncPayload() {
+  const payload = clone(state);
+  delete payload.apiToken;
+  delete payload.apiBase;
+  delete payload.online;
+  delete payload.history;
+  return payload;
+}
+
+function scheduleSync() {
+  if (!syncReady || !isLoggedIn()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushStateToServer, 1200);
+}
+
+async function pushStateToServer() {
+  if (!syncReady || !isLoggedIn()) return;
+  const body = JSON.stringify(syncPayload());
+  const now = Date.now();
+  if (body === lastSyncedState) return;
+  const wait = STATE_SYNC_MS - (now - lastSyncAt);
+  if (wait > 0) {
+    // Не теряем изменение: переносим отправку на конец интервала.
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(pushStateToServer, wait);
+    return;
+  }
+  lastSyncedState = body;
+  lastSyncAt = now;
+  try {
+    const response = await fetch(`${apiRoot()}/api/auth/state`, {
+      method: 'POST',
+      headers: apiHeaders({ 'Content-Type': 'application/json' }),
+      body
+    });
+    if (response.status === 401) signOut('Сессия истекла, войдите снова');
+  } catch (error) {
+    lastSyncedState = null; // сервер недоступен — сохраним при следующем изменении
+  }
+}
+
+/* Восстанавливает состояние, сохранённое за пользователем. Массивы (участки,
+   журнал) mergeDefaults не переносит, поэтому копируем их отдельно. */
+function applyRemoteState(saved) {
+  const keep = { apiBase: state.apiBase, apiToken: state.apiToken, online: state.online };
+  state = mergeDefaults(clone(DEFAULTS), saved);
+  ['zones', 'logs'].forEach((key) => {
+    if (Array.isArray(saved[key]) && saved[key].length) state[key] = clone(saved[key]);
+  });
+  state.apiBase = keep.apiBase;
+  state.apiToken = keep.apiToken;
+  state.online = keep.online;
+  if (!state.zones.length) seedZones();
+  document.documentElement.dataset.theme = state.theme;
+  switchView(state.view || 'dashboard', false);
+}
+
+async function fetchSavedState() {
+  try {
+    const response = await fetch(`${apiRoot()}/api/auth/state`, { headers: authOnlyHeaders() });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.state || null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function login(username, password) {
+  const response = await fetch(`${apiRoot()}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  auth = { token: data.token, user: data.user, guest: false };
+  saveAuth();
+  if (data.state) applyRemoteState(data.state);
+  return data;
+}
+
+/* Регистрация свободная: сервер сам создаёт аккаунт с ролью «user»
+   и сразу открывает сессию, поэтому отдельный вход не нужен. */
+async function registerUser(username, password) {
+  const response = await fetch(`${apiRoot()}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  auth = { token: data.token, user: data.user, guest: false };
+  saveAuth();
+  if (data.state) applyRemoteState(data.state);
+  return data;
+}
+
+function signOut(message) {
+  const token = auth.token;
+  auth = { token: '', user: null, guest: false };
+  saveAuth();
+  syncReady = false;
+  lastSyncedState = null;
+  gateDismissed = false;
+  setGateMode('login');
+  if (token) {
+    fetch(`${apiRoot()}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    }).catch(() => { /* выход не критичен, токен всё равно удалён */ });
+  }
+  renderUserBadge();
+  showLoginGate();
+  if (message) toast(message, 'warn');
+}
+
+function showLoginGate(reason) {
+  const gate = $('#login-gate');
+  if (!gate) return;
+  gateDismissed = false;
+  gate.hidden = false;
+  document.body.classList.add('auth-locked');
+  renderLimited();
+  const error = $('#login-error');
+  if (error) {
+    error.textContent = reason || '';
+    error.hidden = !reason;
+  }
+  const field = $('#login-user');
+  if (field && !field.value) field.focus();
+}
+
+function hideLoginGate() {
+  const gate = $('#login-gate');
+  if (gate) gate.hidden = true;
+  document.body.classList.remove('auth-locked');
+  renderLimited();
+}
+
+/* Экран входа умеет две вещи: войти в существующий аккаунт и создать новый.
+   Поля одинаковые, отличается только подпись кнопки и подсказка. */
+let gateMode = 'login';
+
+function setGateMode(mode, message) {
+  gateMode = mode === 'register' ? 'register' : 'login';
+  const registering = gateMode === 'register';
+  const title = $('#login-title');
+  const hint = $('#login-hint');
+  const submit = $('#login-submit');
+  const confirm = $('#login-confirm-field');
+  const toggle = $('#login-toggle');
+  if (title) title.textContent = registering ? 'Регистрация' : 'Вход в панель';
+  if (hint) {
+    hint.textContent = registering
+      ? 'Аккаунт создаётся сразу, пароль понадобится для входа с другого устройства.'
+      : 'Войдите — теплица вспомнит ваши настройки, пороги и открытый в прошлый раз раздел.';
+  }
+  if (submit) submit.textContent = registering ? 'Зарегистрироваться' : 'Войти';
+  if (confirm) confirm.hidden = !registering;
+  if (toggle) toggle.textContent = registering ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
+  const error = $('#login-error');
+  if (error) {
+    error.textContent = message || '';
+    error.hidden = !message;
+  }
+  const pass = $('#login-pass');
+  if (pass) pass.autocomplete = registering ? 'new-password' : 'current-password';
+}
+
+function renderUserBadge() {
+  const pill = $('#user-pill');
+  const logoutButton = $('[data-action="logout"]');
+  const loginButton = $('[data-action="show-login"]');
+  const loggedIn = isLoggedIn() && Boolean(auth.user);
+  if (pill) {
+    if (loggedIn) {
+      const name = $('#user-name');
+      if (name) name.textContent = auth.user.username;
+      pill.hidden = false;
+      pill.classList.toggle('admin', auth.user.role === 'admin');
+      pill.title = auth.user.role === 'admin'
+        ? 'Вы вошли как администратор'
+        : 'Вы вошли в аккаунт';
+    } else {
+      pill.hidden = true;
+    }
+  }
+  if (logoutButton) logoutButton.hidden = !loggedIn;
+  if (loginButton) loginButton.hidden = loggedIn;
+}
+
+/* Гостевой режим: смотреть можно, управлять — нет.
+   Полосу-напоминание показываем только когда теплица реально на связи. */
+function renderLimited() {
+  const limited = isLimited();
+  document.body.classList.toggle('limited', limited);
+  const banner = $('#limit-banner');
+  if (banner) banner.hidden = !limited;
+  $$('[data-action]').forEach((button) => {
+    const control = LIMITED_ACTIONS.has(button.dataset.action);
+    button.setAttribute('aria-disabled', String(limited && control));
+    if (control) button.classList.toggle('blocked', limited);
+  });
+  $$('[data-model]').forEach((input) => {
+    const control = LIMITED_MODELS.has(input.dataset.model);
+    input.disabled = limited && control;
+    input.title = limited && control ? 'Доступно после входа в аккаунт' : '';
+  });
+  $$('.mode').forEach((button) => button.classList.toggle('blocked', limited));
+}
+
+/* Пропускает действие только вошедшему пользователю. Гостю объясняем, почему
+   нельзя, и предлагаем зарегистрироваться. action — инфинитив: «сменить режим». */
+function requireAccount(action) {
+  if (!isLimited()) return true;
+  toast(`Гостевой режим: нельзя ${action}. Зарегистрируйтесь или войдите.`, 'warn');
+  const banner = $('#limit-banner');
+  if (banner) {
+    banner.classList.remove('flash');
+    void banner.offsetWidth; // перезапускаем анимацию подсветки
+    banner.classList.add('flash');
+  }
+  return false;
+}
+
+/* Проверяет, отвечает ли сервер: без сервера требовать вход бессмысленно. */
+async function serverReachable() {
+  const base = apiRoot();
+  const onHttp = location.protocol === 'http:' || location.protocol === 'https:';
+  const url = base ? `${base}/api/health` : (onHttp ? '/api/health' : null);
+  if (!url) return false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const response = await fetch(url, { signal: controller.signal, headers: apiHeaders() });
+    clearTimeout(timer);
+    return response.status !== 401 ? response.ok : true; // 401 = сервер жив, ключ иной
+  } catch (error) {
+    return false;
+  }
+}
+
+async function initAuth() {
+  if (isLoggedIn()) {
+    try {
+      const response = await fetch(`${apiRoot()}/api/auth/me`, { headers: authOnlyHeaders() });
+      if (response.ok) {
+        const data = await response.json();
+        auth.user = data.user || auth.user;
+        saveAuth();
+        renderUserBadge();
+        const saved = await fetchSavedState();
+        if (saved) applyRemoteState(saved);
+        hideLoginGate();
+        syncReady = true;
+        lastSyncedState = JSON.stringify(syncPayload());
+        return;
+      }
+      if (response.status === 401) {
+        auth = { token: '', user: null, guest: auth.guest };
+        saveAuth();
+      }
+    } catch (error) {
+      // Сервер недоступен: панель продолжает работать на локальных данных.
+      console.warn('Сервер авторизации недоступен:', error);
+      renderUserBadge();
+      hideLoginGate();
+      return;
+    }
+  }
+
+  renderUserBadge();
+  // Гость уже отказался от входа — не показываем экран повторно, только напоминание.
+  if (auth.guest) {
+    gateDismissed = true;
+    hideLoginGate();
+    return;
+  }
+  if (await serverReachable()) {
+    showLoginGate();
+  } else {
+    // Демо без сервера: вход не требуется, панель работает на локальных данных.
+    gateDismissed = true;
+    hideLoginGate();
+  }
+}
+
+async function submitLogin() {
+  const userField = $('#login-user');
+  const passField = $('#login-pass');
+  const confirmField = $('#login-confirm');
+  const error = $('#login-error');
+  const button = $('#login-submit');
+  const registering = gateMode === 'register';
+  const username = (userField?.value || '').trim();
+  const password = passField?.value || '';
+  const showError = (text) => {
+    if (error) { error.textContent = text; error.hidden = false; }
+  };
+
+  if (!username || !password) return showError('Введите логин и пароль');
+  if (registering && password !== (confirmField?.value || '')) {
+    return showError('Пароли не совпадают');
+  }
+  if (registering && password.length < 6) {
+    return showError('Пароль должен быть не короче 6 символов');
+  }
+
+  if (button) button.disabled = true;
+  try {
+    const data = registering ? await registerUser(username, password) : await login(username, password);
+    if (passField) passField.value = '';
+    if (confirmField) confirmField.value = '';
+    if (error) error.hidden = true;
+    gateDismissed = false;
+    hideLoginGate();
+    renderUserBadge();
+    syncReady = true;
+    lastSyncedState = null;
+    addLog(registering ? `Зарегистрирован аккаунт: ${data.user.username}` : `Вход выполнен: ${data.user.username}`);
+    saveState();
+    render();
+    loadRemote(true);
+    if (registering) {
+      toast(`Аккаунт «${data.user.username}» создан. Управление теплицей открыто`);
+    } else {
+      toast(data.state ? 'С возвращением! Состояние восстановлено' : `Здравствуйте, ${data.user.username}!`);
+    }
+  } catch (failure) {
+    showError(failure.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+/* Гость: панель показывает данные теплицы, но команды недоступны. */
+function enterGuestMode() {
+  auth = { token: '', user: null, guest: true };
+  saveAuth();
+  gateDismissed = true;
+  hideLoginGate();
+  renderUserBadge();
+  // Подсказка появится только если сервер на связи: офлайн-демо ограничивать незачем.
+  renderLimited();
+  toast('Гостевой режим: управление теплицей недоступно. Зарегистрируйтесь, чтобы управлять', 'warn');
+}
+
+/* Что именно закрыто в гостевом режиме: команды теплице и её настройки.
+   Остальное — тема, разделы, экспорт, адрес сервера — доступно всем. */
+const LIMITED_ACTIONS = new Set([
+  'toggle', 'pulse', 'zone-device', 'next-mode', 'calibrate'
+]);
+
+const LIMITED_MODELS = new Set([
+  'target', 'photoperiod', 'wateringDuration', 'ventilationDuration', 'windowOpen',
+  'thresholds.moisture', 'thresholds.temperature', 'thresholds.light',
+  'auto.watering', 'auto.ventilation', 'auto.lighting'
+]);
 
 /* --------------------------------- журнал --------------------------------- */
 
@@ -181,6 +595,7 @@ function zoneStatus(sensors) {
 }
 
 function setZoneDevice(zoneId, device, isOn, seconds) {
+  if (!requireAccount('управлять участком')) return;
   const zone = zoneById(zoneId);
   if (!zone) return;
   const target = zone.devices[device];
@@ -202,6 +617,7 @@ function setZoneDevice(zoneId, device, isOn, seconds) {
 }
 
 function setAllZonesDevice(device, isOn, seconds) {
+  if (!requireAccount('управлять участками')) return;
   (state.zones.length ? state.zones : []).forEach((zone) => {
     zone.devices[device].on = Boolean(isOn);
     zone.devices[device].remaining = isOn && seconds ? Number(seconds) : 0;
@@ -614,6 +1030,7 @@ function render() {
   renderZones();
   renderLogs();
   renderConn();
+  renderLimited();
   renderCharts();
 }
 
@@ -634,7 +1051,10 @@ function toast(message, type = 'info') {
 
 /* ------------------------------ действия UI ------------------------------- */
 
-function setDevice(device, isOn, { silent = false, seconds = 0 } = {}) {
+function setDevice(device, isOn, { silent = false, seconds = 0, system = false } = {}) {
+  // system: внутренняя остановка по таймеру — её не блокируем, иначе исполнитель
+  // остался бы включённым, если пользователь вышел из аккаунта во время полива.
+  if (!system && !requireAccount('управлять исполнителями')) return;
   setPath(state, `devices.${device}.on`, isOn);
   if (state.zones.length) {
     state.zones.forEach((zone) => {
@@ -665,7 +1085,7 @@ function pulseDevice(device, seconds) {
 
   clearTimeout(pulseTimers[device]);
   pulseTimers[device] = setTimeout(() => {
-    setDevice(device, false);
+    setDevice(device, false, { system: true });
     toast(`${deviceName(device)} — завершено`);
   }, duration * 1000);
 }
@@ -693,6 +1113,7 @@ const ACTIONS = {
   },
   'install-pwa'() { installPWA(); },
   'next-mode'() {
+    if (!requireAccount('сменить режим')) return;
     const order = ['auto', 'eco', 'boost', 'manual'];
     state.mode = order[(order.indexOf(state.mode) + 1) % order.length];
     applyMode();
@@ -710,6 +1131,7 @@ const ACTIONS = {
     render();
   },
   calibrate() {
+    if (!requireAccount('калибровать датчики')) return;
     addLog('Калибровка датчика влажности выполнена');
     toast('Датчик влажности откалиброван');
     saveState();
@@ -749,6 +1171,16 @@ const ACTIONS = {
     saveState();
     renderLogs();
     toast('Журнал очищен');
+  },
+  logout() { signOut('Вы вышли из аккаунта'); },
+  'show-login'() { showLoginGate(); },
+  'skip-login'() { enterGuestMode(); },
+  'toggle-gate-mode'() {
+    setGateMode(gateMode === 'register' ? 'login' : 'register');
+  },
+  'limit-register'() {
+    setGateMode('register', 'Создайте аккаунт — управление теплицей откроется сразу');
+    showLoginGate();
   }
 };
 
@@ -756,13 +1188,34 @@ function initActions() {
   document.addEventListener('click', (event) => {
     const button = event.target.closest('[data-action]');
     if (!button) return;
+    // Гостю команды теплице не отправляем: сначала объясняем и зовём в аккаунт.
+    if (isLimited() && LIMITED_ACTIONS.has(button.dataset.action)) {
+      requireAccount(button.dataset.action === 'zone-device' ? 'управлять участком'
+        : button.dataset.action === 'next-mode' ? 'сменить режим'
+          : 'управлять исполнителями');
+      return;
+    }
     const action = ACTIONS[button.dataset.action];
     if (action) action(event, button);
   });
 
+  const loginForm = $('#login-form');
+  if (loginForm) {
+    loginForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      submitLogin();
+    });
+  }
+
   $$('[data-model]').forEach((input) => {
     const handler = () => {
       const path = input.dataset.model;
+      // Ползунки управления гостю недоступны, остальное (адрес сервера, ключ) — можно.
+      if (isLimited() && LIMITED_MODELS.has(path)) {
+        requireAccount('менять настройки');
+        bindInputs(); // возвращаем ползунок на сохранённое значение
+        return;
+      }
       let value;
       if (input.type === 'checkbox') value = input.checked;
       else if (input.type === 'range' || input.type === 'number') value = Number(input.value);
@@ -771,6 +1224,7 @@ function initActions() {
       setPath(state, path, value);
       saveState();
       render();
+      if (SERVER_SETTING_MODELS.has(path)) pushSettings();
     };
     input.addEventListener(input.type === 'text' ? 'change' : 'input', handler);
   });
@@ -778,8 +1232,10 @@ function initActions() {
   $('#modes').addEventListener('click', (event) => {
     const button = event.target.closest('.mode');
     if (!button) return;
+    if (!requireAccount('сменить режим')) return;
     state.mode = button.dataset.mode;
     applyMode();
+    if (state.online) postJSON('/api/mode', { mode: state.mode });
     addLog(`Выбран режим: ${MODE_NAMES[state.mode]}`);
     toast(`Режим: ${MODE_NAMES[state.mode]}`);
     saveState();
@@ -804,6 +1260,38 @@ function applyMode() {
   if (!preset) return;
   state.target = preset.target;
   Object.assign(state.thresholds, preset.thresholds);
+}
+
+/* Настройки панели в формате сервера. Режим здесь не передаём: у него
+   отдельный адрес /api/mode, иначе пороги затирали бы пресет. */
+function serverSettings() {
+  return {
+    moisture_target: state.target,
+    moisture_threshold: state.thresholds.moisture,
+    temperature_threshold: state.thresholds.temperature,
+    light_threshold: state.thresholds.light,
+    photoperiod: state.photoperiod,
+    watering_duration: state.wateringDuration,
+    ventilation_duration: state.ventilationDuration,
+    auto_watering: state.auto.watering ? 1 : 0,
+    auto_ventilation: state.auto.ventilation ? 1 : 0,
+    auto_lighting: state.auto.lighting ? 1 : 0
+  };
+}
+
+// Поля панели, которые хранит сервер: их изменения отправляем в /api/settings.
+const SERVER_SETTING_MODELS = new Set([
+  'thresholds.moisture', 'thresholds.temperature', 'thresholds.light',
+  'photoperiod', 'wateringDuration', 'ventilationDuration',
+  'auto.watering', 'auto.ventilation', 'auto.lighting'
+]);
+
+let settingsTimer = null;
+
+function pushSettings() {
+  if (!state.online || !requireAccount('менять настройки')) return;
+  clearTimeout(settingsTimer); // при перетаскивании ползунка шлём только итог
+  settingsTimer = setTimeout(() => postJSON('/api/settings', serverSettings()), 600);
 }
 
 /* ---------------------------- демонстрационные данные ---------------------- */
@@ -938,8 +1426,11 @@ function tick() {
 /* ------------------------------ связь с сервером -------------------------- */
 
 function apiHeaders(extra = {}) {
+  const headers = { ...extra };
   const token = (state.apiToken || '').trim();
-  return token ? { ...extra, 'X-Api-Token': token } : extra;
+  if (token) headers['X-Api-Token'] = token;
+  if (auth.token) headers.Authorization = `Bearer ${auth.token}`;
+  return headers;
 }
 
 async function loadRemote(notify = false) {
@@ -1063,6 +1554,7 @@ function init() {
   setInterval(tick, TICK_MS);
   setInterval(() => loadRemote(false), TICK_MS);
   loadRemote(false);
+  initAuth();
 }
 
 /* ----------------------------------- PWA ---------------------------------- */

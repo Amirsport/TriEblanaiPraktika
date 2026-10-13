@@ -493,6 +493,7 @@ body {
 
 /* ===== Формы ===== */
 .field { display: flex; flex-direction: column; gap: 9px; }
+.field[hidden] { display: none; }
 .field > span { font-size: 13.5px; color: var(--text-dim); }
 .field > span b { color: var(--text); }
 
@@ -526,7 +527,12 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="search"],
+input[type="number"],
+select {
   width: 100%;
   padding: 11px 14px;
   border-radius: var(--radius-sm);
@@ -537,10 +543,33 @@ input[type="text"] {
   font-size: 14px;
 }
 
-input[type="text"]:focus {
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Браузер подсвечивает автозаполнение своим цветом и ломает вид поля:
+   возвращаем оформление панели. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-solid) inset;
+  box-shadow: 0 0 0 1000px var(--surface-solid) inset;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 .check {
@@ -814,6 +843,127 @@ input[type="text"]:focus {
 
 #pwa-install[hidden] { display: none; }
 body.pwa-standalone .app { padding-top: max(18px, env(safe-area-inset-top)); }
+
+/* ===== Вход в аккаунт и профиль ===== */
+.login-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow: auto;
+  background: radial-gradient(900px 500px at 20% -10%, var(--bg-2), var(--bg) 65%);
+  backdrop-filter: blur(6px);
+}
+
+.login-gate[hidden] { display: none; }
+
+body.auth-locked .app { filter: blur(3px); pointer-events: none; user-select: none; }
+
+.login-card {
+  width: min(400px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-lg);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.login-card h2 { font-size: 21px; }
+.login-card .muted { font-size: 13px; }
+.login-hint { font-size: 12.5px; }
+
+.login-error {
+  font-size: 13px;
+  color: var(--danger);
+  background: rgba(217, 86, 79, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.login-error[hidden] { display: none; }
+.login-card .btn[disabled] { opacity: 0.6; cursor: default; }
+
+.user-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.user-pill[hidden] { display: none; }
+.user-pill.admin { border-color: var(--accent); color: var(--accent); }
+.user-pill #user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.link-btn {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ===== Гостевой режим ===== */
+.limit-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 11px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(217, 145, 60, 0.35);
+  background: rgba(217, 145, 60, 0.12);
+  font-size: 14px;
+}
+
+.limit-banner[hidden] { display: none; }
+.limit-banner > span:nth-child(2) { flex: 1 1 220px; }
+
+.limit-banner.flash { animation: limit-flash 0.9s ease 2; }
+
+@keyframes limit-flash {
+  0%, 100% { background: rgba(217, 145, 60, 0.12); }
+  50%      { background: rgba(217, 145, 60, 0.32); }
+}
+
+/* Заблокированные в гостевом режиме элементы остаются видимыми,
+   чтобы было понятно, что откроется после входа в аккаунт. */
+body.limited .modes .mode,
+body.limited .switch,
+body.limited .btn.blocked {
+  opacity: 0.5;
+}
+
+body.limited .modes .mode,
+body.limited .btn.blocked { cursor: not-allowed; }
+
+body.limited .modes .mode.active {
+  outline: 1px dashed var(--border);
+}
 
 /* ===== Адаптивность ===== */
 @media (max-width: 760px) {

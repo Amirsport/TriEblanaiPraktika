@@ -4,6 +4,7 @@
 # Пример:
 #   $env:GREENHOUSE_TOKEN = "длинный-секрет"
 #   $env:GREENHOUSE_DSN   = "postgresql://greenhouse@localhost:5432/greenhouse"
+#   $env:GREENHOUSE_ADMIN_PASSWORD = "пароль-админа"   # нужен только при первом запуске
 #   powershell -ExecutionPolicy Bypass -File _run_public.ps1
 #
 # Остановить: Stop-Process -Id <PID сервера>, <PID туннеля>
@@ -11,6 +12,7 @@ param(
     [int]$Port = 8000,
     [string]$Token = $env:GREENHOUSE_TOKEN,
     [string]$Dsn = $env:GREENHOUSE_DSN,
+    [string]$AdminPassword = $env:GREENHOUSE_ADMIN_PASSWORD,
     [string]$PythonPath = '',
     [string]$CloudflaredPath = 'C:\Program Files (x86)\cloudflared\cloudflared.exe',
     [switch]$NoTunnel
@@ -23,6 +25,12 @@ if (-not $Token) {
     Write-Warning 'API-ключ не задан: команды теплице сможет отдать любой, кто узнает адрес. Задайте $env:GREENHOUSE_TOKEN.'
 }
 
+if (-not $AdminPassword) {
+    Write-Host 'Пароль администратора не задан: при первом запуске сервер создаст аккаунт «admin»' -ForegroundColor Yellow
+    Write-Host 'со случайным паролем и покажет его в своём окне. Задайте $env:GREENHOUSE_ADMIN_PASSWORD,' -ForegroundColor Yellow
+    Write-Host 'чтобы пароль был предсказуемым.' -ForegroundColor Yellow
+}
+
 if (-not $PythonPath) {
     $venv = Join-Path $root '.venv\Scripts\python.exe'
     if (Test-Path $venv) { $PythonPath = $venv } else { $PythonPath = 'python' }
@@ -31,6 +39,7 @@ if (-not $PythonPath) {
 $serverArgs = @('backend/server.py', '--port', $Port, '--host', '127.0.0.1')
 if ($Dsn) { $serverArgs += @('--dsn', $Dsn) }
 if ($Token) { $serverArgs += @('--token', $Token) }
+if ($AdminPassword) { $serverArgs += @('--admin-password', $AdminPassword) }
 
 Write-Host "Сервер: $PythonPath $($serverArgs -join ' ')" -ForegroundColor Cyan
 $server = Start-Process -FilePath $PythonPath -ArgumentList $serverArgs -WorkingDirectory $root -PassThru
@@ -77,8 +86,10 @@ Write-Host ''
 Write-Host '=== Готово ===' -ForegroundColor Green
 Write-Host "Адрес API  : $url" -ForegroundColor Yellow
 Write-Host 'Ключ       : тот, что в GREENHOUSE_TOKEN (в консоль не печатается)'
+Write-Host 'Вход       : аккаунт admin; пароль из GREENHOUSE_ADMIN_PASSWORD или из окна сервера'
 Write-Host "Панель     : http://ai-parnik.ru/  -> раздел «Режим» -> «Подключение к серверу»"
-Write-Host 'Вставьте адрес API и ключ, нажмите «Подключиться».'
+Write-Host "Служебная  : адрес API + /TriEblanaiPraktika  (аккаунты и данные теплицы)"
+Write-Host 'Вставьте адрес API и ключ, нажмите «Подключиться», затем войдите в аккаунт.'
 Write-Host ("Адрес сохранён в: {0}" -f (Join-Path $dataDir 'tunnel-url.txt'))
 Write-Host ''
 Write-Host 'Остановить всё:'

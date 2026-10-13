@@ -13,12 +13,44 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/main.css?v=1">
+  <link rel="stylesheet" href="css/main.css?v=6">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+
+  <!-- ===== Экран входа ===== -->
+  <div class="login-gate" id="login-gate" hidden>
+    <form class="login-card" id="login-form">
+      <div class="login-brand"><span aria-hidden="true">🌿</span> Умная AI-Теплица</div>
+      <h2 id="login-title">Вход в панель</h2>
+      <p class="muted" id="login-hint">Войдите — теплица вспомнит ваши настройки, пороги и открытый в прошлый раз раздел.</p>
+      <label class="field">
+        <span>Логин</span>
+        <input type="text" id="login-user" name="username" autocomplete="username" required>
+      </label>
+      <label class="field">
+        <span>Пароль</span>
+        <input type="password" id="login-pass" name="password" autocomplete="current-password" required>
+      </label>
+      <label class="field" id="login-confirm-field" hidden>
+        <span>Повторите пароль</span>
+        <input type="password" id="login-confirm" name="confirm" autocomplete="new-password">
+      </label>
+      <p class="login-error" id="login-error" hidden></p>
+      <div class="row">
+        <button class="btn btn-primary" type="submit" id="login-submit">Войти</button>
+        <button class="btn btn-ghost" type="button" data-action="skip-login">Без входа</button>
+      </div>
+      <button class="link-btn" type="button" id="login-toggle" data-action="toggle-gate-mode">Создать аккаунт</button>
+      <p class="muted login-hint">
+        Регистрация свободная. Без входа панель работает в гостевом режиме: данные видно,
+        но управлять теплицей нельзя. Первый администратор: <b>admin</b> и пароль,
+        который сервер печатает при первом запуске.
+      </p>
+    </form>
+  </div>
 
   <!-- Декоративный фон -->
   <div class="bg-orbs" aria-hidden="true">
@@ -44,11 +76,25 @@
           <span class="dot"></span>
           <span id="conn-text">Автономный режим</span>
         </div>
+        <div class="user-pill" id="user-pill" title="Вы вошли в аккаунт" hidden>
+          <span aria-hidden="true">👤</span>
+          <span id="user-name">—</span>
+        </div>
+        <button class="icon-btn" type="button" data-action="show-login" title="Войти или зарегистрироваться" hidden>👤</button>
+        <button class="icon-btn" type="button" data-action="logout" title="Выйти из аккаунта" hidden>⎋</button>
         <button class="icon-btn" type="button" id="pwa-install" data-action="install-pwa" title="Установить приложение на телефон" hidden>⬇</button>
         <button class="icon-btn" type="button" data-action="refresh" title="Обновить данные">⟳</button>
         <button class="icon-btn" type="button" data-action="toggle-theme" title="Светлая / тёмная тема">◐</button>
       </div>
     </header>
+
+    <!-- ===== Гостевой режим ===== -->
+    <div class="limit-banner" id="limit-banner" hidden>
+      <span aria-hidden="true">🔒</span>
+      <span>Гостевой режим: данные видно, но управление теплицей закрыто.</span>
+      <button class="btn btn-primary btn-sm" type="button" data-action="limit-register">Зарегистрироваться</button>
+      <button class="btn btn-ghost btn-sm" type="button" data-action="show-login">Войти</button>
+    </div>
 
     <!-- ===== Навигация ===== -->
     <nav class="tabs" id="tabs" aria-label="Разделы">
@@ -426,6 +472,6 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
-  <script src="js/app.js?v=1"></script>
+  <script src="js/app.js?v=6"></script>
 </body>
 </html>

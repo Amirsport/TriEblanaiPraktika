@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Служебная страница · Теплица</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
+  <link rel="stylesheet" href="../css/main.css?v=6">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    .secret-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .secret-note { font-size: 13px; color: var(--text-dim); }
+    .secret-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .secret-table th, .secret-table td {
+      text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top;
+    }
+    .secret-table th { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+    .secret-table td.value { white-space: pre-wrap; word-break: break-word; }
+    .secret-table .empty { color: var(--text-dim); text-align: center; }
+    .table-wrap { overflow-x: auto; }
+    .tag { font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); }
+    .tag.admin { background: rgba(229, 167, 44, 0.2); color: #b07b12; }
+    .secret-form { display: grid; gap: 12px; grid-template-columns: minmax(160px, 1fr) minmax(200px, 2fr) auto; align-items: end; }
+    .lock-banner {
+      display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 13.5px;
+      border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text-dim);
+    }
+    .login-error {
+      font-size: 13px; color: var(--danger); background: rgba(217, 86, 79, 0.12);
+      border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 10px;
+    }
+    [hidden] { display: none !important; }
+    @media (max-width: 700px) { .secret-form { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="app" style="max-width:1000px">
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">🔐</div>
+        <div class="brand-text">
+          <h1>Служебная страница</h1>
+          <p>Аккаунты панели и данные теплицы</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="user-pill" id="who" hidden><span aria-hidden="true">👤</span><span id="who-name">—</span></span>
+        <button class="icon-btn" type="button" id="logout" title="Выйти" hidden>⎋</button>
+        <a class="icon-btn" href="../" title="Вернуться к панели теплицы">←</a>
+      </div>
+    </header>
+
+    <main class="views">
+      <div class="grid-2">
+        <article class="card">
+          <header class="card-head"><h2>Адрес сервера</h2></header>
+          <label class="field">
+            <span>API теплицы</span>
+            <input type="text" id="api-base" placeholder="пусто — тот же хост, что и страница">
+          </label>
+          <div class="secret-actions">
+            <button class="btn btn-ghost" type="button" id="save-base">Сохранить адрес</button>
+            <span class="secret-note" id="base-state">Текущий: —</span>
+          </div>
+          <p class="muted">По умолчанию запросы идут на сервер, который отдал эту страницу.</p>
+        </article>
+
+        <article class="card">
+          <header class="card-head"><h2>Вход администратора</h2></header>
+          <p class="muted" id="auth-state">—</p>
+          <form id="login-form" hidden>
+            <label class="field">
+              <span>Логин</span>
+              <input type="text" id="login-user" autocomplete="username" required>
+            </label>
+            <label class="field">
+              <span>Пароль</span>
+              <input type="password" id="login-pass" autocomplete="current-password" required>
+            </label>
+            <p class="login-error" id="login-error" hidden></p>
+            <button class="btn btn-primary" type="submit" id="login-submit">Войти</button>
+          </form>
+          <div class="lock-banner" id="admin-banner" hidden>
+            <span aria-hidden="true">✅</span>
+            <span>Права администратора активны — можно менять аккаунты и данные.</span>
+          </div>
+        </article>
+      </div>
+
+      <article class="card" id="users-card" hidden>
+        <header class="card-head">
+          <h2>Пользователи</h2>
+          <span class="badge" id="users-count">0</span>
+        </header>
+        <div class="table-wrap">
+          <table class="secret-table">
+            <thead>
+              <tr><th>Логин</th><th>Роль</th><th>Создан</th><th>Действия</th></tr>
+            </thead>
+            <tbody id="users-body"></tbody>
+          </table>
+        </div>
+        <form class="secret-form" id="user-form" style="margin-top:16px">
+          <label class="field"><span>Новый логин</span><input type="text" id="new-user" required></label>
+          <label class="field"><span>Пароль</span><input type="password" id="new-pass" autocomplete="new-password" required></label>
+          <div class="secret-actions">
+            <label class="field" style="min-width:130px">
+              <span>Роль</span>
+              <select id="new-role">
+                <option value="user">Пользователь</option>
+                <option value="admin">Администратор</option>
+              </select>
+            </label>
+            <button class="btn btn-primary" type="submit">Создать</button>
+          </div>
+        </form>
+        <p class="muted" id="users-message"></p>
+        <p class="muted">
+          Пользователи могут зарегистрироваться сами в панели — здесь аккаунт нужен,
+          чтобы выдать роль <b>администратора</b> или восстановить доступ.
+        </p>
+      </article>
+
+      <article class="card">
+        <header class="card-head">
+          <h2>Данные страницы</h2>
+          <span class="badge" id="data-count">0</span>
+        </header>
+        <div class="table-wrap">
+          <table class="secret-table">
+            <thead>
+              <tr><th>Название</th><th>Значение</th><th>Обновлено</th><th></th></tr>
+            </thead>
+            <tbody id="data-body"></tbody>
+          </table>
+        </div>
+        <!-- Сюда позже добавим конкретные поля теплицы: таблица уже готова к наполнению. -->
+        <form class="secret-form" id="data-form" style="margin-top:16px">
+          <label class="field"><span>Название</span><input type="text" id="data-name" placeholder="например: Дата посева" required></label>
+          <label class="field"><span>Значение</span><input type="text" id="data-value" placeholder="текст или число"></label>
+          <button class="btn btn-primary" type="submit">Сохранить</button>
+        </form>
+        <p class="muted" id="data-message">
+          Просмотр открыт всем, кто знает адрес этой страницы. Записи с одинаковым названием перезаписываются.
+        </p>
+      </article>
+    </main>
+
+    <footer class="footer">
+      <span>служебная страница · не для посетителей</span>
+      <span id="clock">—</span>
+    </footer>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    const AUTH_KEY = 'greenhouse.secret.auth';
+    const BASE_KEY = 'greenhouse.secret.apiBase';
+    const PANEL_KEY = 'greenhouse.state.v1';
+
+    const $ = (selector) => document.querySelector(selector);
+
+    let token = '';
+    let user = null;
+
+    /* ------------------------------- адрес API ------------------------------ */
+
+    function panelState() {
+      try {
+        return JSON.parse(localStorage.getItem(PANEL_KEY) || '{}') || {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    function apiBase() {
+      const saved = (localStorage.getItem(BASE_KEY) || '').trim();
+      if (saved) return saved.replace(/\/$/, '');
+      const fromPanel = (panelState().apiBase || '').trim();
+      if (fromPanel) return fromPanel.replace(/\/$/, '');
+      const onHttp = location.protocol === 'http:' || location.protocol === 'https:';
+      return onHttp ? location.origin.replace(/\/$/, '') : '';
+    }
+
+    function showBase() {
+      $('#base-state').textContent = `Текущий: ${apiBase() || 'не задан'}`;
+      $('#api-base').value = localStorage.getItem(BASE_KEY) || '';
+    }
+
+    async function api(path, { method = 'GET', body } = {}) {
+      const base = apiBase();
+      if (!base) throw new Error('Не задан адрес API теплицы');
+      const headers = {};
+      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(`${base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      return data;
+    }
+
+    /* --------------------------------- мелочи ------------------------------- */
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function toast(message, type = 'info') {
+      const host = $('#toasts');
+      const node = document.createElement('div');
+      node.className = `toast ${type === 'info' ? '' : type}`;
+      node.textContent = message;
+      host.appendChild(node);
+      setTimeout(() => {
+        node.classList.add('out');
+        setTimeout(() => node.remove(), 320);
+      }, 2600);
+    }
+
+    function timeLabel(iso) {
+      if (!iso) return '—';
+      const moment = new Date(iso);
+      return Number.isNaN(moment.getTime())
+        ? String(iso)
+        : moment.toLocaleString('ru-RU', {
+          day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit'
+        });
+    }
+
+    /* ---------------------------------- вход -------------------------------- */
+
+    function loadAuth() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(AUTH_KEY) || '{}');
+        token = typeof saved.token === 'string' ? saved.token : '';
+        user = saved.user || null;
+      } catch (error) {
+        token = '';
+        user = null;
+      }
+    }
+
+    function saveAuth() {
+      if (token) localStorage.setItem(AUTH_KEY, JSON.stringify({ token, user }));
+      else localStorage.removeItem(AUTH_KEY);
+    }
+
+    const isAdmin = () => Boolean(token && user && user.role === 'admin');
+
+    function renderAuth() {
+      $('#login-form').hidden = Boolean(token);
+      $('#admin-banner').hidden = !isAdmin();
+      $('#users-card').hidden = !isAdmin();
+      $('#who').hidden = !user;
+      $('#who-name').textContent = user ? user.username : '—';
+      $('#logout').hidden = !token;
+      $('#auth-state').textContent = user
+        ? (isAdmin() ? 'Вы вошли как администратор.' : 'Вы вошли как пользователь: данные доступны только для чтения.')
+        : 'Просмотр данных доступен всем, кто знает этот адрес. Изменения — только администратору.';
+    }
+
+    async function checkSession() {
+      if (!token) return;
+      try {
+        const data = await api('/api/auth/me');
+        user = data.user;
+        saveAuth();
+      } catch (error) {
+        token = '';
+        user = null;
+        saveAuth();
+      }
+    }
+
+    async function login(username, password) {
+      const data = await api('/api/auth/login', { method: 'POST', body: { username, password } });
+      token = data.token;
+      user = data.user;
+      saveAuth();
+    }
+
+    async function logout() {
+      try {
+        await api('/api/auth/logout', { method: 'POST' });
+      } catch (error) {
+        /* выход не критичен: локальный токен всё равно удаляем */
+      }
+      token = '';
+      user = null;
+      saveAuth();
+      refresh();
+    }
+
+    /* -------------------------------- данные -------------------------------- */
+
+    async function loadUsers() {
+      if (!isAdmin()) return;
+      const body = $('#users-body');
+      try {
+        const data = await api('/api/admin/users');
+        const users = data.users || [];
+        $('#users-count').textContent = users.length;
+        body.innerHTML = users.length
+          ? users.map((item) => `
+              <tr>
+                <td><b>${escapeHtml(item.username)}</b></td>
+                <td><span class="tag${item.role === 'admin' ? ' admin' : ''}">${item.role === 'admin' ? 'администратор' : 'пользователь'}</span></td>
+                <td>${escapeHtml(timeLabel(item.created_at))}</td>
+                <td class="secret-actions">
+                  <button class="btn btn-ghost btn-sm" type="button" data-reset="${item.id}" data-name="${escapeHtml(item.username)}">Сбросить пароль</button>
+                  <button class="btn btn-ghost btn-sm" type="button" data-remove="${item.id}" data-name="${escapeHtml(item.username)}">Удалить</button>
+                </td>
+              </tr>`).join('')
+          : '<tr><td colspan="4" class="empty">Аккаунтов пока нет</td></tr>';
+      } catch (error) {
+        body.innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+
+    async function loadData() {
+      const body = $('#data-body');
+      try {
+        const data = await api('/api/secret/data');
+        const entries = data.data || [];
+        $('#data-count').textContent = entries.length;
+        body.innerHTML = entries.length
+          ? entries.map((entry) => `
+              <tr>
+                <td><b>${escapeHtml(entry.name)}</b></td>
+                <td class="value">${escapeHtml(entry.value) || '<span class="muted">пусто</span>'}</td>
+                <td>${escapeHtml(timeLabel(entry.updated_at))}</td>
+                <td>${isAdmin() ? `<button class="btn btn-ghost btn-sm" type="button" data-delete="${entry.id}">Удалить</button>` : ''}</td>
+              </tr>`).join('')
+          : '<tr><td colspan="4" class="empty">Записей пока нет — добавьте первую ниже</td></tr>';
+      } catch (error) {
+        body.innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+
+    function refresh() {
+      renderAuth();
+      loadData();
+      loadUsers();
+    }
+
+    /* ------------------------------- обработчики ---------------------------- */
+
+    function initClock() {
+      const node = $('#clock');
+      const update = () => {
+        node.textContent = new Date().toLocaleString('ru-RU', {
+          day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+      };
+      update();
+      setInterval(update, 1000);
+    }
+
+    function init() {
+      document.documentElement.dataset.theme = panelState().theme === 'dark' ? 'dark' : 'light';
+      initClock();
+      showBase();
+      loadAuth();
+      renderAuth();
+
+      $('#save-base').addEventListener('click', () => {
+        localStorage.setItem(BASE_KEY, ($('#api-base').value || '').trim());
+        showBase();
+        toast('Адрес сохранён');
+        refresh();
+      });
+
+      $('#login-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const button = $('#login-submit');
+        const error = $('#login-error');
+        button.disabled = true;
+        try {
+          await login($('#login-user').value.trim(), $('#login-pass').value);
+          $('#login-pass').value = '';
+          error.hidden = true;
+          refresh();
+          toast(`Вход выполнен: ${user.username}`);
+        } catch (failure) {
+          error.textContent = failure.message;
+          error.hidden = false;
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      $('#logout').addEventListener('click', logout);
+
+      $('#user-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const message = $('#users-message');
+        try {
+          await api('/api/admin/users', {
+            method: 'POST',
+            body: {
+              username: $('#new-user').value.trim(),
+              password: $('#new-pass').value,
+              role: $('#new-role').value
+            }
+          });
+          $('#new-user').value = '';
+          $('#new-pass').value = '';
+          message.textContent = '';
+          toast('Пользователь создан');
+          loadUsers();
+        } catch (failure) {
+          message.textContent = failure.message;
+        }
+      });
+
+      $('#users-body').addEventListener('click', async (event) => {
+        const message = $('#users-message');
+        const reset = event.target.closest('[data-reset]');
+        const remove = event.target.closest('[data-remove]');
+        try {
+          if (reset) {
+            const password = window.prompt(`Новый пароль для «${reset.dataset.name}» (не короче 6 символов):`);
+            if (!password) return;
+            await api(`/api/admin/users/${reset.dataset.reset}/password`, {
+              method: 'POST', body: { new: password }
+            });
+            message.textContent = `Пароль пользователя «${reset.dataset.name}» обновлён.`;
+            toast('Пароль обновлён');
+          }
+          if (remove) {
+            if (!window.confirm(`Удалить аккаунт «${remove.dataset.name}»?`)) return;
+            await api(`/api/admin/users/${remove.dataset.remove}`, { method: 'DELETE' });
+            message.textContent = `Аккаунт «${remove.dataset.name}» удалён.`;
+            toast('Аккаунт удалён');
+            loadUsers();
+          }
+        } catch (failure) {
+          message.textContent = failure.message;
+        }
+      });
+
+      $('#data-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const message = $('#data-message');
+        try {
+          await api('/api/secret/data', {
+            method: 'POST',
+            body: { name: $('#data-name').value.trim(), value: $('#data-value').value }
+          });
+          $('#data-name').value = '';
+          $('#data-value').value = '';
+          message.textContent = '';
+          toast('Запись сохранена');
+          loadData();
+        } catch (failure) {
+          message.textContent = failure.message;
+        }
+      });
+
+      $('#data-body').addEventListener('click', async (event) => {
+        const remove = event.target.closest('[data-delete]');
+        if (!remove) return;
+        const message = $('#data-message');
+        try {
+          await api(`/api/secret/data/${remove.dataset.delete}`, { method: 'DELETE' });
+          message.textContent = '';
+          toast('Запись удалена');
+          loadData();
+        } catch (failure) {
+          message.textContent = failure.message;
+        }
+      });
+
+      checkSession().then(refresh);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

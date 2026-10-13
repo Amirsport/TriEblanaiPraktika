@@ -7,7 +7,9 @@
     python backend/migrate_to_postgres.py --dsn ... --replace
 
 Схема в PostgreSQL создаётся автоматически (backend/schema_postgres.sql), затем
-копируются таблицы zones, readings, zone_devices, settings, state, logs.
+копируются таблицы zones, readings, zone_devices, settings, state, logs,
+users, user_states, secret_data. Токены входа (auth_sessions) не переносятся:
+после переезда пользователи входят заново.
 Повторный запуск безопасен: строки обновляются по первичному ключу, дубликатов нет.
 Ключ --replace предварительно очищает таблицы в PostgreSQL.
 Чтобы перенести новую таблицу, добавьте её в schema_postgres.sql и в TRANSFERS.
@@ -30,10 +32,11 @@ except ImportError:  # запуск как файл: python backend/migrate_to_p
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SQLITE = ROOT / "data" / "greenhouse.sqlite3"
 
-TRUNCATE = "TRUNCATE zones, readings, zone_devices, settings, state, logs RESTART IDENTITY CASCADE"
+TRUNCATE = ("TRUNCATE zones, readings, zone_devices, settings, state, logs, "
+            "users, user_states, secret_data RESTART IDENTITY CASCADE")
 
 # После копирования с явными id нужно сдвинуть последовательности BIGSERIAL.
-SEQUENCE_FIXES = ("readings", "logs")
+SEQUENCE_FIXES = ("readings", "logs", "users", "secret_data")
 
 
 def _convert(column: str, value: Any) -> Any:

@@ -10,6 +10,7 @@ ISO-8601 строки с 'Z' и булевы флаги.
 """
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,6 +64,19 @@ def parse_iso(value: Any) -> Optional[datetime]:
 def _reading(row: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(row)
     data["recorded_at"] = to_iso(data.get("recorded_at"))
+    return data
+
+
+def _user(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Строка пользователя с временем создания в формате SQLite-версии."""
+    data = dict(row)
+    data["created_at"] = to_iso(data.get("created_at"))
+    return data
+
+
+def _entry(row: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    data["updated_at"] = to_iso(data.get("updated_at"))
     return data
 
 
@@ -274,6 +288,158 @@ class PostgresDatabase:
                 (keep_per_zone,),
             )
 
+    # ------------------------------------------------------------------ users
+    def user_count(self) -> int:
+        with self.connect() as db:
+            return int(db.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"])
+
+    def create_user(self, username: str, password_hash: str, role: str = "user") -> Dict[str, Any]:
+        """Создаёт аккаунт. Логин уже приведён к нижнему регистру вызывающим кодом."""
+        with self.connect() as db:
+            existing = db.execute("SELECT id FROM users WHERE username = %s", (username,)).fetchone()
+            if existing:
+                raise ValueError(f"Пользователь «{username}» уже существует")
+            row = db.execute(
+                "INSERT INTO users (username, password_hash, role) VALUES (%s, %s, %s) "
+                "RETURNING id, username, role, created_at",
+                (username, password_hash, role),
+            ).fetchone()
+        return _user(row)
+
+    def list_users(self) -> List[Dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id, username, role, created_at FROM users ORDER BY id"
+            ).fetchall()
+        return [_user(row) for row in rows]
+
+    def find_user(self, username: str) -> Optional[Dict[str, Any]]:
+        """Строка пользователя вместе с хешем пароля — только для проверки входа."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT id, username, password_hash, role, created_at FROM users WHERE username = %s",
+                (username,),
+            ).fetchone()
+        return _user(row) if row else None
+
+    def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT id, username, role, created_at FROM users WHERE id = %s", (user_id,)
+            ).fetchone()
+        return _user(row) if row else None
+
+    def find_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Строка пользователя вместе с хешем пароля — для проверки смены пароля."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT id, username, password_hash, role, created_at FROM users WHERE id = %s",
+                (user_id,),
+            ).fetchone()
+        return _user(row) if row else None
+
+    def set_user_password(self, user_id: int, password_hash: str) -> bool:
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE users SET password_hash = %s WHERE id = %s", (password_hash, user_id)
+            )
+            return cursor.rowcount > 0
+
+    def delete_user(self, user_id: int) -> bool:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            return cursor.rowcount > 0
+
+    # --------------------------------------------------------------- sessions
+    def create_session(self, user_id: int, token: str, expires_at: datetime) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO auth_sessions (token, user_id, expires_at) VALUES (%s, %s, %s)",
+                (token, user_id, expires_at),
+            )
+
+    def session_user(self, token: str) -> Optional[Dict[str, Any]]:
+        """Пользователь по действующему (не истёкшему) токену входа."""
+        if not token:
+            return None
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT u.id, u.username, u.role, u.created_at FROM auth_sessions s "
+                "JOIN users u ON u.id = s.user_id "
+                "WHERE s.token = %s AND s.expires_at > now()",
+                (token,),
+            ).fetchone()
+        return _user(row) if row else None
+
+    def delete_session(self, token: str) -> None:
+        if not token:
+            return
+        with self.connect() as db:
+            db.execute("DELETE FROM auth_sessions WHERE token = %s", (token,))
+
+    def purge_sessions(self) -> None:
+        """Удаляет истёкшие токены: вызывается при старте сервера."""
+        with self.connect() as db:
+            db.execute("DELETE FROM auth_sessions WHERE expires_at <= now()")
+
+    # ------------------------------------------------------------ user states
+    def user_state(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Сохранённое состояние панели пользователя (или None, если не сохранено)."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload, updated_at FROM user_states WHERE user_id = %s", (user_id,)
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            payload = json.loads(row["payload"])
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def save_user_state(self, user_id: int, payload: Dict[str, Any]) -> None:
+        text = json.dumps(payload, ensure_ascii=False)
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO user_states (user_id, payload, updated_at) VALUES (%s, %s, %s) "
+                "ON CONFLICT (user_id) DO UPDATE SET payload = EXCLUDED.payload, "
+                "updated_at = EXCLUDED.updated_at",
+                (user_id, text, datetime.now(timezone.utc)),
+            )
+
+    # ----------------------------------------------------------- secret data
+    def secret_data(self) -> List[Dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id, name, value, updated_at FROM secret_data ORDER BY name"
+            ).fetchall()
+        return [_entry(row) for row in rows]
+
+    def set_secret_data(self, name: str, value: str) -> Dict[str, Any]:
+        with self.connect() as db:
+            existing = db.execute(
+                "SELECT id FROM secret_data WHERE name = %s", (name,)
+            ).fetchone()
+            if existing:
+                db.execute(
+                    "UPDATE secret_data SET value = %s, updated_at = %s WHERE id = %s",
+                    (value, datetime.now(timezone.utc), existing["id"]),
+                )
+                entry_id = existing["id"]
+            else:
+                entry_id = db.execute(
+                    "INSERT INTO secret_data (name, value) VALUES (%s, %s) RETURNING id", (name, value)
+                ).fetchone()["id"]
+            row = db.execute(
+                "SELECT id, name, value, updated_at FROM secret_data WHERE id = %s", (entry_id,)
+            ).fetchone()
+        return _entry(row)
+
+    def delete_secret_data(self, entry_id: int) -> bool:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM secret_data WHERE id = %s", (entry_id,))
+            return cursor.rowcount > 0
+
 
 # Правила переноса данных из SQLite (используются backend/migrate_to_postgres.py):
 # таблица, колонки и ключ, по которому разрешаются конфликты повторного запуска.
@@ -286,8 +452,11 @@ TRANSFERS: Tuple[Tuple[str, Tuple[str, ...], Tuple[str, ...]], ...] = (
                   "auto_watering", "auto_ventilation", "auto_lighting"), ("id",)),
     ("state", ("id", "tank", "window_open", "source", "port", "updated_at"), ("id",)),
     ("logs", ("id", "ts", "level", "zone_id", "message"), ("id",)),
+    ("users", ("id", "username", "password_hash", "role", "created_at"), ("id",)),
+    ("user_states", ("user_id", "payload", "updated_at"), ("user_id",)),
+    ("secret_data", ("id", "name", "value", "updated_at"), ("id",)),
 )
 
 # Колонки, значения которых при переносе нужно привести к типу PostgreSQL.
 BOOL_COLUMNS = ("enabled", "auto_watering", "auto_ventilation", "auto_lighting")
-TIME_COLUMNS = ("recorded_at", "ts", "updated_at")
+TIME_COLUMNS = ("recorded_at", "ts", "updated_at", "created_at", "expires_at")

@@ -7,13 +7,18 @@
     zone_devices — исполнители (полив/проветривание/досветка) по участкам;
     settings     — глобальные настройки и пороги (одна строка id=1);
     state        — глобальное состояние: бак, форточка, источник данных;
-    logs         — журнал событий.
+    logs         — журнал событий;
+    users        — аккаунты панели (логин, хеш пароля, роль);
+    auth_sessions— выданные токены входа;
+    user_states  — сохранённое состояние панели каждого пользователя;
+    secret_data  — именованные записи секретной страницы /TriEblanaiPraktika.
 
 Второй бэкенд — PostgreSQL (backend/db_postgres.py) с тем же набором методов.
 Бэкенд выбирается функцией open_database().
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -99,11 +104,47 @@ CREATE TABLE IF NOT EXISTS logs (
     message TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(id DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT    NOT NULL,
+    password_hash TEXT    NOT NULL,
+    role          TEXT    NOT NULL DEFAULT 'user' CHECK(role IN ('admin','user')),
+    created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_name ON users(username);
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token      TEXT    PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON auth_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS user_states (
+    user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    payload    TEXT    NOT NULL,
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS secret_data (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    value      TEXT    NOT NULL DEFAULT '',
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_secret_name ON secret_data(name);
 """
 
 
+def _iso(value: datetime) -> str:
+    """Момент времени в формате, который хранит SQLite: 2026-10-12T20:23:39.739Z."""
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return _iso(datetime.now(timezone.utc))
 
 
 class Database:
@@ -282,6 +323,158 @@ class Database:
                 "  FROM readings) WHERE rn <= ?)",
                 (keep_per_zone,),
             )
+
+    # ------------------------------------------------------------------ users
+    def user_count(self) -> int:
+        with self.connect() as db:
+            return int(db.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"])
+
+    def create_user(self, username: str, password_hash: str, role: str = "user") -> Dict[str, Any]:
+        """Создаёт аккаунт. Логин уже приведён к нижнему регистру вызывающим кодом."""
+        with self.connect() as db:
+            existing = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+            if existing:
+                raise ValueError(f"Пользователь «{username}» уже существует")
+            inserted = db.execute(
+                "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                (username, password_hash, role),
+            )
+            row = db.execute(
+                "SELECT id, username, role, created_at FROM users WHERE id = ?", (inserted.lastrowid,)
+            ).fetchone()
+        return dict(row)
+
+    def list_users(self) -> List[Dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id, username, role, created_at FROM users ORDER BY id"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def find_user(self, username: str) -> Optional[Dict[str, Any]]:
+        """Строка пользователя вместе с хешем пароля — только для проверки входа."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?",
+                (username,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_user(self, user_id: int) -> Optional[Dict[str, Any]]:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT id, username, role, created_at FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def find_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Строка пользователя вместе с хешем пароля — для проверки смены пароля."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT id, username, password_hash, role, created_at FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def set_user_password(self, user_id: int, password_hash: str) -> bool:
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id)
+            )
+            return cursor.rowcount > 0
+
+    def delete_user(self, user_id: int) -> bool:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            return cursor.rowcount > 0
+
+    # --------------------------------------------------------------- sessions
+    def create_session(self, user_id: int, token: str, expires_at: datetime) -> None:
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO auth_sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+                (token, user_id, _iso(expires_at)),
+            )
+
+    def session_user(self, token: str) -> Optional[Dict[str, Any]]:
+        """Пользователь по действующему (не истёкшему) токену входа."""
+        if not token:
+            return None
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT u.id, u.username, u.role, u.created_at FROM auth_sessions s "
+                "JOIN users u ON u.id = s.user_id "
+                "WHERE s.token = ? AND s.expires_at > ?",
+                (token, _now()),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_session(self, token: str) -> None:
+        if not token:
+            return
+        with self.connect() as db:
+            db.execute("DELETE FROM auth_sessions WHERE token = ?", (token,))
+
+    def purge_sessions(self) -> None:
+        """Удаляет истёкшие токены: вызывается при старте сервера."""
+        with self.connect() as db:
+            db.execute("DELETE FROM auth_sessions WHERE expires_at <= ?", (_now(),))
+
+    # ------------------------------------------------------------ user states
+    def user_state(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Сохранённое состояние панели пользователя (или None, если не сохранено)."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT payload, updated_at FROM user_states WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            payload = json.loads(row["payload"])
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def save_user_state(self, user_id: int, payload: Dict[str, Any]) -> None:
+        text = json.dumps(payload, ensure_ascii=False)
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO user_states (user_id, payload, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET payload = excluded.payload, "
+                "updated_at = excluded.updated_at",
+                (user_id, text, _now()),
+            )
+
+    # ----------------------------------------------------------- secret data
+    def secret_data(self) -> List[Dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id, name, value, updated_at FROM secret_data ORDER BY name"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_secret_data(self, name: str, value: str) -> Dict[str, Any]:
+        with self.connect() as db:
+            existing = db.execute("SELECT id FROM secret_data WHERE name = ?", (name,)).fetchone()
+            if existing:
+                db.execute(
+                    "UPDATE secret_data SET value = ?, updated_at = ? WHERE id = ?",
+                    (value, _now(), existing["id"]),
+                )
+                entry_id = existing["id"]
+            else:
+                entry_id = db.execute(
+                    "INSERT INTO secret_data (name, value) VALUES (?, ?)", (name, value)
+                ).lastrowid
+            row = db.execute(
+                "SELECT id, name, value, updated_at FROM secret_data WHERE id = ?", (entry_id,)
+            ).fetchone()
+        return dict(row)
+
+    def delete_secret_data(self, entry_id: int) -> bool:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM secret_data WHERE id = ?", (entry_id,))
+            return cursor.rowcount > 0
 
 
 # Любой из поддерживаемых бэкендов: SQLite (Database) или PostgreSQL (PostgresDatabase).
