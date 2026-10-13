@@ -295,8 +295,18 @@ py backend/migrate_to_postgres.py --dsn "..." --replace               # снач
 py backend/migrate_to_postgres.py --dsn "..." --history-limit 5000    # только свежие показания
 ```
 
-Скрипт копирует `zones`, `readings`, `zone_devices`, `settings`, `state`, `logs`
-и повторный запуск можно делать без опаски — строки обновляются по ключу.
+Скрипт копирует `zones`, `readings`, `zone_devices`, `settings`, `state`,
+`logs`, а также аккаунты и связанное с ними — `users`, `auth_sessions`,
+`user_states`, `secret_data`. Поэтому переезд не разлогинивает панель:
+сессии и сохранённое состояние переезжают вместе с аккаунтами.
+Повторный запуск можно делать без опаски — строки обновляются по ключу.
+
+Чтобы перенести только часть таблиц (например, не трогая историю показаний,
+которая уже накопилась в PostgreSQL), есть ключ `--only`:
+
+```powershell
+py backend/migrate_to_postgres.py --dsn "..." --only users,auth_sessions,user_states,secret_data
+```
 
 **Просмотр в pgAdmin:**
 

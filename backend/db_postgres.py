@@ -453,6 +453,7 @@ TRANSFERS: Tuple[Tuple[str, Tuple[str, ...], Tuple[str, ...]], ...] = (
     ("state", ("id", "tank", "window_open", "source", "port", "updated_at"), ("id",)),
     ("logs", ("id", "ts", "level", "zone_id", "message"), ("id",)),
     ("users", ("id", "username", "password_hash", "role", "created_at"), ("id",)),
+    ("auth_sessions", ("token", "user_id", "expires_at", "created_at"), ("token",)),
     ("user_states", ("user_id", "payload", "updated_at"), ("user_id",)),
     ("secret_data", ("id", "name", "value", "updated_at"), ("id",)),
 )

@@ -77,10 +77,14 @@ def _copy_table(pg: PostgresDatabase, table: str, columns: Tuple[str, ...], conf
     return len(rows)
 
 
-def migrate(sqlite_path: Path, dsn: str, replace: bool,
-            history_limit: int | None) -> Tuple[Dict[str, int], Dict[str, int]]:
+def migrate(sqlite_path: Path, dsn: str, replace: bool, history_limit: int | None,
+            only: Optional[Tuple[str, ...]] = None) -> Tuple[Dict[str, int], Dict[str, int]]:
     if not sqlite_path.exists():
         raise FileNotFoundError(f"Файл SQLite не найден: {sqlite_path}")
+
+    unknown = [name for name in (only or ()) if name not in {t for t, _, _ in TRANSFERS}]
+    if unknown:
+        raise ValueError(f"Неизвестные таблицы в --only: {', '.join(unknown)}")
 
     pg = PostgresDatabase(dsn)
     pg.initialize()
@@ -92,12 +96,16 @@ def migrate(sqlite_path: Path, dsn: str, replace: bool,
 
     copied: Dict[str, int] = {}
     for table, columns, conflict in TRANSFERS:
+        if only and table not in only:
+            continue
         limit = history_limit if table == "readings" else None
         rows = _read_sqlite(sqlite_path, table, columns, limit)
         copied[table] = _copy_table(pg, table, columns, conflict, rows)
 
     with pg.connect() as db:
         for table in SEQUENCE_FIXES:
+            if only and table not in only:
+                continue
             db.execute(
                 f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
                 f"GREATEST(COALESCE(MAX(id), 1), 1), COUNT(*) > 0) FROM {table}"
@@ -117,12 +125,19 @@ def main() -> None:
                         help="очистить таблицы в PostgreSQL перед переносом")
     parser.add_argument("--history-limit", type=int, default=None,
                         help="перенести только N последних показаний на участок")
+    parser.add_argument("--only", default=None,
+                        help="перенести только эти таблицы через запятую, например "
+                             "--only users,auth_sessions,user_states,secret_data")
     args = parser.parse_args()
 
     if not args.dsn:
         parser.error("не задан --dsn (или переменная окружения GREENHOUSE_DSN)")
 
-    copied, totals = migrate(args.source, args.dsn, args.replace, args.history_limit)
+    only = tuple(part.strip() for part in args.only.split(",") if part.strip()) if args.only else None
+    try:
+        copied, totals = migrate(args.source, args.dsn, args.replace, args.history_limit, only)
+    except (FileNotFoundError, ValueError) as exc:
+        parser.error(str(exc))
     print(f"Источник: {args.source}")
     print("Перенесено строк из SQLite:")
     for name, count in copied.items():
@@ -130,7 +145,7 @@ def main() -> None:
     print("Сейчас в PostgreSQL:")
     for name, count in totals.items():
         print(f"  {name}: {count}")
-    print("Готово. База видна в pgAdmin: Servers → PostgreSQL 17 → база из DSN.")
+    print("Готово. База видна в pgAdmin: Servers -> PostgreSQL 17 -> база из DSN.")
 
 
 if __name__ == "__main__":
