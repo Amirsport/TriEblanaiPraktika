@@ -3,37 +3,66 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Служебная страница · Теплица</title>
+  <title>Служебная консоль · Теплица</title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
-  <link rel="stylesheet" href="../css/main.css?v=9">
+  <link rel="stylesheet" href="../css/main.css?v=10">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    .secret-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .secret-note { font-size: 13px; color: var(--text-dim); }
-    .secret-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    .secret-table th, .secret-table td {
-      text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top;
-    }
-    .secret-table th { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
-    .secret-table td.value { white-space: pre-wrap; word-break: break-word; }
-    .secret-table .empty { color: var(--text-dim); text-align: center; }
+    /* Служебная консоль: экран входа и две секции — подключение к серверу
+       и аккаунты панели. Стили опираются на переменные темы из main.css. */
+    .console { max-width: 960px; margin: 0 auto; padding: 0 18px 40px; }
+    .console-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 22px 0 16px; }
+    .console-brand { display: flex; align-items: center; gap: 12px; }
+    .console-brand img { width: 44px; height: 44px; border-radius: 13px; box-shadow: var(--shadow); }
+    .console-brand h1 { margin: 0; font-size: 19px; }
+    .console-brand p { margin: 2px 0 0; font-size: 13px; color: var(--text-dim); }
+    .console-actions { display: flex; align-items: center; gap: 8px; }
+
+    .panel { background: var(--surface-solid); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
+    .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .panel-head h2 { margin: 0; font-size: 17px; }
+    .panel-icon { font-size: 19px; }
+
+    .status { display: flex; align-items: center; gap: 9px; font-size: 13.5px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text-dim); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); flex: none; }
+    .dot.ok { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+    .dot.bad { background: var(--danger); box-shadow: 0 0 0 4px rgba(217, 86, 79, 0.16); }
+
+    .row-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 12px; }
+    .row-form .field { flex: 1 1 220px; margin: 0; }
+
+    .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .stat { padding: 6px 11px; border-radius: 999px; background: var(--accent-soft); font-size: 13px; color: var(--text-dim); }
+    .stat b { color: var(--text); font-size: 14px; }
+
     .table-wrap { overflow-x: auto; }
+    table.accounts { width: 100%; border-collapse: collapse; font-size: 14px; }
+    table.accounts th, table.accounts td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    table.accounts th { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
+    table.accounts .empty { text-align: center; color: var(--text-dim); }
     .tag { font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--accent-soft); }
     .tag.admin { background: rgba(229, 167, 44, 0.2); color: #b07b12; }
-    .secret-form { display: grid; gap: 12px; grid-template-columns: minmax(160px, 1fr) minmax(200px, 2fr) auto; align-items: end; }
-    .lock-banner {
-      display: flex; align-items: center; gap: 10px; padding: 10px 14px; font-size: 13.5px;
-      border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text-dim);
-    }
-    .login-error {
-      font-size: 13px; color: var(--danger); background: rgba(217, 86, 79, 0.12);
-      border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 10px;
-    }
+    .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .note { font-size: 13px; color: var(--text-dim); margin: 12px 0 0; }
+
+    .gate { position: fixed; inset: 0; display: grid; place-items: center; padding: 20px; z-index: 40; background: rgba(18, 28, 18, 0.42); backdrop-filter: blur(7px); }
+    .gate-card { width: min(420px, 100%); background: var(--surface-solid); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 22px; display: grid; gap: 12px; }
+    .gate-brand { display: flex; align-items: center; gap: 11px; }
+    .gate-brand img { width: 40px; height: 40px; border-radius: 12px; }
+    .gate-brand b { display: block; font-size: 15px; }
+    .gate-brand span { font-size: 12.5px; color: var(--text-dim); }
+    .gate-card h2 { margin: 2px 0 0; font-size: 20px; }
+    .gate-note { font-size: 12.5px; color: var(--text-dim); margin: 0; }
+    .login-error { font-size: 13px; color: var(--danger); background: rgba(217, 86, 79, 0.12); border-radius: var(--radius-sm); padding: 8px 10px; margin: 0; }
     [hidden] { display: none !important; }
-    @media (max-width: 700px) { .secret-form { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) {
+      .console-brand h1 { font-size: 17px; }
+      .row-form { flex-direction: column; align-items: stretch; }
+    }
   </style>
 </head>
 <body>
@@ -44,121 +73,105 @@
     <span class="orb orb-3"></span>
   </div>
 
-  <div class="app" style="max-width:1000px">
-
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">🔐</div>
-        <div class="brand-text">
-          <h1>Служебная страница</h1>
-          <p>Аккаунты панели и данные теплицы</p>
+  <!-- Вход: консоль открыта только аккаунтам панели -->
+  <div class="gate" id="gate" hidden>
+    <form class="gate-card" id="login-form">
+      <div class="gate-brand">
+        <img src="../icons/icon-192.png" alt="">
+        <div>
+          <b>Умная AI-Теплица</b>
+          <span>служебная консоль</span>
         </div>
       </div>
-      <div class="topbar-actions">
+      <h2>Вход</h2>
+      <p class="note" style="margin:0">Служебный доступ: подключение к серверу и управление аккаунтами.</p>
+      <label class="field">
+        <span>Логин</span>
+        <input type="text" id="login-user" autocomplete="username" required>
+      </label>
+      <label class="field">
+        <span>Пароль</span>
+        <input type="password" id="login-pass" autocomplete="current-password" required>
+      </label>
+      <p class="login-error" id="login-error" hidden></p>
+      <button class="btn btn-primary" type="submit" id="login-submit">Войти</button>
+      <p class="gate-note">Аккаунт создаётся в панели теплицы — <a href="../">открыть панель</a>.</p>
+    </form>
+  </div>
+
+  <div class="console" id="console" hidden>
+
+    <header class="console-head">
+      <div class="console-brand">
+        <img src="../icons/icon-192.png" alt="">
+        <div>
+          <h1>Служебная консоль</h1>
+          <p>Подключение к серверу и аккаунты панели</p>
+        </div>
+      </div>
+      <div class="console-actions">
         <span class="user-pill" id="who" hidden><span aria-hidden="true">👤</span><span id="who-name">—</span></span>
+        <button class="icon-btn" type="button" id="check-link" title="Проверить связь с сервером">⟳</button>
         <button class="icon-btn" type="button" id="logout" title="Выйти" hidden>⎋</button>
         <a class="icon-btn" href="../" title="Вернуться к панели теплицы">←</a>
       </div>
     </header>
 
-    <main class="views">
-      <div class="grid-2">
-        <article class="card">
-          <header class="card-head"><h2>Адрес сервера</h2></header>
-          <label class="field">
-            <span>API теплицы</span>
-            <input type="text" id="api-base" placeholder="пусто — тот же хост, что и страница">
-          </label>
-          <div class="secret-actions">
-            <button class="btn btn-ghost" type="button" id="save-base">Сохранить адрес</button>
-            <span class="secret-note" id="base-state">Текущий: —</span>
-          </div>
-          <p class="muted">По умолчанию запросы идут на сервер, который отдал эту страницу.</p>
-        </article>
-
-        <article class="card">
-          <header class="card-head"><h2>Вход администратора</h2></header>
-          <p class="muted" id="auth-state">—</p>
-          <form id="login-form" hidden>
-            <label class="field">
-              <span>Логин</span>
-              <input type="text" id="login-user" autocomplete="username" required>
-            </label>
-            <label class="field">
-              <span>Пароль</span>
-              <input type="password" id="login-pass" autocomplete="current-password" required>
-            </label>
-            <p class="login-error" id="login-error" hidden></p>
-            <button class="btn btn-primary" type="submit" id="login-submit">Войти</button>
-          </form>
-          <div class="lock-banner" id="admin-banner" hidden>
-            <span aria-hidden="true">✅</span>
-            <span>Права администратора активны — можно менять аккаунты и данные.</span>
-          </div>
-        </article>
+    <section class="panel">
+      <div class="panel-head"><span class="panel-icon" aria-hidden="true">🖧</span><h2>Подключение к серверу</h2></div>
+      <div class="status">
+        <span class="dot" id="link-dot"></span>
+        <span id="link-text">Связь ещё не проверялась</span>
       </div>
+      <div class="row-form">
+        <label class="field">
+          <span>Адрес API теплицы</span>
+          <input type="text" id="api-base" placeholder="пусто — тот же хост, что и страница">
+        </label>
+        <button class="btn btn-ghost" type="button" id="save-base">Сохранить адрес</button>
+      </div>
+      <p class="note" id="base-state">Текущий: —</p>
+      <p class="note">Пустое поле — запросы уходят на сервер, который отдал эту страницу. Адрес туннеля лежит в <code>data/tunnel-url.txt</code>.</p>
+    </section>
 
-      <article class="card" id="users-card" hidden>
-        <header class="card-head">
-          <h2>Пользователи</h2>
-          <span class="badge" id="users-count">0</span>
-        </header>
-        <div class="table-wrap">
-          <table class="secret-table">
-            <thead>
-              <tr><th>Логин</th><th>Роль</th><th>Создан</th><th>Действия</th></tr>
-            </thead>
-            <tbody id="users-body"></tbody>
-          </table>
-        </div>
-        <form class="secret-form" id="user-form" style="margin-top:16px">
-          <label class="field"><span>Новый логин</span><input type="text" id="new-user" required></label>
-          <label class="field"><span>Пароль</span><input type="password" id="new-pass" autocomplete="new-password" required></label>
-          <div class="secret-actions">
-            <label class="field" style="min-width:130px">
-              <span>Роль</span>
-              <select id="new-role">
-                <option value="user">Пользователь</option>
-                <option value="admin">Администратор</option>
-              </select>
-            </label>
-            <button class="btn btn-primary" type="submit">Создать</button>
-          </div>
-        </form>
-        <p class="muted" id="users-message"></p>
-        <p class="muted">
-          Пользователи могут зарегистрироваться сами в панели — здесь аккаунт нужен,
-          чтобы выдать роль <b>администратора</b> или восстановить доступ.
-        </p>
-      </article>
+    <section class="panel" id="users-panel" hidden>
+      <div class="panel-head"><span class="panel-icon" aria-hidden="true">👥</span><h2>Аккаунты</h2></div>
+      <div class="stats">
+        <span class="stat">всего <b id="stat-total">0</b></span>
+        <span class="stat">администраторов <b id="stat-admins">0</b></span>
+        <span class="stat">пользователей <b id="stat-users">0</b></span>
+      </div>
+      <div class="table-wrap">
+        <table class="accounts">
+          <thead>
+            <tr><th>Логин</th><th>Роль</th><th>Создан</th><th>Действия</th></tr>
+          </thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+      <form class="row-form" id="user-form">
+        <label class="field"><span>Новый логин</span><input type="text" id="new-user" required></label>
+        <label class="field"><span>Пароль</span><input type="password" id="new-pass" autocomplete="new-password" required></label>
+        <label class="field" style="flex:0 1 170px">
+          <span>Роль</span>
+          <select id="new-role">
+            <option value="user">Пользователь</option>
+            <option value="admin">Администратор</option>
+          </select>
+        </label>
+        <button class="btn btn-primary" type="submit">Создать</button>
+      </form>
+      <p class="note" id="users-message"></p>
+      <p class="note">Пользователи регистрируются сами в панели — здесь аккаунт создают, чтобы выдать роль <b>администратора</b> или восстановить доступ.</p>
+    </section>
 
-      <article class="card">
-        <header class="card-head">
-          <h2>Данные страницы</h2>
-          <span class="badge" id="data-count">0</span>
-        </header>
-        <div class="table-wrap">
-          <table class="secret-table">
-            <thead>
-              <tr><th>Название</th><th>Значение</th><th>Обновлено</th><th></th></tr>
-            </thead>
-            <tbody id="data-body"></tbody>
-          </table>
-        </div>
-        <!-- Сюда позже добавим конкретные поля теплицы: таблица уже готова к наполнению. -->
-        <form class="secret-form" id="data-form" style="margin-top:16px">
-          <label class="field"><span>Название</span><input type="text" id="data-name" placeholder="например: Дата посева" required></label>
-          <label class="field"><span>Значение</span><input type="text" id="data-value" placeholder="текст или число"></label>
-          <button class="btn btn-primary" type="submit">Сохранить</button>
-        </form>
-        <p class="muted" id="data-message">
-          Просмотр открыт всем, кто знает адрес этой страницы. Записи с одинаковым названием перезаписываются.
-        </p>
-      </article>
-    </main>
+    <section class="panel" id="limited-panel" hidden>
+      <div class="panel-head"><span class="panel-icon" aria-hidden="true">🔒</span><h2>Нужны права администратора</h2></div>
+      <p class="note" style="margin:0">Список аккаунтов показан только администратору. Вы вошли как <b id="limited-name">—</b>.</p>
+    </section>
 
     <footer class="footer">
-      <span>служебная страница · не для посетителей</span>
+      <span>служебная консоль · не для посетителей</span>
       <span id="clock">—</span>
     </footer>
   </div>
@@ -197,7 +210,7 @@
     }
 
     function showBase() {
-      $('#base-state').textContent = `Текущий: ${apiBase() || 'не задан'}`;
+      $('#base-state').textContent = `Текущий адрес: ${apiBase() || 'не задан'}`;
       $('#api-base').value = localStorage.getItem(BASE_KEY) || '';
     }
 
@@ -268,15 +281,15 @@
     const isAdmin = () => Boolean(token && user && user.role === 'admin');
 
     function renderAuth() {
-      $('#login-form').hidden = Boolean(token);
-      $('#admin-banner').hidden = !isAdmin();
-      $('#users-card').hidden = !isAdmin();
-      $('#who').hidden = !user;
-      $('#who-name').textContent = user ? user.username : '—';
-      $('#logout').hidden = !token;
-      $('#auth-state').textContent = user
-        ? (isAdmin() ? 'Вы вошли как администратор.' : 'Вы вошли как пользователь: данные доступны только для чтения.')
-        : 'Записи видны после входа в аккаунт. Изменения — только администратору.';
+      const entered = Boolean(token && user);
+      $('#gate').hidden = entered;
+      $('#console').hidden = !entered;
+      $('#who').hidden = !entered;
+      $('#logout').hidden = !entered;
+      $('#who-name').textContent = entered ? user.username : '—';
+      $('#users-panel').hidden = !isAdmin();
+      $('#limited-panel').hidden = !(entered && !isAdmin());
+      $('#limited-name').textContent = user ? user.username : '—';
     }
 
     async function checkSession() {
@@ -308,10 +321,45 @@
       token = '';
       user = null;
       saveAuth();
-      refresh();
+      renderAuth();
     }
 
-    /* -------------------------------- данные -------------------------------- */
+    /* ------------------------------ связь с сервером ------------------------- */
+
+    function setLink(state, text) {
+      const dot = $('#link-dot');
+      dot.classList.toggle('ok', state === 'ok');
+      dot.classList.toggle('bad', state === 'bad');
+      $('#link-text').textContent = text;
+    }
+
+    /* Проверяет доступность сервера: и 200, и 401 значат, что он ответил. */
+    async function checkConnectivity(notify = false) {
+      const base = apiBase();
+      if (!base) {
+        setLink('bad', 'Адрес сервера не задан');
+        return;
+      }
+      setLink('', 'Проверяю связь…');
+      try {
+        const response = await fetch(`${base}/api/auth/me`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+        if (response.status === 401) {
+          setLink('ok', `Сервер отвечает (${base}) — нужен вход`);
+        } else if (response.ok) {
+          setLink('ok', `Сервер отвечает: ${base}`);
+        } else {
+          setLink('bad', `Сервер ответил ошибкой ${response.status}`);
+        }
+        if (notify) toast('Связь проверена');
+      } catch (error) {
+        setLink('bad', `Нет связи с ${base}`);
+        if (notify) toast('Сервер не отвечает', 'warn');
+      }
+    }
+
+    /* --------------------------------- аккаунты ----------------------------- */
 
     async function loadUsers() {
       if (!isAdmin()) return;
@@ -319,14 +367,17 @@
       try {
         const data = await api('/api/admin/users');
         const users = data.users || [];
-        $('#users-count').textContent = users.length;
+        const admins = users.filter((item) => item.role === 'admin').length;
+        $('#stat-total').textContent = users.length;
+        $('#stat-admins').textContent = admins;
+        $('#stat-users').textContent = users.length - admins;
         body.innerHTML = users.length
           ? users.map((item) => `
               <tr>
                 <td><b>${escapeHtml(item.username)}</b></td>
                 <td><span class="tag${item.role === 'admin' ? ' admin' : ''}">${item.role === 'admin' ? 'администратор' : 'пользователь'}</span></td>
                 <td>${escapeHtml(timeLabel(item.created_at))}</td>
-                <td class="secret-actions">
+                <td class="row-actions">
                   <button class="btn btn-ghost btn-sm" type="button" data-reset="${item.id}" data-name="${escapeHtml(item.username)}">Сбросить пароль</button>
                   <button class="btn btn-ghost btn-sm" type="button" data-remove="${item.id}" data-name="${escapeHtml(item.username)}">Удалить</button>
                 </td>
@@ -335,37 +386,6 @@
       } catch (error) {
         body.innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(error.message)}</td></tr>`;
       }
-    }
-
-    async function loadData() {
-      const body = $('#data-body');
-      if (!token) {
-        $('#data-count').textContent = '—';
-        body.innerHTML = '<tr><td colspan="4" class="empty">Войдите в аккаунт, чтобы увидеть записи</td></tr>';
-        return;
-      }
-      try {
-        const data = await api('/api/secret/data');
-        const entries = data.data || [];
-        $('#data-count').textContent = entries.length;
-        body.innerHTML = entries.length
-          ? entries.map((entry) => `
-              <tr>
-                <td><b>${escapeHtml(entry.name)}</b></td>
-                <td class="value">${escapeHtml(entry.value) || '<span class="muted">пусто</span>'}</td>
-                <td>${escapeHtml(timeLabel(entry.updated_at))}</td>
-                <td>${isAdmin() ? `<button class="btn btn-ghost btn-sm" type="button" data-delete="${entry.id}">Удалить</button>` : ''}</td>
-              </tr>`).join('')
-          : '<tr><td colspan="4" class="empty">Записей пока нет — добавьте первую ниже</td></tr>';
-      } catch (error) {
-        body.innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(error.message)}</td></tr>`;
-      }
-    }
-
-    function refresh() {
-      renderAuth();
-      loadData();
-      loadUsers();
     }
 
     /* ------------------------------- обработчики ---------------------------- */
@@ -392,8 +412,10 @@
         localStorage.setItem(BASE_KEY, ($('#api-base').value || '').trim());
         showBase();
         toast('Адрес сохранён');
-        refresh();
+        checkConnectivity();
       });
+
+      $('#check-link').addEventListener('click', () => checkConnectivity(true));
 
       $('#login-form').addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -404,7 +426,9 @@
           await login($('#login-user').value.trim(), $('#login-pass').value);
           $('#login-pass').value = '';
           error.hidden = true;
-          refresh();
+          renderAuth();
+          loadUsers();
+          checkConnectivity();
           toast(`Вход выполнен: ${user.username}`);
         } catch (failure) {
           error.textContent = failure.message;
@@ -414,7 +438,10 @@
         }
       });
 
-      $('#logout').addEventListener('click', logout);
+      $('#logout').addEventListener('click', async () => {
+        await logout();
+        toast('Вы вышли из аккаунта');
+      });
 
       $('#user-form').addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -431,7 +458,7 @@
           $('#new-user').value = '';
           $('#new-pass').value = '';
           message.textContent = '';
-          toast('Пользователь создан');
+          toast('Аккаунт создан');
           loadUsers();
         } catch (failure) {
           message.textContent = failure.message;
@@ -464,39 +491,11 @@
         }
       });
 
-      $('#data-form').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const message = $('#data-message');
-        try {
-          await api('/api/secret/data', {
-            method: 'POST',
-            body: { name: $('#data-name').value.trim(), value: $('#data-value').value }
-          });
-          $('#data-name').value = '';
-          $('#data-value').value = '';
-          message.textContent = '';
-          toast('Запись сохранена');
-          loadData();
-        } catch (failure) {
-          message.textContent = failure.message;
-        }
+      checkSession().then(() => {
+        renderAuth();
+        loadUsers();
+        checkConnectivity();
       });
-
-      $('#data-body').addEventListener('click', async (event) => {
-        const remove = event.target.closest('[data-delete]');
-        if (!remove) return;
-        const message = $('#data-message');
-        try {
-          await api(`/api/secret/data/${remove.dataset.delete}`, { method: 'DELETE' });
-          message.textContent = '';
-          toast('Запись удалена');
-          loadData();
-        } catch (failure) {
-          message.textContent = failure.message;
-        }
-      });
-
-      checkSession().then(refresh);
     }
 
     document.addEventListener('DOMContentLoaded', init);
