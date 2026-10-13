@@ -437,6 +437,19 @@ backend  →  домашний ПК: PostgreSQL + Arduino, наружу чере
    powershell -ExecutionPolicy Bypass -File _tunnel_retry.ps1 -IntervalSeconds 180 -MaxHours 6
    ```
 
+   В некоторых сетях Cloudflare глушат иначе: канал регистрируется, процесс жив,
+   обрывов в журнале нет, а запросы снаружи получают `530`. Тогда помогает
+   обратный **SSH-туннель** через localhost.run — [`_tunnel_ssh.ps1`](_tunnel_ssh.ps1)
+   (нужен системный VPN/TUN-режим, иначе сервер туннеля недоступен):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -Port 8000 -MaxHours 12
+   ```
+
+   Оба скрипта считают успехом не запись в журнале, а реальный ответ туннеля,
+   и переподключаются при обрыве. Адрес из `data/tunnel-url.txt` действует, пока
+   работает окно скрипта.
+
 4. В панели на вкладке «Режим» → «Подключение к серверу» указать **Адрес API**
    (адрес из `data/tunnel-url.txt`) и **API-ключ**, нажать «Подключиться»,
    после чего войти в аккаунт (логин `admin` и пароль из шага 3).

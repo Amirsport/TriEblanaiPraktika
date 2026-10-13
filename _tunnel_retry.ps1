@@ -64,6 +64,16 @@ function Test-TunnelConnected([string]$logFile) {
     return $true
 }
 
+# Проверка, что туннель действительно отдаёт ответы: провайдер умеет глушить поток
+# данных так, что процесс жив и обрывов в журнале нет, а снаружи — 530.
+function Test-TunnelServes([string]$tunnelUrl) {
+    if (-not $tunnelUrl) { return $false }
+    $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+    if (-not (Test-Path $curl)) { return $true }  # без curl опираемся на журнал
+    $code = & $curl -skS -m 12 -o NUL -w '%{http_code}' "$tunnelUrl/api/health" 2>$null
+    return ($code -eq '200' -or $code -eq '401')
+}
+
 function Stop-AllCloudflared {
     Get-Process -Name cloudflared -ErrorAction SilentlyContinue | ForEach-Object {
         Write-Attempt "останавливаю cloudflared PID $($_.Id)"
@@ -90,6 +100,12 @@ while ((Get-Date) -lt $deadline) {
         if (-not (Get-Process -Id $tunnel.Id -ErrorAction SilentlyContinue)) { break }
     }
 
+    $url = if ($connected) { Get-TunnelUrl $LogPath } else { $null }
+    if ($connected -and -not (Test-TunnelServes $url)) {
+        Write-Attempt 'канал зарегистрирован, но ответы не проходят (530) — считаю неудачей'
+        $connected = $false
+    }
+
     if (-not $connected) {
         $reason = 'канал не зарегистрирован'
         if (Test-Path $LogPath) {
@@ -103,12 +119,12 @@ while ((Get-Date) -lt $deadline) {
         continue
     }
 
-    $url = Get-TunnelUrl $LogPath
     $url | Set-Content -Path $urlFile -Encoding ascii
     Write-Attempt "ТУННЕЛЬ РАБОТАЕТ: $url"
     Write-Attempt "адрес сохранён в $urlFile"
     Write-Attempt 'введите его и API-ключ в панели: раздел Режим -> Подключение к серверу'
 
+    $probe = 0
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 15
         if (-not (Get-Process -Id $tunnel.Id -ErrorAction SilentlyContinue)) {
@@ -117,6 +133,11 @@ while ((Get-Date) -lt $deadline) {
         }
         if (-not (Test-TunnelConnected $LogPath)) {
             Write-Attempt 'соединение с Cloudflare оборвалось, пробую снова'
+            break
+        }
+        $probe++
+        if ($probe % 2 -eq 0 -and -not (Test-TunnelServes $url)) {
+            Write-Attempt 'ответы через туннель перестали проходить, пробую снова'
             break
         }
     }
