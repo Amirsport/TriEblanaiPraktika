@@ -1,13 +1,17 @@
 ﻿# Повторные попытки поднять HTTPS-туннель к домашнему серверу теплицы.
-# Нужен, когда провайдер блокирует Cloudflare и туннель не поднимается с первого раза:
-# скрипт пробует снова каждые N секунд, а когда получится — держит туннель живым
-# и записывает адрес в data/tunnel-url.txt.
+# Нужен, когда провайдер режет Cloudflare: скрипт пробует снова каждые N секунд,
+# а когда туннель действительно поднимется — держит его живым и обновляет
+# data/tunnel-url.txt.
+#
+# Успехом считается строка «Registered tunnel connection» в журнале cloudflared,
+# а не появление адреса: адрес выдаётся раньше, а канал может оборваться сразу
+# после регистрации — снаружи это видно кодом 530 при живом процессе.
 #
 # Запуск (сервер уже должен быть поднят, например через _run_public.ps1):
 #   powershell -ExecutionPolicy Bypass -File _tunnel_retry.ps1
 #   powershell -ExecutionPolicy Bypass -File _tunnel_retry.ps1 -MaxHours 24 -IntervalSeconds 300
 #
-# Остановить: закрыть окно либо Stop-Process -Id <PID cloudflared>.
+# Остановить: закрыть окно либо удалить процесс cloudflared.
 param(
     [int]$Port = 8000,
     [int]$IntervalSeconds = 120,
@@ -42,13 +46,28 @@ function Get-TunnelUrl([string]$logFile) {
     return $null
 }
 
-function Stop-StaleTunnel {
+# Время последнего события заданного вида (ISO-строки сравниваются как текст).
+function Get-EventStamp([string]$logFile, [string]$phrase) {
+    if (-not (Test-Path $logFile)) { return $null }
+    $match = Select-String -Path $logFile -Pattern ('"time":"([^"]+)"[^}]*' + $phrase) | Select-Object -Last 1
+    if ($match) { return $match.Matches[0].Groups[1].Value }
+    return $null
+}
+
+# Туннель считается рабочим, только если соединение зарегистрировано и после него
+# не было «Connection terminated».
+function Test-TunnelConnected([string]$logFile) {
+    $registered = Get-EventStamp $logFile 'Registered tunnel connection'
+    if (-not $registered) { return $false }
+    $terminated = Get-EventStamp $logFile 'Connection terminated'
+    if ($terminated -and $terminated -gt $registered) { return $false }
+    return $true
+}
+
+function Stop-AllCloudflared {
     Get-Process -Name cloudflared -ErrorAction SilentlyContinue | ForEach-Object {
-        # Останавливаем только зависшие экземпляры, у которых нет соединения
-        if ($_.StartTime -lt (Get-Date).AddMinutes(-3)) {
-            Write-Attempt "останавливаю зависший cloudflared PID $($_.Id)"
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-        }
+        Write-Attempt "останавливаю cloudflared PID $($_.Id)"
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -56,7 +75,7 @@ Write-Attempt "старт: порт $Port, интервал $IntervalSeconds с,
 Write-Attempt "журнал попыток: $attemptLog"
 
 while ((Get-Date) -lt $deadline) {
-    Stop-StaleTunnel
+    Stop-AllCloudflared
     Remove-Item $LogPath -ErrorAction SilentlyContinue
 
     $tunnel = Start-Process -FilePath $CloudflaredPath `
@@ -64,16 +83,15 @@ while ((Get-Date) -lt $deadline) {
                       '--no-autoupdate', '--logfile', $LogPath -PassThru
     Write-Attempt "попытка: cloudflared PID $($tunnel.Id)"
 
-    $url = $null
+    $connected = $false
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Milliseconds 1000
-        $url = Get-TunnelUrl $LogPath
-        if ($url) { break }
+        if (Test-TunnelConnected $LogPath) { $connected = $true; break }
         if (-not (Get-Process -Id $tunnel.Id -ErrorAction SilentlyContinue)) { break }
     }
 
-    if (-not $url) {
-        $reason = 'адрес не получен'
+    if (-not $connected) {
+        $reason = 'канал не зарегистрирован'
         if (Test-Path $LogPath) {
             $tail = Get-Content $LogPath -ErrorAction SilentlyContinue |
                 Where-Object { $_ -match 'error|failed|ERR' } | Select-Object -Last 1
@@ -85,18 +103,24 @@ while ((Get-Date) -lt $deadline) {
         continue
     }
 
+    $url = Get-TunnelUrl $LogPath
     $url | Set-Content -Path $urlFile -Encoding ascii
-    Write-Attempt "ТУННЕЛЬ ПОДНЯТ: $url"
+    Write-Attempt "ТУННЕЛЬ РАБОТАЕТ: $url"
     Write-Attempt "адрес сохранён в $urlFile"
     Write-Attempt 'введите его и API-ключ в панели: раздел Режим -> Подключение к серверу'
 
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Seconds 15
         if (-not (Get-Process -Id $tunnel.Id -ErrorAction SilentlyContinue)) {
-            Write-Attempt 'туннель оборвался, пробую снова'
+            Write-Attempt 'процесс туннеля завершился, пробую снова'
+            break
+        }
+        if (-not (Test-TunnelConnected $LogPath)) {
+            Write-Attempt 'соединение с Cloudflare оборвалось, пробую снова'
             break
         }
     }
 }
 
+Stop-AllCloudflared
 Write-Attempt 'время попыток вышло, скрипт остановлен'
