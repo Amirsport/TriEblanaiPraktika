@@ -91,3 +91,44 @@ CREATE TABLE IF NOT EXISTS secret_data (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_secret_name ON secret_data (name);
+
+-- Игра Narutodle: набор персонажей и журнал матчей.
+CREATE TABLE IF NOT EXISTS narutodle_characters (
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT NOT NULL,
+    gender     TEXT NOT NULL DEFAULT '',
+    village    TEXT NOT NULL DEFAULT '',
+    clan       TEXT NOT NULL DEFAULT '',
+    nature     TEXT NOT NULL DEFAULT '[]',
+    kekkei     TEXT NOT NULL DEFAULT '',
+    jinchuriki TEXT NOT NULL DEFAULT '',
+    debut      TEXT NOT NULL DEFAULT '',
+    status     TEXT NOT NULL DEFAULT '',
+    color      TEXT NOT NULL DEFAULT '',
+    image      TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_narutodle_characters_name ON narutodle_characters (name);
+
+-- Ссылок на users нет намеренно: история матчей переживает удаление аккаунта.
+CREATE TABLE IF NOT EXISTS narutodle_matches (
+    id              BIGSERIAL PRIMARY KEY,
+    room            TEXT NOT NULL DEFAULT '',
+    round_number    INTEGER NOT NULL DEFAULT 1,
+    target          TEXT NOT NULL DEFAULT '',
+    player1_id      BIGINT,
+    player1_name    TEXT NOT NULL DEFAULT '',
+    player2_id      BIGINT,
+    player2_name    TEXT NOT NULL DEFAULT '',
+    winner_id       BIGINT,
+    winner_name     TEXT NOT NULL DEFAULT '',
+    loser_name      TEXT NOT NULL DEFAULT '',
+    winner_attempts INTEGER NOT NULL DEFAULT 0,
+    loser_attempts  INTEGER NOT NULL DEFAULT 0,
+    reason          TEXT NOT NULL DEFAULT '',
+    played_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_narutodle_matches_played ON narutodle_matches (id DESC);
+CREATE INDEX IF NOT EXISTS idx_narutodle_matches_players ON narutodle_matches (player1_id, player2_id);

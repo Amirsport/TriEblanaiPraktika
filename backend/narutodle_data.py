@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Данные для дуэли «Narutodle».
+"""Данные для дуэли «Narutodle»: персонажи, графы сравнения и цвета аватаров.
 
-Здесь только факты о персонажах (деревня, клан, стихии и т. д.) — тот набор,
-по которому игрок сравнивает свою догадку с загадкой. Тексты не переписывались
-ни из каких источников: это короткие справочные значения.
+Этот файл — исходный набор для первичного заполнения базы: при запуске сервер
+проверяет таблицу `narutodle_characters` и, если она пуста, заливает данные
+отсюда (см. backend/seed_narutodle.py). Дальше источник правды — база:
+персонажей можно править и добавлять прямо в ней, а изображения — привязывать
+к строкам.
 
-Набор сознательно небольшой и легко правится: одна строка — один персонаж.
-Если значение неизвестно или спорно, ставится UNKNOWN, и по этой графе догадка
-считается несовпавшей (кроме случая, когда неизвестно у обоих).
+Таблица персонажей читается сверху вниз по FIELDS; неизвестные или спорные
+значения помечаются UNKNOWN и по этой графе догадка считается несовпавшей
+(кроме случая, когда неизвестно у обоих). Тексты не переписывались ни из каких
+источников — это короткие справочные значения: деревня, клан, стихии и так далее.
 """
 from __future__ import annotations
 
@@ -30,7 +33,6 @@ ATTRIBUTES: List[Dict[str, Any]] = [
 MALE = "мужской"
 FEMALE = "женский"
 
-# Деревни и страны — короткие общеупотребительные названия.
 KONOHA = "Коноха"
 SUNA = "Суна"
 KIRI = "Кири"
@@ -39,6 +41,9 @@ IWA = "Ива"
 OTO = "Ото"
 AME = "Аме"
 TAKI = "Таки"
+KUSA = "Куса"
+UZUSHIO = "Узушио"
+NO_VILLAGE = "нет деревни"
 
 KLASSIKA = "Классика"
 SHIPPUDEN = "Шиппуден"
@@ -48,164 +53,167 @@ NO_CLAN = "нет клана"
 NO_KEKKEI = "нет"
 NO_BEAST = "нет"
 
-CHARACTERS: List[Dict[str, Any]] = [
+ALIVE = "жив"
+DEAD = "погиб"
+
+# Цвет аватара — по родной деревне. Аватар рисует страница игры: инициалы
+# на цветном квадрате; свою картинку можно подставить в поле image.
+VILLAGE_COLORS: Dict[str, str] = {
+    KONOHA: "#3f7d3a",
+    SUNA: "#c2912c",
+    KIRI: "#2f7fa8",
+    KUMO: "#b0661f",
+    IWA: "#6b6f74",
+    OTO: "#7a4b9a",
+    AME: "#4b6b8a",
+    TAKI: "#2f8f7a",
+    KUSA: "#6f8f2f",
+    UZUSHIO: "#b8455f",
+    NO_VILLAGE: "#6d5a8f",
+    UNKNOWN: "#7a6a5f",
+}
+DEFAULT_COLOR = "#8a5a3c"
+
+FIELDS = ("name", "gender", "village", "clan", "nature", "kekkei",
+          "jinchuriki", "debut", "status")
+
+# name, gender, village, clan, nature, kekkei, jinchuriki, debut, status
+ROWS: List[tuple] = [
     # --- Коноха: команда 7 и наставники
-    {"name": "Наруто Узумаки", "gender": MALE, "village": KONOHA, "clan": "Узумаки",
-     "nature": ["Ветер"], "kekkei": NO_KEKKEI, "jinchuriki": "Девятихвостый",
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Саске Учиха", "gender": MALE, "village": KONOHA, "clan": "Учиха",
-     "nature": ["Огонь", "Молния"], "kekkei": "Шаринган", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Сакура Харуно", "gender": FEMALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": ["Земля", "Вода"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Какаши Хатаке", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": ["Молния"], "kekkei": "Шаринган", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Ямато", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": ["Земля", "Вода"], "kekkei": "Деревянный выпуск", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
+    ("Наруто Узумаки", MALE, KONOHA, "Узумаки", ["Ветер"], NO_KEKKEI, "Девятихвостый", KLASSIKA, ALIVE),
+    ("Саске Учиха", MALE, KONOHA, "Учиха", ["Огонь", "Молния"], "Шаринган", NO_BEAST, KLASSIKA, ALIVE),
+    ("Сакура Харуно", FEMALE, KONOHA, NO_CLAN, ["Земля", "Вода"], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Какаши Хатаке", MALE, KONOHA, NO_CLAN, ["Молния"], "Шаринган", NO_BEAST, KLASSIKA, ALIVE),
+    ("Ямато", MALE, KONOHA, NO_CLAN, ["Земля", "Вода"], "Деревянный выпуск", NO_BEAST, KLASSIKA, ALIVE),
+    ("Сай", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Кабуто Якуши", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
 
-    # --- Коноха: команда 8, 10 и сверстники
-    {"name": "Хината Хьюга", "gender": FEMALE, "village": KONOHA, "clan": "Хьюга",
-     "nature": [UNKNOWN], "kekkei": "Бьякуган", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Неджи Хьюга", "gender": MALE, "village": KONOHA, "clan": "Хьюга",
-     "nature": [UNKNOWN], "kekkei": "Бьякуган", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Рок Ли", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Тентен", "gender": FEMALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Шикамару Нара", "gender": MALE, "village": KONOHA, "clan": "Нара",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Тёджи Акимичи", "gender": MALE, "village": KONOHA, "clan": "Акимичи",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Ино Яманака", "gender": FEMALE, "village": KONOHA, "clan": "Яманака",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Киба Инузука", "gender": MALE, "village": KONOHA, "clan": "Инузука",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Шино Абураме", "gender": MALE, "village": KONOHA, "clan": "Абураме",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Сай", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
+    # --- Коноха: сверстники и выпуск
+    ("Хината Хьюга", FEMALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, KLASSIKA, ALIVE),
+    ("Неджи Хьюга", MALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, KLASSIKA, DEAD),
+    ("Ханаби Хьюга", FEMALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, KLASSIKA, ALIVE),
+    ("Хиаши Хьюга", MALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, KLASSIKA, ALIVE),
+    ("Рок Ли", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Тентен", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Майто Гай", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Шикамару Нара", MALE, KONOHA, "Нара", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Тёджи Акимичи", MALE, KONOHA, "Акимичи", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Ино Яманака", FEMALE, KONOHA, "Яманака", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Киба Инузука", MALE, KONOHA, "Инузука", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Шино Абураме", MALE, KONOHA, "Абураме", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
 
-    # --- Коноха: старшее поколение
-    {"name": "Хирузен Сарутоби", "gender": MALE, "village": KONOHA, "clan": "Сарутоби",
-     "nature": ["Огонь", "Земля"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Асума Сарутоби", "gender": MALE, "village": KONOHA, "clan": "Сарутоби",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Конахамару Сарутоби", "gender": MALE, "village": KONOHA, "clan": "Сарутоби",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Минато Намиказе", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Кушина Узумаки", "gender": FEMALE, "village": KONOHA, "clan": "Узумаки",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": "Девятихвостый",
-     "debut": KLASSIKA, "status": "погибла"},
-    {"name": "Цунаде", "gender": FEMALE, "village": KONOHA, "clan": "Сенджу",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Джирайя", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": ["Огонь"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Орочимару", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Майто Гай", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Куренай Юхи", "gender": FEMALE, "village": KONOHA, "clan": "Юхи",
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
+    # --- Коноха: кланы и старшее поколение
+    ("Шикаку Нара", MALE, KONOHA, "Нара", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Тёдза Акимичи", MALE, KONOHA, "Акимичи", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Иноичи Яманака", MALE, KONOHA, "Яманака", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Цуме Инузука", FEMALE, KONOHA, "Инузука", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Шиби Абураме", MALE, KONOHA, "Абураме", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Хирузен Сарутоби", MALE, KONOHA, "Сарутоби", ["Огонь", "Земля"], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Асума Сарутоби", MALE, KONOHA, "Сарутоби", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Конахамару Сарутоби", MALE, KONOHA, "Сарутоби", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Куренай Юхи", FEMALE, KONOHA, "Юхи", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Шизуне", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Митараши Анко", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Умино Ирука", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Джирайя", MALE, KONOHA, NO_CLAN, ["Огонь"], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Цунаде", FEMALE, KONOHA, "Сенджу", [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Орочимару", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Минато Намиказе", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Хатаке Сакумо", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Гекко Хаяте", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Дан Като", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Рин Нохара", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Трёххвостый", KLASSIKA, DEAD),
+    ("Шимура Данзо", MALE, KONOHA, "Шимура", ["Ветер"], "Шаринган", NO_BEAST, KLASSIKA, DEAD),
 
-    # --- Учиха
-    {"name": "Итачи Учиха", "gender": MALE, "village": KONOHA, "clan": "Учиха",
-     "nature": ["Огонь", "Вода"], "kekkei": "Шаринган", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Мадара Учиха", "gender": MALE, "village": KONOHA, "clan": "Учиха",
-     "nature": ["Огонь"], "kekkei": "Риннеган", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Обито Учиха", "gender": MALE, "village": KONOHA, "clan": "Учиха",
-     "nature": ["Огонь"], "kekkei": "Шаринган", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
+    # --- Коноха: Сенджу, Учиха, Узумаки
+    ("Хаширама Сенджу", MALE, KONOHA, "Сенджу", ["Земля", "Вода"], "Деревянный выпуск", NO_BEAST, KLASSIKA, DEAD),
+    ("Тобирама Сенджу", MALE, KONOHA, "Сенджу", ["Вода"], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Итачи Учиха", MALE, KONOHA, "Учиха", ["Огонь", "Вода"], "Шаринган", NO_BEAST, KLASSIKA, DEAD),
+    ("Мадара Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Риннеган", NO_BEAST, KLASSIKA, DEAD),
+    ("Изуна Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, KLASSIKA, DEAD),
+    ("Обито Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, KLASSIKA, DEAD),
+    ("Шисуи Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, KLASSIKA, DEAD),
+    ("Фугаку Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, KLASSIKA, DEAD),
+    ("Микото Учиха", FEMALE, KONOHA, "Учиха", [UNKNOWN], "Шаринган", NO_BEAST, KLASSIKA, DEAD),
+    ("Кушина Узумаки", FEMALE, UZUSHIO, "Узумаки", [UNKNOWN], NO_KEKKEI, "Девятихвостый", KLASSIKA, DEAD),
+    ("Мито Узумаки", FEMALE, UZUSHIO, "Узумаки", [UNKNOWN], NO_KEKKEI, "Девятихвостый", KLASSIKA, DEAD),
 
     # --- Суна
-    {"name": "Гаара", "gender": MALE, "village": SUNA, "clan": NO_CLAN,
-     "nature": ["Земля", "Ветер"], "kekkei": NO_KEKKEI, "jinchuriki": "Однохвостый",
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Темари", "gender": FEMALE, "village": SUNA, "clan": NO_CLAN,
-     "nature": ["Ветер"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Канкуро", "gender": MALE, "village": SUNA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "жив"},
-    {"name": "Чиё", "gender": FEMALE, "village": SUNA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": SHIPPUDEN, "status": "погибла"},
-    {"name": "Сасори", "gender": MALE, "village": SUNA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": SHIPPUDEN, "status": "погиб"},
+    ("Гаара", MALE, SUNA, NO_CLAN, ["Земля", "Ветер"], NO_KEKKEI, "Однохвостый", KLASSIKA, ALIVE),
+    ("Темари", FEMALE, SUNA, NO_CLAN, ["Ветер"], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Канкуро", MALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Баки", MALE, SUNA, NO_CLAN, ["Ветер"], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Раса", MALE, SUNA, NO_CLAN, ["Земля"], "Магнитный выпуск", NO_BEAST, KLASSIKA, DEAD),
+    ("Карура", FEMALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Чиё", FEMALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, SHIPPUDEN, DEAD),
+    ("Сасори", MALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, SHIPPUDEN, DEAD),
 
     # --- Кири
-    {"name": "Забуза Момоти", "gender": MALE, "village": KIRI, "clan": NO_CLAN,
-     "nature": ["Вода"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Хаку", "gender": MALE, "village": KIRI, "clan": NO_CLAN,
-     "nature": ["Вода", "Ветер"], "kekkei": "Ледяной выпуск", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Кисаме Хосигаки", "gender": MALE, "village": KIRI, "clan": "Хосигаки",
-     "nature": ["Вода"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Мэй Тэруми", "gender": FEMALE, "village": KIRI, "clan": NO_CLAN,
-     "nature": ["Вода", "Огонь"], "kekkei": "Кипящий выпуск", "jinchuriki": NO_BEAST,
-     "debut": SHIPPUDEN, "status": "жив"},
+    ("Забуза Момоти", MALE, KIRI, NO_CLAN, ["Вода"], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Хаку", MALE, KIRI, NO_CLAN, ["Вода", "Ветер"], "Ледяной выпуск", NO_BEAST, KLASSIKA, DEAD),
+    ("Кисаме Хосигаки", MALE, KIRI, "Хосигаки", ["Вода"], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Кимимаро Кагуя", MALE, KIRI, "Кагуя", [UNKNOWN], "Шикоцумьяку", NO_BEAST, KLASSIKA, DEAD),
+    ("Мэй Тэруми", FEMALE, KIRI, NO_CLAN, ["Вода", "Огонь"], "Кипящий выпуск", NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Ао", MALE, KIRI, NO_CLAN, ["Вода"], "Бьякуган", NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Тёдзиро", MALE, KIRI, NO_CLAN, ["Вода"], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Суйгецу Хозуки", MALE, KIRI, "Хозуки", ["Вода"], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Мангетсу Хозуки", MALE, KIRI, "Хозуки", ["Вода"], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Ягура Каратачи", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Трёххвостый", SHIPPUDEN, DEAD),
+    ("Утаката", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Шестихвостый", SHIPPUDEN, DEAD),
 
-    # --- Кумо, Ива, Аме, Таки
-    {"name": "Киллер Би", "gender": MALE, "village": KUMO, "clan": NO_CLAN,
-     "nature": ["Молния"], "kekkei": NO_KEKKEI, "jinchuriki": "Восьмихвостый",
-     "debut": SHIPPUDEN, "status": "жив"},
-    {"name": "Эй", "gender": MALE, "village": KUMO, "clan": NO_CLAN,
-     "nature": ["Молния"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": SHIPPUDEN, "status": "жив"},
-    {"name": "Дейдара", "gender": MALE, "village": IWA, "clan": NO_CLAN,
-     "nature": ["Земля"], "kekkei": "Взрывной выпуск", "jinchuriki": NO_BEAST,
-     "debut": SHIPPUDEN, "status": "погиб"},
-    {"name": "Какузу", "gender": MALE, "village": TAKI, "clan": NO_CLAN,
-     "nature": ["Земля"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": SHIPPUDEN, "status": "погиб"},
-    {"name": "Нагато", "gender": MALE, "village": AME, "clan": "Узумаки",
-     "nature": [UNKNOWN], "kekkei": "Риннеган", "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погиб"},
-    {"name": "Конан", "gender": FEMALE, "village": AME, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": KLASSIKA, "status": "погибла"},
+    # --- Кумо
+    ("Киллер Би", MALE, KUMO, NO_CLAN, ["Молния"], NO_KEKKEI, "Восьмихвостый", SHIPPUDEN, ALIVE),
+    ("Эй", MALE, KUMO, NO_CLAN, ["Молния"], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Югито Нии", FEMALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Двухвостый", SHIPPUDEN, DEAD),
+    ("Мабуи", MALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Омои", MALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Каруи", FEMALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
 
-    # --- Боруто
-    {"name": "Боруто Узумаки", "gender": MALE, "village": KONOHA, "clan": "Узумаки",
-     "nature": ["Ветер", "Молния"], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": BORUTO, "status": "жив"},
-    {"name": "Сарада Учиха", "gender": FEMALE, "village": KONOHA, "clan": "Учиха",
-     "nature": ["Огонь", "Молния"], "kekkei": "Шаринган", "jinchuriki": NO_BEAST,
-     "debut": BORUTO, "status": "жив"},
-    {"name": "Мицуки", "gender": MALE, "village": KONOHA, "clan": NO_CLAN,
-     "nature": [UNKNOWN], "kekkei": NO_KEKKEI, "jinchuriki": NO_BEAST,
-     "debut": BORUTO, "status": "жив"},
+    # --- Ива
+    ("Дейдара", MALE, IWA, NO_CLAN, ["Земля"], "Взрывной выпуск", NO_BEAST, SHIPPUDEN, DEAD),
+    ("Ооноки", MALE, IWA, NO_CLAN, ["Земля"], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Куротсучи", FEMALE, IWA, NO_CLAN, ["Земля", "Огонь"], "Лавовый выпуск", NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Роши", MALE, IWA, NO_CLAN, ["Земля"], NO_KEKKEI, "Четырёххвостый", SHIPPUDEN, DEAD),
+    ("Хан", MALE, IWA, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Пятихвостый", SHIPPUDEN, DEAD),
+
+    # --- Ото: подручные Орочимару
+    ("Таюя", FEMALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Дзюго", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Карин", FEMALE, KUSA, "Узумаки", [UNKNOWN], NO_KEKKEI, NO_BEAST, SHIPPUDEN, ALIVE),
+    ("Кидомару", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Сакон", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Джиробо", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Заку Абуми", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+    ("Досу Кинута", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, ALIVE),
+
+    # --- Аме, Таки, прочие
+    ("Нагато", MALE, AME, "Узумаки", [UNKNOWN], "Риннеган", NO_BEAST, KLASSIKA, DEAD),
+    ("Конан", FEMALE, AME, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Яхико", MALE, AME, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, DEAD),
+    ("Какузу", MALE, TAKI, NO_CLAN, ["Земля"], NO_KEKKEI, NO_BEAST, SHIPPUDEN, DEAD),
+    ("Фу", FEMALE, TAKI, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Семихвостый", SHIPPUDEN, DEAD),
+    ("Хидан", MALE, UNKNOWN, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, SHIPPUDEN, UNKNOWN),
+    ("Зецу", MALE, NO_VILLAGE, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KLASSIKA, UNKNOWN),
+
+    # --- Ооцуцуки и поколение Боруто
+    ("Кагуя Ооцуцуки", FEMALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Бьякуган", NO_BEAST, SHIPPUDEN, UNKNOWN),
+    ("Хагаромо Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Риннеган", "Десятихвостый", SHIPPUDEN, UNKNOWN),
+    ("Хамура Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Бьякуган", NO_BEAST, SHIPPUDEN, UNKNOWN),
+    ("Момошики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Бьякуган", NO_BEAST, BORUTO, DEAD),
+    ("Урашики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO, DEAD),
+    ("Ишики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO, DEAD),
+    ("Каваки", MALE, NO_VILLAGE, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO, ALIVE),
+    ("Боруто Узумаки", MALE, KONOHA, "Узумаки", ["Ветер", "Молния"], NO_KEKKEI, NO_BEAST, BORUTO, ALIVE),
+    ("Сарада Учиха", FEMALE, KONOHA, "Учиха", ["Огонь", "Молния"], "Шаринган", NO_BEAST, BORUTO, ALIVE),
+    ("Мицуки", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO, ALIVE),
+    ("Химавари Узумаки", FEMALE, KONOHA, "Узумаки", [UNKNOWN], "Бьякуган", NO_BEAST, BORUTO, ALIVE),
+    ("Чёчо Акимичи", FEMALE, KONOHA, "Акимичи", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO, ALIVE),
+    ("Шикадай Нара", MALE, KONOHA, "Нара", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO, ALIVE),
 ]
 
-# Индекс по имени — догадки сравниваются по точному названию, но пробелы
-# и регистр не важны: «наРУТО узумаки» найдётся.
+CHARACTERS: List[Dict[str, Any]] = [dict(zip(FIELDS, row)) for row in ROWS]
+
+# Поиск по имени: регистр и лишние пробелы не важны.
 INDEX = {character["name"].casefold(): character for character in CHARACTERS}
 
 
@@ -219,11 +227,14 @@ def character_names() -> List[str]:
     return [character["name"] for character in CHARACTERS]
 
 
+def village_color(village: str) -> str:
+    """Цвет аватара для деревни; для незнакомых названий — нейтральный."""
+    return VILLAGE_COLORS.get(village, DEFAULT_COLOR)
+
+
 def public_character(character: Dict[str, Any]) -> Dict[str, Any]:
-    """Персонаж в виде, пригодном для отправки клиенту (после конца раунда)."""
-    return {key: character[key] for key in ("name", "gender", "village", "clan",
-                                            "nature", "kekkei", "jinchuriki",
-                                            "debut", "status")}
+    """Персонаж для отправки клиенту (после конца раунда)."""
+    return {key: character[key] for key in FIELDS}
 
 
 def attribute_list() -> List[Dict[str, Any]]:
@@ -231,12 +242,25 @@ def attribute_list() -> List[Dict[str, Any]]:
     return [dict(attribute) for attribute in ATTRIBUTES]
 
 
+def seed_rows() -> List[Dict[str, Any]]:
+    """Строки для первичного заполнения таблицы narutodle_characters."""
+    return [
+        {**character, "color": village_color(character["village"]), "image": ""}
+        for character in CHARACTERS
+    ]
+
+
 __all__ = [
     "ATTRIBUTES",
     "CHARACTERS",
+    "FIELDS",
+    "ROWS",
     "UNKNOWN",
+    "VILLAGE_COLORS",
     "attribute_list",
     "character_names",
     "find_character",
     "public_character",
+    "seed_rows",
+    "village_color",
 ]

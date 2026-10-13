@@ -106,7 +106,7 @@
         <img src="../icons/icon-192.png" alt="">
         <div>
           <h1>Служебная консоль</h1>
-          <p>Подключение к серверу и аккаунты панели</p>
+          <p>Подключение к серверу, аккаунты панели и матчи игры</p>
         </div>
       </div>
       <div class="console-actions">
@@ -163,6 +163,23 @@
       </form>
       <p class="note" id="users-message"></p>
       <p class="note">Пользователи регистрируются сами в панели — здесь аккаунт создают, чтобы выдать роль <b>администратора</b> или восстановить доступ.</p>
+    </section>
+
+    <section class="panel" id="matches-panel" hidden>
+      <div class="panel-head"><span class="panel-icon" aria-hidden="true">🌀</span><h2>Матчи Narutodle</h2></div>
+      <div class="stats">
+        <span class="stat">матчей в журнале <b id="stat-matches">0</b></span>
+        <span class="stat">персонажей в наборе <b id="stat-characters">0</b></span>
+      </div>
+      <div class="table-wrap">
+        <table class="accounts">
+          <thead>
+            <tr><th>Матч</th><th>Когда</th><th>Комната</th><th>Игроки</th><th>Победитель</th><th>Ходы</th><th>Персонаж</th><th>Итог</th></tr>
+          </thead>
+          <tbody id="matches-body"></tbody>
+        </table>
+      </div>
+      <p class="note">Журнал по всем игрокам, последние 100 матчей. Свою историю игрок видит в самой игре, в разделе «Мои матчи»; чужие партии — только здесь.</p>
     </section>
 
     <section class="panel" id="limited-panel" hidden>
@@ -288,6 +305,7 @@
       $('#logout').hidden = !entered;
       $('#who-name').textContent = entered ? user.username : '—';
       $('#users-panel').hidden = !isAdmin();
+      $('#matches-panel').hidden = !isAdmin();
       $('#limited-panel').hidden = !(entered && !isAdmin());
       $('#limited-name').textContent = user ? user.username : '—';
     }
@@ -388,6 +406,41 @@
       }
     }
 
+    /* ------------------------- матчи игры Narutodle ------------------------- */
+
+    /* Журнал матчей: айди, игроки и результат. Смотреть его может только
+       администратор — игроку сервер отдаёт лишь его собственные партии. */
+    const MATCH_REASONS = { solved: 'угадал', gave_up: 'соперник сдался' };
+
+    async function loadMatches() {
+      if (!isAdmin()) return;
+      const body = $('#matches-body');
+      try {
+        const data = await api('/api/games/narutodle/matches?scope=all&limit=100');
+        const matches = data.matches || [];
+        $('#stat-matches').textContent = data.total != null ? data.total : matches.length;
+        $('#stat-characters').textContent = data.characters != null ? data.characters : '—';
+        body.innerHTML = matches.length
+          ? matches.map((match) => {
+              const players = [match.player1_name, match.player2_name].filter(Boolean).join(' — ');
+              return `
+              <tr>
+                <td><b>#${match.id}</b></td>
+                <td>${escapeHtml(timeLabel(match.played_at))}</td>
+                <td><code>${escapeHtml(match.room)}</code> · раунд ${match.round_number}</td>
+                <td>${escapeHtml(players || '—')}</td>
+                <td><b>${escapeHtml(match.winner_name || '—')}</b></td>
+                <td>${match.winner_attempts} : ${match.loser_attempts}</td>
+                <td>${escapeHtml(match.target || '—')}</td>
+                <td>${escapeHtml(MATCH_REASONS[match.reason] || match.reason || '—')}</td>
+              </tr>`;
+            }).join('')
+          : '<tr><td colspan="8" class="empty">Матчей пока нет</td></tr>';
+      } catch (error) {
+        body.innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+
     /* ------------------------------- обработчики ---------------------------- */
 
     function initClock() {
@@ -415,7 +468,10 @@
         checkConnectivity();
       });
 
-      $('#check-link').addEventListener('click', () => checkConnectivity(true));
+      $('#check-link').addEventListener('click', () => {
+        checkConnectivity(true);
+        loadMatches();
+      });
 
       $('#login-form').addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -428,6 +484,7 @@
           error.hidden = true;
           renderAuth();
           loadUsers();
+          loadMatches();
           checkConnectivity();
           toast(`Вход выполнен: ${user.username}`);
         } catch (failure) {
@@ -494,6 +551,7 @@
       checkSession().then(() => {
         renderAuth();
         loadUsers();
+        loadMatches();
         checkConnectivity();
       });
     }

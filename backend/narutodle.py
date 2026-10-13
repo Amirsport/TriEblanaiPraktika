@@ -10,28 +10,26 @@
 Комнаты живут в памяти процесса: это партии на несколько минут, переживать
 перезапуск сервера им не нужно. Доступ к комнатам закрыт аккаунтом панели,
 поэтому модуль оперирует уже проверенными пользователями.
+
+Набор персонажей модуль получает готовым списком — его читает сервер из таблицы
+narutodle_characters, поэтому набор правится в базе, а не в коде. Итог каждого
+раунда уходит в переданный обработчик (сервер пишет его в журнал матчей).
 """
 from __future__ import annotations
 
 import random
+import sys
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 try:  # запуск как модуль: python -m backend.server
-    from .narutodle_data import (
-        CHARACTERS,
-        UNKNOWN,
-        attribute_list,
-        find_character,
-        public_character,
-    )
+    from .narutodle_data import CHARACTERS, UNKNOWN, attribute_list, public_character
 except ImportError:  # запуск как файл: python backend/server.py
     from narutodle_data import (  # type: ignore
         CHARACTERS,
         UNKNOWN,
         attribute_list,
-        find_character,
         public_character,
     )
 
@@ -88,10 +86,59 @@ def compare_attribute(key: str, guess: Any, target: Any, multi: bool = False) ->
 class Narutodle:
     """Комнаты дуэли: создание, вход, попытки, итог раунда."""
 
-    def __init__(self, rng: Optional[random.Random] = None) -> None:
+    def __init__(self, characters: Optional[List[Dict[str, Any]]] = None,
+                 rng: Optional[random.Random] = None,
+                 on_finish: Optional[Callable[[Dict[str, Any]], None]] = None,
+                 provider: Optional[Callable[[], List[Dict[str, Any]]]] = None) -> None:
         self._lock = threading.Lock()
         self._rooms: Dict[str, Dict[str, Any]] = {}
         self._rng = rng or random.Random()
+        self._on_finish = on_finish
+        # Источник набора (обычно таблица в базе) — набор перечитывается
+        # перед каждым новым раундом, поэтому правки видны без перезапуска.
+        self._provider = provider
+        self.reload_characters(characters)
+
+    def reload_characters(self, characters: Optional[List[Dict[str, Any]]] = None) -> int:
+        """Берёт набор персонажей и пересобирает поиск по имени."""
+        self._characters = [dict(character) for character in (characters or CHARACTERS)]
+        if not self._characters:
+            self._characters = [dict(character) for character in CHARACTERS]
+        self._index = {str(character["name"]).casefold(): character
+                       for character in self._characters}
+        return len(self._characters)
+
+    def refresh(self) -> int:
+        """Перечитывает набор из источника; при сбое остаётся прежний набор."""
+        if not self._provider:
+            return len(self._characters)
+        try:
+            characters = self._provider()
+        except Exception as exc:  # noqa: BLE001
+            sys.stderr.write(f"  набор персонажей недоступен, играем прежним: {exc}\n")
+            return len(self._characters)
+        return self.reload_characters(characters) if characters else len(self._characters)
+
+    def find_character(self, name: str) -> Optional[Dict[str, Any]]:
+        """Персонаж по названию: регистр и лишние пробелы не важны."""
+        return self._index.get((name or "").strip().casefold())
+
+    def character_names(self) -> List[str]:
+        return [str(character["name"]) for character in self._characters]
+
+    def catalog(self) -> List[Dict[str, Any]]:
+        """Список для подсказки в поле ввода: имя, цвет аватара и картинка.
+
+        Скрытых свойств здесь нет — только то, что нужно нарисовать аватар.
+        """
+        return [
+            {
+                "name": str(character["name"]),
+                "color": str(character.get("color") or ""),
+                "image": str(character.get("image") or ""),
+            }
+            for character in self._characters
+        ]
 
     # ------------------------------------------------------------ служебное
     def _cleanup(self, now: float) -> None:
@@ -109,8 +156,8 @@ class Narutodle:
 
     def _pick_target(self, exclude: Optional[str] = None) -> Dict[str, Any]:
         """Случайный персонаж; в новом раунде — не тот же, что был."""
-        pool = [character for character in CHARACTERS if character["name"] != exclude]
-        return self._rng.choice(pool or CHARACTERS)
+        pool = [character for character in self._characters if character["name"] != exclude]
+        return self._rng.choice(pool or self._characters)
 
     def _room(self, code: str) -> Dict[str, Any]:
         room = self._rooms.get((code or "").strip().upper())
@@ -173,6 +220,41 @@ class Narutodle:
                          for player in room["players"].values()},
         })
         room["updated"] = now
+        self._log_match(room, winner_id, reason)
+
+    def _log_match(self, room: Dict[str, Any], winner_id: Optional[int],
+                   reason: str) -> None:
+        """Передаёт итог раунда наружу — сервер пишет его в журнал матчей.
+
+        Ошибка журнала не должна ломать партию: раунд уже закончился, игроки
+        видят результат, поэтому сбой записи только отмечаем в stderr.
+        """
+        if not self._on_finish:
+            return
+        players = list(room["players"].values())
+        first = players[0] if players else {"id": None, "name": ""}
+        second = players[1] if len(players) > 1 else {"id": None, "name": ""}
+        winner = room["players"].get(winner_id) if winner_id is not None else None
+        loser = next((player for player in players if player["id"] != winner_id), None)
+        round_ = room["round"]
+        try:
+            self._on_finish({
+                "room": room["code"],
+                "round_number": round_["number"],
+                "target": str(round_["target"]["name"]),
+                "player1_id": first.get("id"),
+                "player1_name": str(first.get("name") or ""),
+                "player2_id": second.get("id"),
+                "player2_name": str(second.get("name") or ""),
+                "winner_id": winner["id"] if winner else None,
+                "winner_name": str(winner["name"]) if winner else "",
+                "loser_name": str(loser["name"]) if loser else "",
+                "winner_attempts": len(winner["attempts"]) if winner else 0,
+                "loser_attempts": len(loser["attempts"]) if loser else 0,
+                "reason": reason,
+            })
+        except Exception as exc:  # noqa: BLE001
+            sys.stderr.write(f"  журнал матчей недоступен: {exc}\n")
 
     # ------------------------------------------------------------- состояние
     def state(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
@@ -248,6 +330,7 @@ class Narutodle:
         now = time.time()
         with self._lock:
             self._cleanup(now)
+            self.refresh()
             if len(self._rooms) >= MAX_ROOMS:
                 raise NarutodleError("На сервере слишком много активных комнат, попробуйте позже")
             code = self._new_code()
@@ -302,7 +385,7 @@ class Narutodle:
             if len(player["attempts"]) >= MAX_ATTEMPTS:
                 raise NarutodleError(f"Больше {MAX_ATTEMPTS} попыток за раунд не бывает")
 
-            character = find_character(name)
+            character = self.find_character(name)
             if not character:
                 raise NarutodleError("Такого персонажа нет в наборе — выберите из подсказки")
 
@@ -360,6 +443,7 @@ class Narutodle:
             self._player(room, user)
             if not room["round"]["finished"]:
                 raise NarutodleError("Раунд ещё идёт")
+            self.refresh()
             self._start_round(room, now, exclude=room["round"]["target"]["name"])
             return self._payload(room, user)
 

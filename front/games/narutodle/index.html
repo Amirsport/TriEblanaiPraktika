@@ -78,6 +78,30 @@
     .board tr.correct td.who { color: #2f7d32; }
     [data-theme="dark"] .board tr.correct td.who { color: #7ddc8b; }
 
+    /* Аватар рисуем сами: инициалы на цвете деревни. Если в базе указана
+       картинка персонажа, показываем её вместо аватара. */
+    .who-line { display: flex; align-items: center; gap: 8px; }
+    .avatar {
+      display: inline-grid; place-items: center; flex: 0 0 auto;
+      width: 26px; height: 26px; border-radius: 8px; overflow: hidden;
+      background: #8a5a3c; color: #fff; font-size: 11px; font-weight: 700;
+    }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .avatar-lg { width: 64px; height: 64px; border-radius: 18px; font-size: 22px; }
+
+    .portrait { display: flex; align-items: center; gap: 14px; }
+
+    .matches { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .matches th {
+      text-align: left; padding: 4px 8px; font-size: 11.5px; font-weight: 600;
+      color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px;
+    }
+    .matches td { padding: 8px; border-top: 1px solid var(--border); }
+    .matches td.res { font-weight: 600; }
+    .matches tr.win td.res { color: #2f9a43; }
+    .matches tr.lose td.res { color: var(--danger); }
+    .matches .dim { color: var(--text-dim); }
+
     .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
     .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 6px; }
     .legend .l-match { background: rgba(46, 160, 67, 0.75); }
@@ -294,9 +318,12 @@
       <section class="stack" id="result-card" hidden>
         <div class="result" id="result">
           <h2 id="result-title">Раунд завершён</h2>
-          <div>
-            <div class="muted" style="font-size: 12.5px;">Это был</div>
-            <div class="answer-name" id="result-name">—</div>
+          <div class="portrait">
+            <span id="result-avatar"></span>
+            <div>
+              <div class="muted" style="font-size: 12.5px;">Это был</div>
+              <div class="answer-name" id="result-name">—</div>
+            </div>
           </div>
           <div class="answer-attrs" id="result-attrs"></div>
           <p class="muted" id="result-text"></p>
@@ -315,6 +342,21 @@
           </div>
         </div>
       </section>
+    </section>
+
+    <!-- ===== Мои матчи ===== -->
+    <section class="card" id="matches-card" hidden>
+      <header class="card-head">
+        <h2>Мои матчи</h2>
+        <span class="badge" id="matches-badge">—</span>
+      </header>
+      <p class="muted">
+        Здесь только ваши партии: журнал по всем игрокам видит администратор
+        на служебной странице.
+      </p>
+      <div class="board-wrap">
+        <table class="matches" id="matches-table"></table>
+      </div>
     </section>
 
     <footer class="footer">
@@ -344,6 +386,9 @@
     let apiBase = '';   // адрес сервера дуэли
     let auth = { token: '', user: null };
     let catalog = { characters: [], attributes: [], max_attempts: 60 };
+    let characterIndex = new Map();  // name -> {color, image} для аватаров
+    let matches = [];                // мои матчи из журнала
+    let loadedRound = 0;             // раунд, для которого уже обновили журнал
     let state = null;   // состояние комнаты с сервера
     let pollTimer = null;
     let busy = false;   // запрос уже в пути
@@ -539,11 +584,41 @@
       auth = { token: '', user: null };
       saveAuth();
       state = null;
+      matches = [];
+      loadedRound = 0;
       stopPolling();
+      show('#matches-card', false);
       showAuth('register');
     }
 
     /* ------------------------------ отрисовка ------------------------------- */
+
+    /* Аватар персонажа: картинка из базы или инициалы на цвете деревни. */
+    function avatarHtml(name, extra = '') {
+      const item = characterIndex.get(String(name || '').toLowerCase()) || {};
+      const image = String(item.image || '');
+      const color = String(item.color || '#8a5a3c');
+      const inner = image
+        ? `<img src="${escapeHtml(image)}" alt="" loading="lazy">`
+        : escapeHtml(initialsOf(name));
+      return `<span class="avatar${extra ? ' ' + extra : ''}" style="background: ${escapeHtml(color)}">${inner}</span>`;
+    }
+
+    function initialsOf(name) {
+      const words = String(name || '').split(/\s+/).filter(Boolean);
+      if (!words.length) return '?';
+      const first = words[0].charAt(0);
+      const second = words.length > 1 ? words[1].charAt(0) : (words[0].charAt(1) || '');
+      return (first + second).toUpperCase();
+    }
+
+    function whenText(iso) {
+      const date = new Date(iso || '');
+      if (Number.isNaN(date.getTime())) return '—';
+      return date.toLocaleString('ru-RU', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'
+      });
+    }
 
     function renderAttempts(table, attempts) {
       if (!attempts || !attempts.length || !catalog.attributes.length) {
@@ -558,9 +633,59 @@
           return '<td class="' + row.state + '">' + escapeHtml(value) + '</td>';
         }).join('');
         return '<tr class="' + (attempt.correct ? 'correct' : '') + '">'
-          + '<td class="who">' + escapeHtml(attempt.name) + '</td>' + cells + '</tr>';
+          + '<td class="who"><span class="who-line">' + avatarHtml(attempt.name)
+          + escapeHtml(attempt.name) + '</span></td>' + cells + '</tr>';
       }).join('');
       table.innerHTML = '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody>';
+    }
+
+    /* -------------------------------- матчи --------------------------------- */
+
+    const myId = () => (auth.user ? auth.user.id : null);
+
+    async function loadMatches() {
+      if (!auth.token) {
+        show('#matches-card', false);
+        return;
+      }
+      try {
+        const data = await api(GAME + '/matches?limit=20');
+        matches = data.matches || [];
+      } catch (error) {
+        console.warn('Журнал матчей недоступен:', error);
+        matches = [];
+      }
+      renderMatches();
+    }
+
+    function renderMatches() {
+      if (!matches.length) {
+        show('#matches-card', false);
+        return;
+      }
+      show('#matches-card', true);
+      $('#matches-badge').textContent = 'последние ' + matches.length;
+      const rows = matches.map((match) => {
+        const win = match.winner_id === myId();
+        const draw = match.winner_id === null || match.winner_id === undefined;
+        const result = draw ? 'ничья' : (win ? 'победа' : 'поражение');
+        const mine = win ? match.winner_attempts : match.loser_attempts;
+        const theirs = win ? match.loser_attempts : match.winner_attempts;
+        const opponent = match.player1_id === myId() ? match.player2_name : match.player1_name;
+        return '<tr class="' + (draw ? '' : (win ? 'win' : 'lose')) + '">'
+          + '<td class="dim">#' + escapeHtml(match.id) + '</td>'
+          + '<td class="dim">' + escapeHtml(whenText(match.played_at)) + '</td>'
+          + '<td>' + escapeHtml(opponent || '—') + '</td>'
+          + '<td class="res">' + result + '</td>'
+          + '<td class="dim">' + mine + ' : ' + theirs + '</td>'
+          + '<td class="dim">раунд ' + escapeHtml(match.round_number) + '</td>'
+          + '<td><span class="who-line">' + avatarHtml(match.target)
+          + escapeHtml(match.target) + '</span></td>'
+          + '</tr>';
+      }).join('');
+      $('#matches-table').innerHTML = '<thead><tr><th>Матч</th><th>Когда</th><th>Соперник</th>'
+        + '<th>Итог</th><th>Ходы</th><th>Раунд</th><th>Персонаж</th></tr></thead>'
+        + '<tbody>' + rows + '</tbody>';
     }
 
     function renderResult() {
@@ -570,6 +695,7 @@
       $('#result-title').textContent = winner === 'you' ? 'Раунд ваш!'
         : (winner === 'rival' ? 'Раунд за соперником' : 'Ничья');
       $('#result-name').textContent = state.answer ? state.answer.name : '—';
+      $('#result-avatar').innerHTML = state.answer ? avatarHtml(state.answer.name, 'avatar-lg') : '';
       $('#result-attrs').innerHTML = state.answer
         ? catalog.attributes.map((attribute) => {
             const value = state.answer[attribute.key];
@@ -614,6 +740,10 @@
       if (finished) {
         renderResult();
         show('#result-card', true);
+        if (loadedRound !== state.round) {
+          loadedRound = state.round;
+          loadMatches();
+        }
       } else {
         show('#result-card', false);
       }
@@ -730,8 +860,11 @@
       if (!state || state.status !== 'playing') return;
       const value = (name || '').trim();
       if (!value) return;
-      if (catalog.characters.length
-          && !catalog.characters.some((item) => item.toLowerCase() === value.toLowerCase())) {
+      // Набор приходит из базы как список объектов: сверяем по имени, чтобы
+      // опечатка не тратилась на попытку.
+      const known = catalog.characters.some(
+        (item) => String(item.name).toLowerCase() === value.toLowerCase());
+      if (catalog.characters.length && !known) {
         toast('Такого персонажа нет в наборе — выберите из подсказки', 'warn');
         return;
       }
@@ -801,8 +934,10 @@
     async function loadCatalog() {
       try {
         catalog = await api(GAME + '/characters');
+        characterIndex = new Map(
+          (catalog.characters || []).map((item) => [String(item.name).toLowerCase(), item]));
         $('#characters').innerHTML = catalog.characters
-          .map((name) => '<option value="' + escapeHtml(name) + '"></option>').join('');
+          .map((item) => '<option value="' + escapeHtml(item.name) + '"></option>').join('');
         return true;
       } catch (error) {
         console.warn('Не удалось получить набор персонажей:', error);
@@ -840,6 +975,7 @@
       }
       show('#server-card', false);
       await loadCatalog();
+      await loadMatches();
 
       const code = roomFromLink();
       if (code) {
@@ -855,6 +991,7 @@
       show('#lobby', false);
       show('#wait-card', false);
       show('#game', false);
+      show('#matches-card', false);
       $('#auth-user').focus();
     }
 

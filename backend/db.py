@@ -135,6 +135,48 @@ CREATE TABLE IF NOT EXISTS secret_data (
     updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_secret_name ON secret_data(name);
+
+-- Игра Narutodle: набор персонажей и журнал матчей. Набор хранится в базе,
+-- чтобы его можно было править и дополнять без правки кода; image — путь
+-- к своей картинке (пусто — страница рисует аватар из инициалов и color).
+CREATE TABLE IF NOT EXISTS narutodle_characters (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL,
+    gender     TEXT    NOT NULL DEFAULT '',
+    village    TEXT    NOT NULL DEFAULT '',
+    clan       TEXT    NOT NULL DEFAULT '',
+    nature     TEXT    NOT NULL DEFAULT '[]',
+    kekkei     TEXT    NOT NULL DEFAULT '',
+    jinchuriki TEXT    NOT NULL DEFAULT '',
+    debut      TEXT    NOT NULL DEFAULT '',
+    status     TEXT    NOT NULL DEFAULT '',
+    color      TEXT    NOT NULL DEFAULT '',
+    image      TEXT    NOT NULL DEFAULT '',
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_narutodle_characters_name ON narutodle_characters(name);
+
+-- Журнал матчей: кто играл, чем закончилось и с какого раза.
+-- Ссылок на users нет намеренно: история матчей должна переживать удаление аккаунта.
+CREATE TABLE IF NOT EXISTS narutodle_matches (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    room            TEXT    NOT NULL DEFAULT '',
+    round_number    INTEGER NOT NULL DEFAULT 1,
+    target          TEXT    NOT NULL DEFAULT '',
+    player1_id      INTEGER,
+    player1_name    TEXT    NOT NULL DEFAULT '',
+    player2_id      INTEGER,
+    player2_name    TEXT    NOT NULL DEFAULT '',
+    winner_id       INTEGER,
+    winner_name     TEXT    NOT NULL DEFAULT '',
+    loser_name      TEXT    NOT NULL DEFAULT '',
+    winner_attempts INTEGER NOT NULL DEFAULT 0,
+    loser_attempts  INTEGER NOT NULL DEFAULT 0,
+    reason          TEXT    NOT NULL DEFAULT '',
+    played_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_narutodle_matches_played ON narutodle_matches(id DESC);
+CREATE INDEX IF NOT EXISTS idx_narutodle_matches_players ON narutodle_matches(player1_id, player2_id);
 """
 
 
@@ -145,6 +187,31 @@ def _iso(value: datetime) -> str:
 
 def _now() -> str:
     return _iso(datetime.now(timezone.utc))
+
+
+def _nature_list(value: Any) -> List[str]:
+    """Стихии хранятся в текстовой колонке как JSON-массив — читаем как список."""
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []
+
+
+def _character(row: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    data["nature"] = _nature_list(data.get("nature"))
+    return data
+
+
+def _match(row: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    for key in ("id", "round_number", "winner_attempts", "loser_attempts"):
+        if data.get(key) is not None:
+            data[key] = int(data[key])
+    return data
 
 
 class Database:
@@ -475,6 +542,115 @@ class Database:
         with self.connect() as db:
             cursor = db.execute("DELETE FROM secret_data WHERE id = ?", (entry_id,))
             return cursor.rowcount > 0
+
+    # -------------------------------------------------------------- narutodle
+    def narutodle_character_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM narutodle_characters").fetchone()
+        return int(row["n"])
+
+    def narutodle_characters(self) -> List[Dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM narutodle_characters ORDER BY name").fetchall()
+        return [_character(dict(row)) for row in rows]
+
+    def narutodle_save_characters(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет персонажей и обновляет свойства уже известных.
+
+        Пустые color и image в новых данных не затирают то, что уже стоит
+        в базе: свои картинки и цвета должны переживать повторное наполнение.
+        """
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                db.execute(
+                    "INSERT INTO narutodle_characters (name, gender, village, clan, nature, "
+                    "kekkei, jinchuriki, debut, status, color, image, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(name) DO UPDATE SET "
+                    "gender = excluded.gender, village = excluded.village, clan = excluded.clan, "
+                    "nature = excluded.nature, kekkei = excluded.kekkei, "
+                    "jinchuriki = excluded.jinchuriki, debut = excluded.debut, "
+                    "status = excluded.status, "
+                    "color = CASE WHEN excluded.color <> '' THEN excluded.color "
+                    "ELSE narutodle_characters.color END, "
+                    "image = CASE WHEN excluded.image <> '' THEN excluded.image "
+                    "ELSE narutodle_characters.image END, "
+                    "updated_at = excluded.updated_at",
+                    (
+                        str(row.get("name") or ""),
+                        str(row.get("gender") or ""),
+                        str(row.get("village") or ""),
+                        str(row.get("clan") or ""),
+                        json.dumps(_nature_list(row.get("nature")), ensure_ascii=False),
+                        str(row.get("kekkei") or ""),
+                        str(row.get("jinchuriki") or ""),
+                        str(row.get("debut") or ""),
+                        str(row.get("status") or ""),
+                        str(row.get("color") or ""),
+                        str(row.get("image") or ""),
+                        _now(),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def narutodle_set_image(self, name: str, image: str) -> bool:
+        """Привязывает картинку к персонажу (пустая строка — снова аватар)."""
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE narutodle_characters SET image = ?, updated_at = ? WHERE name = ?",
+                (image, _now(), name),
+            )
+            return cursor.rowcount > 0
+
+    def narutodle_add_match(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Пишет матч в журнал и возвращает строку с присвоенным идентификатором."""
+        with self.connect() as db:
+            entry_id = db.execute(
+                "INSERT INTO narutodle_matches (room, round_number, target, player1_id, "
+                "player1_name, player2_id, player2_name, winner_id, winner_name, loser_name, "
+                "winner_attempts, loser_attempts, reason, played_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(record.get("room") or ""),
+                    int(record.get("round_number") or 1),
+                    str(record.get("target") or ""),
+                    record.get("player1_id"),
+                    str(record.get("player1_name") or ""),
+                    record.get("player2_id"),
+                    str(record.get("player2_name") or ""),
+                    record.get("winner_id"),
+                    str(record.get("winner_name") or ""),
+                    str(record.get("loser_name") or ""),
+                    int(record.get("winner_attempts") or 0),
+                    int(record.get("loser_attempts") or 0),
+                    str(record.get("reason") or ""),
+                    _now(),
+                ),
+            ).lastrowid
+            row = db.execute("SELECT * FROM narutodle_matches WHERE id = ?", (entry_id,)).fetchone()
+        return _match(dict(row))
+
+    def narutodle_matches(self, user_id: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Журнал матчей: с участием игрока или все подряд (для администратора)."""
+        size = max(1, min(int(limit), 500))
+        with self.connect() as db:
+            if user_id is None:
+                rows = db.execute(
+                    "SELECT * FROM narutodle_matches ORDER BY id DESC LIMIT ?", (size,)
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM narutodle_matches WHERE player1_id = ? OR player2_id = ? "
+                    "ORDER BY id DESC LIMIT ?", (int(user_id), int(user_id), size)
+                ).fetchall()
+        return [_match(dict(row)) for row in rows]
+
+    def narutodle_match_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM narutodle_matches").fetchone()
+        return int(row["n"])
 
 
 # Любой из поддерживаемых бэкендов: SQLite (Database) или PostgreSQL (PostgresDatabase).

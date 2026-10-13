@@ -55,6 +55,7 @@ API (JSON):
 
 Игры (Bearer-токен аккаунта, без общего ключа):
     GET  /api/games/narutodle/characters           набор персонажей и графы сравнения
+    GET  /api/games/narutodle/matches?limit=&scope= журнал матчей: свои или все (admin)
     POST /api/games/narutodle/rooms                создать комнату дуэли
     POST /api/games/narutodle/rooms/<код>/join     войти вторым игроком
     GET  /api/games/narutodle/rooms/<код>          состояние комнаты (опрос страницей)
@@ -89,7 +90,7 @@ try:  # запуск как модуль: python -m backend.server
     from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database
     from .arduino import ArduinoLink
     from .narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError
-    from .narutodle_data import attribute_list, character_names
+    from .narutodle_data import attribute_list, seed_rows
 except ImportError:  # запуск как файл: python backend/server.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from auth import (  # type: ignore
@@ -99,7 +100,7 @@ except ImportError:  # запуск как файл: python backend/server.py
     from db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database  # type: ignore
     from arduino import ArduinoLink  # type: ignore
     from narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError  # type: ignore
-    from narutodle_data import attribute_list, character_names  # type: ignore
+    from narutodle_data import attribute_list, seed_rows  # type: ignore
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONT = ROOT / "front"
@@ -142,7 +143,9 @@ class Application:
         self._zone_names = {zone["id"]: zone["name"] for zone in db.zones()}
         self._attempts: Dict[Tuple[str, str], list] = {}
         self._attempts_lock = threading.Lock()
-        self.narutodle = Narutodle()
+        self.narutodle = Narutodle(characters=self._narutodle_characters(),
+                                   on_finish=self._log_narutodle_match,
+                                   provider=self.db.narutodle_characters)
 
     # ------------------------------------------------------------------- доступ
     def authorized(self, headers: Any, query: Dict[str, str]) -> bool:
@@ -200,6 +203,33 @@ class Application:
             recent.append(now)
             self._attempts[key] = recent
         return True
+
+    # ------------------------------------------------------- игра Narutodle
+    def _narutodle_characters(self) -> List[Dict[str, Any]]:
+        """Набор персонажей из базы; на пустой таблице заливает исходный набор.
+
+        Дальше источник правды — база: персонажей можно править и дополнять
+        прямо в ней (backend/seed_narutodle.py умеет и то, и другое).
+        """
+        if not self.db.narutodle_character_count():
+            seeded = self.db.narutodle_save_characters(seed_rows())
+            self.db.add_log(f"Narutodle: набор персонажей залит в базу ({seeded})", "info")
+        return self.db.narutodle_characters()
+
+    def reload_narutodle_characters(self) -> int:
+        """Сбрасывает и перечитывает набор из базы (на случай правок на ходу)."""
+        return self.narutodle.refresh()
+
+    def _log_narutodle_match(self, record: Dict[str, Any]) -> None:
+        """Пишет итог раунда в журнал матчей и в общий журнал событий."""
+        entry = self.db.narutodle_add_match(record)
+        winner = entry.get("winner_name") or "никто"
+        self.db.add_log(
+            f"Narutodle: матч #{entry['id']} в комнате {entry['room']}, раунд "
+            f"{entry['round_number']} — победил {winner} "
+            f"({entry['winner_attempts']} попыток против {entry['loser_attempts']})",
+            "info",
+        )
 
     def login(self, username: str, password: str) -> Dict[str, Any]:
         """Проверяет логин и пароль и открывает сессию."""
@@ -783,19 +813,39 @@ class Handler(BaseHTTPRequestHandler):
         app = self.app
         prefix = "/api/games/narutodle"
         client = self.client_address[0] if self.client_address else "?"
+        query = self._query()
 
         try:
             user = app.user_by_token(self._bearer_token())
 
             if method == "GET" and path == f"{prefix}/characters":
                 return self._json({
-                    "characters": character_names(),
+                    "characters": app.narutodle.catalog(),
                     "attributes": attribute_list(),
                     "max_attempts": MAX_ATTEMPTS,
                 })
 
             if not user:
                 return self._error("Требуется вход в аккаунт", 401)
+
+            if method == "GET" and path == f"{prefix}/matches":
+                scope = str(query.get("scope") or "mine").lower()
+                limit = int(query.get("limit", 50))
+                if scope == "all":
+                    # Чужую историю игр видит только администратор.
+                    if not self._require_admin(user):
+                        return self._error("Нужны права администратора", 403)
+                    return self._json({
+                        "scope": "all",
+                        "matches": app.db.narutodle_matches(None, limit),
+                        "total": app.db.narutodle_match_count(),
+                        "characters": app.db.narutodle_character_count(),
+                    })
+                return self._json({
+                    "scope": "mine",
+                    "user": {"id": user["id"], "username": user["username"]},
+                    "matches": app.db.narutodle_matches(user["id"], limit),
+                })
 
             if method == "POST" and path == f"{prefix}/rooms":
                 if not app.allow_game_action(client):

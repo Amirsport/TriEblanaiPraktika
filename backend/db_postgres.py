@@ -14,7 +14,9 @@ import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+import json
 
 try:
     import psycopg
@@ -77,6 +79,33 @@ def _user(row: Dict[str, Any]) -> Dict[str, Any]:
 def _entry(row: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(row)
     data["updated_at"] = to_iso(data.get("updated_at"))
+    return data
+
+
+def _nature_list(value: Any) -> List[str]:
+    """Стихии лежат в текстовой колонке как JSON-массив — отдаём их списком."""
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(item) for item in parsed] if isinstance(parsed, list) else []
+
+
+def _character(row: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    data["nature"] = _nature_list(data.get("nature"))
+    data["updated_at"] = to_iso(data.get("updated_at"))
+    return data
+
+
+def _match(row: Dict[str, Any]) -> Dict[str, Any]:
+    data = dict(row)
+    for key in ("id", "round_number", "winner_attempts", "loser_attempts"):
+        if data.get(key) is not None:
+            data[key] = int(data[key])
+    data["played_at"] = to_iso(data.get("played_at"))
     return data
 
 
@@ -440,6 +469,114 @@ class PostgresDatabase:
             cursor = db.execute("DELETE FROM secret_data WHERE id = %s", (entry_id,))
             return cursor.rowcount > 0
 
+    # -------------------------------------------------------------- narutodle
+    def narutodle_character_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM narutodle_characters").fetchone()
+        return int(row["n"])
+
+    def narutodle_characters(self) -> List[Dict[str, Any]]:
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM narutodle_characters ORDER BY name").fetchall()
+        return [_character(row) for row in rows]
+
+    def narutodle_save_characters(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет персонажей и обновляет свойства уже известных.
+
+        Пустые color и image в новых данных не затирают то, что уже стоит
+        в базе: свои картинки и цвета должны переживать повторное наполнение.
+        """
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                db.execute(
+                    "INSERT INTO narutodle_characters (name, gender, village, clan, nature, "
+                    "kekkei, jinchuriki, debut, status, color, image, updated_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (name) DO UPDATE SET "
+                    "gender = EXCLUDED.gender, village = EXCLUDED.village, clan = EXCLUDED.clan, "
+                    "nature = EXCLUDED.nature, kekkei = EXCLUDED.kekkei, "
+                    "jinchuriki = EXCLUDED.jinchuriki, debut = EXCLUDED.debut, "
+                    "status = EXCLUDED.status, "
+                    "color = CASE WHEN EXCLUDED.color <> '' THEN EXCLUDED.color "
+                    "ELSE narutodle_characters.color END, "
+                    "image = CASE WHEN EXCLUDED.image <> '' THEN EXCLUDED.image "
+                    "ELSE narutodle_characters.image END, "
+                    "updated_at = EXCLUDED.updated_at",
+                    (
+                        str(row.get("name") or ""),
+                        str(row.get("gender") or ""),
+                        str(row.get("village") or ""),
+                        str(row.get("clan") or ""),
+                        json.dumps(_nature_list(row.get("nature")), ensure_ascii=False),
+                        str(row.get("kekkei") or ""),
+                        str(row.get("jinchuriki") or ""),
+                        str(row.get("debut") or ""),
+                        str(row.get("status") or ""),
+                        str(row.get("color") or ""),
+                        str(row.get("image") or ""),
+                        datetime.now(timezone.utc),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def narutodle_set_image(self, name: str, image: str) -> bool:
+        """Привязывает картинку к персонажу (пустая строка — снова аватар)."""
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE narutodle_characters SET image = %s, updated_at = %s WHERE name = %s",
+                (image, datetime.now(timezone.utc), name),
+            )
+            return cursor.rowcount > 0
+
+    def narutodle_add_match(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Пишет матч в журнал и возвращает строку с присвоенным идентификатором."""
+        with self.connect() as db:
+            row = db.execute(
+                "INSERT INTO narutodle_matches (room, round_number, target, player1_id, "
+                "player1_name, player2_id, player2_name, winner_id, winner_name, loser_name, "
+                "winner_attempts, loser_attempts, reason, played_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                (
+                    str(record.get("room") or ""),
+                    int(record.get("round_number") or 1),
+                    str(record.get("target") or ""),
+                    record.get("player1_id"),
+                    str(record.get("player1_name") or ""),
+                    record.get("player2_id"),
+                    str(record.get("player2_name") or ""),
+                    record.get("winner_id"),
+                    str(record.get("winner_name") or ""),
+                    str(record.get("loser_name") or ""),
+                    int(record.get("winner_attempts") or 0),
+                    int(record.get("loser_attempts") or 0),
+                    str(record.get("reason") or ""),
+                    datetime.now(timezone.utc),
+                ),
+            ).fetchone()
+        return _match(row)
+
+    def narutodle_matches(self, user_id: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Журнал матчей: с участием игрока или все подряд (для администратора)."""
+        size = max(1, min(int(limit), 500))
+        with self.connect() as db:
+            if user_id is None:
+                rows = db.execute(
+                    "SELECT * FROM narutodle_matches ORDER BY id DESC LIMIT %s", (size,)
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM narutodle_matches WHERE player1_id = %s OR player2_id = %s "
+                    "ORDER BY id DESC LIMIT %s", (int(user_id), int(user_id), size)
+                ).fetchall()
+        return [_match(row) for row in rows]
+
+    def narutodle_match_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM narutodle_matches").fetchone()
+        return int(row["n"])
+
 
 # Правила переноса данных из SQLite (используются backend/migrate_to_postgres.py):
 # таблица, колонки и ключ, по которому разрешаются конфликты повторного запуска.
@@ -456,8 +593,14 @@ TRANSFERS: Tuple[Tuple[str, Tuple[str, ...], Tuple[str, ...]], ...] = (
     ("auth_sessions", ("token", "user_id", "expires_at", "created_at"), ("token",)),
     ("user_states", ("user_id", "payload", "updated_at"), ("user_id",)),
     ("secret_data", ("id", "name", "value", "updated_at"), ("id",)),
+    ("narutodle_characters", ("id", "name", "gender", "village", "clan", "nature", "kekkei",
+                              "jinchuriki", "debut", "status", "color", "image", "updated_at"),
+     ("id",)),
+    ("narutodle_matches", ("id", "room", "round_number", "target", "player1_id", "player1_name",
+                           "player2_id", "player2_name", "winner_id", "winner_name", "loser_name",
+                           "winner_attempts", "loser_attempts", "reason", "played_at"), ("id",)),
 )
 
 # Колонки, значения которых при переносе нужно привести к типу PostgreSQL.
 BOOL_COLUMNS = ("enabled", "auto_watering", "auto_ventilation", "auto_lighting")
-TIME_COLUMNS = ("recorded_at", "ts", "updated_at", "created_at", "expires_at")
+TIME_COLUMNS = ("recorded_at", "ts", "updated_at", "created_at", "expires_at", "played_at")
