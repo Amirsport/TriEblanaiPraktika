@@ -18,27 +18,38 @@
 #       работает без аккаунта, но адрес меняется при каждом переподключении.
 # Ключ берётся из ~/.ssh (например id_rsa) и ssh-agent, пароль не требуется.
 #
+# Режимы работы:
+#   одиночный (по умолчанию): туннель живёт, пока запущен скрипт; если связь
+#       оборвалась, скрипт сообщает об этом и завершается — ничего не перезапускается;
+#   с автоподключением: -KeepAlive, скрипт сам переподключается при обрыве
+#       (нужно, когда панель должна оставаться на связи долго).
+# Окно ssh.exe всегда скрыто, чтобы ничего не всплывало поверх других программ.
+#
 # Запуск:
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1
-#   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -Port 8000 -MaxHours 12
+#   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -KeepAlive
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -RemoteUserHost nokey@localhost.run
 #
-# Адрес туннеля печатается и сохраняется в data/tunnel-url.txt.
-# Остановить: закрыть окно или завершить процессы ssh, запущенные этим скриптом.
+# Адрес туннеля печатается и сохраняется в data/tunnel-url.txt, PID — в data/tunnel.pid.
+# Остановить: powershell -ExecutionPolicy Bypass -File _tunnel_stop.ps1
 param(
     [int]$Port = 8000,
     [int]$MaxHours = 6,
     [string]$RemoteUserHost = 'localhost.run',
     [string]$SshPath = "$env:SystemRoot\System32\OpenSSH\ssh.exe",
-    [string]$UrlPattern = 'https://[a-z0-9-]+\.lhr\.(?:life|rocks)'
+    [string]$UrlPattern = 'https://[a-z0-9-]+\.lhr\.(?:life|rocks)',
+    [switch]$KeepAlive,
+    [switch]$ShowWindow
 )
 
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $urlFile = Join-Path $root 'data\tunnel-url.txt'
+$pidFile = Join-Path $root 'data\tunnel.pid'
 $logFile = Join-Path $env:TEMP 'ssh-tunnel.log'
 $attemptLog = Join-Path $env:TEMP 'tunnel-ssh-attempts.log'
 $deadline = (Get-Date).AddHours($MaxHours)
+$mode = if ($KeepAlive) { 'с автоподключением' } else { 'одиночный' }
 
 if (-not (Test-Path $SshPath)) {
     Write-Host "ssh.exe не найден: $SshPath"
@@ -68,16 +79,25 @@ function Test-TunnelServes([string]$tunnelUrl) {
     return ($code -eq '200' -or $code -eq '401')
 }
 
-Write-Attempt "старт: порт $Port, предел $MaxHours ч, журнал $attemptLog"
+Write-Attempt "старт: режим $mode, порт $Port, предел $MaxHours ч, журнал $attemptLog"
+@{ script = $PID; started = (Get-Date).ToString('s'); mode = $mode } |
+    ConvertTo-Json -Compress | Set-Content -Path $pidFile -Encoding UTF8
 
 while ((Get-Date) -lt $deadline) {
     Remove-Item $logFile -ErrorAction SilentlyContinue
 
-    $ssh = Start-Process -FilePath $SshPath `
-        -ArgumentList '-o', 'StrictHostKeyChecking=no', '-o', 'ServerAliveInterval=20',
-                      '-o', 'ExitOnForwardFailure=yes', '-R', "80:localhost:$Port", $RemoteUserHost `
-        -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err" -PassThru
-    Write-Attempt "попытка: ssh PID $($ssh.Id)"
+    $sshArgs = @('-o', 'StrictHostKeyChecking=no', '-o', 'ServerAliveInterval=20',
+                 '-o', 'ExitOnForwardFailure=yes', '-R', "80:localhost:$Port", $RemoteUserHost)
+    $sshParams = @{
+        FilePath = $SshPath
+        ArgumentList = $sshArgs
+        RedirectStandardOutput = $logFile
+        RedirectStandardError = "$logFile.err"
+        PassThru = $true
+    }
+    if (-not $ShowWindow) { $sshParams['WindowStyle'] = 'Hidden' }
+    $ssh = Start-Process @sshParams
+    Write-Attempt "попытка: ssh PID $($ssh.Id) (окно $(if ($ShowWindow) { 'видимо' } else { 'скрыто' }))"
 
     $url = $null
     for ($i = 0; $i -lt 45; $i++) {
@@ -93,24 +113,43 @@ while ((Get-Date) -lt $deadline) {
         Write-Attempt "ТУННЕЛЬ РАБОТАЕТ: $url"
         Write-Attempt "адрес сохранён в $urlFile"
         Write-Attempt 'введите его и API-ключ в панели: раздел Режим -> Подключение к серверу'
+        if (-not $KeepAlive) {
+            Write-Attempt 'одиночный режим: туннель держится, пока запущен этот скрипт'
+            Write-Attempt 'остановить: powershell -ExecutionPolicy Bypass -File _tunnel_stop.ps1'
+        }
 
         $probe = 0
         while ((Get-Date) -lt $deadline) {
             Start-Sleep -Seconds 20
             if (-not (Get-Process -Id $ssh.Id -ErrorAction SilentlyContinue)) {
-                Write-Attempt 'ssh завершился, переподключаюсь'
+                if ($KeepAlive) {
+                    Write-Attempt 'ssh завершился, переподключаюсь'
+                } else {
+                    Write-Attempt 'ssh завершился, туннель закрыт (одиночный режим: перезапуска нет)'
+                    break
+                }
                 break
             }
             $probe++
             if ($probe % 2 -eq 0 -and -not (Test-TunnelServes $url)) {
-                Write-Attempt 'ответы через туннель перестали проходить, переподключаюсь'
+                if ($KeepAlive) {
+                    Write-Attempt 'ответы через туннель перестали проходить, переподключаюсь'
+                } else {
+                    Write-Attempt 'ответы через туннель перестали проходить (одиночный режим: перезапуска нет)'
+                    break
+                }
                 break
             }
         }
+        if (-not $KeepAlive) { break }
     } else {
         Write-Attempt 'адрес не получен или туннель не отвечает'
         if ($RemoteUserHost -notmatch 'nokey') {
             Write-Attempt 'если ключ ещё не добавлен в https://admin.localhost.run/, повторите с -RemoteUserHost nokey@localhost.run'
+        }
+        if (-not $KeepAlive) {
+            Write-Attempt 'одиночный режим: повторной попытки не будет'
+            break
         }
     }
 
@@ -121,4 +160,5 @@ while ((Get-Date) -lt $deadline) {
 Get-Process -Name ssh -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -eq $SshPath } |
     ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
-Write-Attempt 'время работы истекло, скрипт остановлен'
+Remove-Item $pidFile -ErrorAction SilentlyContinue
+Write-Attempt 'скрипт остановлен'
