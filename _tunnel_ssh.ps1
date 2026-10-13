@@ -11,25 +11,26 @@
 # в сессионном канале, а с -N сессия не создаётся и адрес не приходит.
 #
 # Два режима подключения (см. https://localhost.run/docs/forever-free/):
-#   анонимный (по умолчанию): -RemoteUserHost 'nokey@localhost.run'
-#       адрес меняется при каждом переподключении;
-#   с ключом: -RemoteUserHost 'localhost.run'
+#   с ключом (по умолчанию): -RemoteUserHost 'localhost.run'
 #       адрес сохраняется между переподключениями, но ключ нужно один раз
-#       добавить в аккаунт на https://admin.localhost.run/ (иначе адрес не выдаётся).
+#       добавить в аккаунт на https://admin.localhost.run/ — иначе адрес не выдаётся;
+#   анонимный: -RemoteUserHost 'nokey@localhost.run'
+#       работает без аккаунта, но адрес меняется при каждом переподключении.
 # Ключ берётся из ~/.ssh (например id_rsa) и ssh-agent, пароль не требуется.
 #
 # Запуск:
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -Port 8000 -MaxHours 12
+#   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -RemoteUserHost nokey@localhost.run
 #
 # Адрес туннеля печатается и сохраняется в data/tunnel-url.txt.
 # Остановить: закрыть окно или завершить процессы ssh, запущенные этим скриптом.
 param(
     [int]$Port = 8000,
     [int]$MaxHours = 6,
-    [string]$RemoteUserHost = 'nokey@localhost.run',
+    [string]$RemoteUserHost = 'localhost.run',
     [string]$SshPath = "$env:SystemRoot\System32\OpenSSH\ssh.exe",
-    [string]$UrlPattern = 'https://[a-z0-9-]+\.lhr\.life'
+    [string]$UrlPattern = 'https://[a-z0-9-]+\.lhr\.(?:life|rocks)'
 )
 
 $ErrorActionPreference = 'Continue'
@@ -108,6 +109,9 @@ while ((Get-Date) -lt $deadline) {
         }
     } else {
         Write-Attempt 'адрес не получен или туннель не отвечает'
+        if ($RemoteUserHost -notmatch 'nokey') {
+            Write-Attempt 'если ключ ещё не добавлен в https://admin.localhost.run/, повторите с -RemoteUserHost nokey@localhost.run'
+        }
     }
 
     Stop-Process -Id $ssh.Id -Force -ErrorAction SilentlyContinue
