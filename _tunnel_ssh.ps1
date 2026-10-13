@@ -7,6 +7,9 @@
 # Требования: системный VPN/TUN-режим (без него сервер туннеля недоступен),
 # поднятый домашний сервер и OpenSSH (ssh.exe входит в Windows).
 #
+# Важно: ssh запускается без ключа -N — localhost.run выдаёт адрес туннеля
+# в сессионном канале, а с -N сессия не создаётся и адрес не приходит.
+#
 # Запуск:
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -Port 8000 -MaxHours 12
@@ -63,7 +66,7 @@ while ((Get-Date) -lt $deadline) {
 
     $ssh = Start-Process -FilePath $SshPath `
         -ArgumentList '-o', 'StrictHostKeyChecking=no', '-o', 'ServerAliveInterval=20',
-                      '-o', 'ExitOnForwardFailure=yes', '-N', '-R', "80:localhost:$Port", $RemoteUserHost `
+                      '-o', 'ExitOnForwardFailure=yes', '-R', "80:localhost:$Port", $RemoteUserHost `
         -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err" -PassThru
     Write-Attempt "попытка: ssh PID $($ssh.Id)"
 
