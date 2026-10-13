@@ -1222,23 +1222,31 @@
       }
     }
 
+    /* Проверки связи могут идти внахлёст: результат устаревшей не должен
+       затирать более свежий (иначе адрес, введённый вручную, «не сработает»). */
+    let connSeq = 0;
+
     async function checkConnection() {
+      const seq = ++connSeq;
+      const apply = (kind, text) => {
+        if (seq === connSeq) setConnection(kind, text);
+      };
       const served = ['http:', 'https:'].includes(location.protocol);
       if (!root() && !served) {
-        setConnection('err', 'адрес не задан');
+        apply('err', 'адрес не задан');
         return false;
       }
       try {
         await api('/api/health');
-        setConnection('online', 'на связи');
+        apply('online', 'на связи');
         return true;
       } catch (error) {
         if (error.status === 401) {
           // Сервер жив, просто закрыт общим ключом — игре это не мешает.
-          setConnection('online', 'на связи');
+          apply('online', 'на связи');
           return true;
         }
-        setConnection('err', root() ? 'сервер не отвечает' : 'API на этом домене нет');
+        apply('err', root() ? 'сервер не отвечает' : 'API на этом домене нет');
         return false;
       }
     }
