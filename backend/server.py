@@ -14,6 +14,8 @@
 запросы /api/* требуют заголовок X-Api-Token либо параметр ?token=...
 Исключение — разделы /api/auth/*, /api/admin/* и /api/secret/*: они защищены
 паролем пользователя (Bearer-токен), иначе войти было бы невозможно.
+Так же работает раздел игр /api/games/*: в него пускает аккаунт (Bearer),
+а общий ключ не нужен — иначе он попал бы в ссылку-приглашение другу.
 
 Учётные записи панели хранятся в таблице users (пароли — PBKDF2-SHA256),
 токены входа — в auth_sessions, состояние панели пользователя — в user_states.
@@ -50,6 +52,15 @@ API (JSON):
     GET  /api/secret/data                записи секретной страницы
     POST /api/secret/data                (admin) {"name":"...","value":"..."} создать/обновить
     DELETE /api/secret/data/<id>         (admin) удалить запись
+
+Игры (Bearer-токен аккаунта, без общего ключа):
+    GET  /api/games/narutodle/characters           набор персонажей и графы сравнения
+    POST /api/games/narutodle/rooms                создать комнату дуэли
+    POST /api/games/narutodle/rooms/<код>/join     войти вторым игроком
+    GET  /api/games/narutodle/rooms/<код>          состояние комнаты (опрос страницей)
+    POST /api/games/narutodle/rooms/<код>/guess    {"name":"..."} догадка
+    POST /api/games/narutodle/rooms/<код>/giveup   сдаться в раунде
+    POST /api/games/narutodle/rooms/<код>/rematch  новый раунд
 """
 from __future__ import annotations
 
@@ -77,6 +88,8 @@ try:  # запуск как модуль: python -m backend.server
     )
     from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database
     from .arduino import ArduinoLink
+    from .narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError
+    from .narutodle_data import attribute_list, character_names
 except ImportError:  # запуск как файл: python backend/server.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from auth import (  # type: ignore
@@ -85,6 +98,8 @@ except ImportError:  # запуск как файл: python backend/server.py
     )
     from db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database  # type: ignore
     from arduino import ArduinoLink  # type: ignore
+    from narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError  # type: ignore
+    from narutodle_data import attribute_list, character_names  # type: ignore
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONT = ROOT / "front"
@@ -96,6 +111,11 @@ ADMIN_NAME = "admin"
 # Ограничитель попыток входа и регистрации: не больше N за окно, в расчёте на адрес.
 AUTH_ATTEMPTS = 10
 AUTH_WINDOW_SECONDS = 60
+
+# Игровые действия лимитируются отдельно и мягче: через туннель все игроки
+# приходят с одного адреса, и общий счётчик входа им мешал бы.
+GAME_ATTEMPTS = 30
+GAME_WINDOW_SECONDS = 60
 
 MODE_PRESETS: Dict[str, Optional[Dict[str, Any]]] = {
     "auto": {"moisture_target": 55, "moisture_threshold": 35, "temperature_threshold": 30, "light_threshold": 8000},
@@ -120,8 +140,9 @@ class Application:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._zone_names = {zone["id"]: zone["name"] for zone in db.zones()}
-        self._attempts: Dict[str, list] = {}
+        self._attempts: Dict[Tuple[str, str], list] = {}
         self._attempts_lock = threading.Lock()
+        self.narutodle = Narutodle()
 
     # ------------------------------------------------------------------- доступ
     def authorized(self, headers: Any, query: Dict[str, str]) -> bool:
@@ -157,14 +178,27 @@ class Application:
         Скользящее окно на адрес: без него пароль можно было бы перебирать
         без ограничений. Ограничитель живёт в памяти и обнуляется при перезапуске.
         """
+        return self._allow("auth", client, AUTH_ATTEMPTS, AUTH_WINDOW_SECONDS)
+
+    def allow_game_action(self, client: str) -> bool:
+        """То же для игр: комнаты создаются и открываются по коду.
+
+        Код комнаты короткий, поэтому перебор входов тоже надо ограничивать —
+        но своим счётчиком, чтобы игра не съедала попытки входа в аккаунт.
+        """
+        return self._allow("games", client, GAME_ATTEMPTS, GAME_WINDOW_SECONDS)
+
+    def _allow(self, bucket: str, client: str, limit: int, window: float) -> bool:
+        """Скользящее окно попыток для пары «раздел + адрес»."""
         now = time.time()
+        key = (bucket, client)
         with self._attempts_lock:
-            recent = [moment for moment in self._attempts.get(client, []) if now - moment < AUTH_WINDOW_SECONDS]
-            if len(recent) >= AUTH_ATTEMPTS:
-                self._attempts[client] = recent
+            recent = [moment for moment in self._attempts.get(key, []) if now - moment < window]
+            if len(recent) >= limit:
+                self._attempts[key] = recent
                 return False
             recent.append(now)
-            self._attempts[client] = recent
+            self._attempts[key] = recent
         return True
 
     def login(self, username: str, password: str) -> Dict[str, Any]:
@@ -554,6 +588,11 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith(("/api/auth/", "/api/admin/", "/api/secret/")):
             return self._handle_accounts_api(method, path)
 
+        # Игры: в них пускает аккаунт (Bearer), а общий ключ не нужен — он попал бы
+        # в ссылку-приглашение, которую пересылают другу.
+        if path.startswith("/api/games/"):
+            return self._handle_games_api(method, path)
+
         if not app.authorized(self.headers, query):
             return self._error("Неверный или отсутствующий API-ключ", 401)
 
@@ -729,6 +768,65 @@ class Handler(BaseHTTPRequestHandler):
 
             return self._error(f"Не найдено: {method} {path}", 404)
         except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Внутренняя ошибка: {exc}", 500)
+
+    # ------------------------------------------------------- игры: Narutodle
+    def _handle_games_api(self, method: str, path: str) -> None:
+        """Дуэль «Narutodle»: комнаты, попытки, итог раунда.
+
+        Вход — по аккаунту панели (Bearer), общий API-ключ здесь не спрашивается:
+        ссылку-приглашение пересылают другу, и ключ в ней был бы утечкой.
+        Комнаты живут в памяти процесса, поэтому перезапуск сервера их не сохраняет.
+        """
+        app = self.app
+        prefix = "/api/games/narutodle"
+        client = self.client_address[0] if self.client_address else "?"
+
+        try:
+            user = app.user_by_token(self._bearer_token())
+
+            if method == "GET" and path == f"{prefix}/characters":
+                return self._json({
+                    "characters": character_names(),
+                    "attributes": attribute_list(),
+                    "max_attempts": MAX_ATTEMPTS,
+                })
+
+            if not user:
+                return self._error("Требуется вход в аккаунт", 401)
+
+            if method == "POST" and path == f"{prefix}/rooms":
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много комнат за минуту — подождите немного", 429)
+                return self._json({"state": app.narutodle.create(user)}, 201)
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})", path)
+            if method == "GET" and match:
+                return self._json({"state": app.narutodle.state(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/join", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много попыток войти — подождите минуту", 429)
+                return self._json({"state": app.narutodle.join(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/guess", path)
+            if method == "POST" and match:
+                name = str(self._body().get("name") or "")
+                return self._json({"state": app.narutodle.guess(match.group(1), user, name)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/giveup", path)
+            if method == "POST" and match:
+                return self._json({"state": app.narutodle.give_up(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/rematch", path)
+            if method == "POST" and match:
+                return self._json({"state": app.narutodle.rematch(match.group(1), user)})
+
+            return self._error(f"Не найдено: {method} {path}", 404)
+        except NarutodleError as exc:
             return self._error(str(exc), 400)
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Внутренняя ошибка: {exc}", 500)

@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light" data-palette="red">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Narutodle — дуэль · Умная AI-Теплица</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#c5342b">
+  <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
+  <link rel="stylesheet" href="../../css/main.css?v=11">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Дуэль Narutodle: та же тема, что у панели, в красной палитре
+       (data-palette="red" выше). Здесь — раскладка страницы.
+
+       Ссылка-приглашение выглядит так:
+         .../games/narutodle/?srv=<адрес API>&room=<КОД>
+       Адрес сервера подставляется в настройки подключения автоматически,
+       поэтому приглашённому не нужно ничего настраивать руками. API-ключ
+       в ссылку не попадает: игровой раздел пускает по аккаунту, а ключ
+       в адресе был бы утечкой. */
+
+    .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+    button.status-pill { font-family: inherit; cursor: pointer; }
+    button.status-pill:hover { color: var(--text); border-color: var(--accent); }
+    a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
+
+    [hidden] { display: none !important; }
+
+    .stack { display: flex; flex-direction: column; gap: 20px; }
+
+    .auth-card { width: min(420px, 100%); margin: 0 auto; }
+    .auth-card h2 { text-align: center; }
+
+    .code-box {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 14px 16px; border-radius: var(--radius-sm);
+      background: var(--accent-soft); border: 1px dashed var(--accent);
+    }
+    .code-value {
+      font-size: 30px; font-weight: 700; letter-spacing: 6px;
+      color: var(--accent); line-height: 1.1;
+    }
+    .link-box input { font-size: 12.5px; }
+
+    .lobby-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .lobby-actions .btn { flex: 1 1 200px; }
+
+    .players { display: flex; gap: 10px; flex-wrap: wrap; }
+    .player {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 14px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--surface-solid);
+      font-size: 13.5px;
+    }
+    .player.mine { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .player small { color: var(--text-dim); }
+
+    .guess-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+    .guess-form label { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; }
+
+    .board-wrap { overflow-x: auto; }
+    .board { border-collapse: separate; border-spacing: 6px; width: 100%; min-width: 700px; }
+    .board th {
+      font-size: 11.5px; font-weight: 600; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 0.4px; text-align: left; padding: 0 6px 2px;
+    }
+    .board td {
+      padding: 8px 10px; border-radius: 10px; font-size: 13px;
+      border: 1px solid var(--border); background: var(--surface-solid); white-space: nowrap;
+    }
+    .board td.who { font-weight: 600; }
+    .board td.match { background: rgba(46, 160, 67, 0.20); border-color: rgba(46, 160, 67, 0.45); }
+    .board td.near  { background: rgba(229, 167, 44, 0.22); border-color: rgba(229, 167, 44, 0.50); }
+    .board td.miss  { background: rgba(130, 130, 140, 0.14); color: var(--text-dim); }
+    .board tr.correct td.who { color: #2f7d32; }
+    [data-theme="dark"] .board tr.correct td.who { color: #7ddc8b; }
+
+    .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
+    .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 4px; margin-right: 6px; }
+    .legend .l-match { background: rgba(46, 160, 67, 0.75); }
+    .legend .l-near  { background: rgba(229, 167, 44, 0.85); }
+    .legend .l-miss  { background: rgba(130, 130, 140, 0.55); }
+
+    .result {
+      display: flex; flex-direction: column; gap: 12px;
+      padding: 18px; border-radius: var(--radius-sm);
+      border-left: 4px solid var(--accent); background: var(--surface);
+      backdrop-filter: blur(14px); box-shadow: var(--shadow);
+    }
+    .result.win  { border-left-color: #2f9a43; }
+    .result.lose { border-left-color: var(--danger); }
+    .result h2 { font-family: 'Playfair Display', Georgia, serif; font-size: 21px; }
+    .answer-name { font-size: 17px; font-weight: 600; }
+    .answer-attrs { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
+    .answer-attrs span { padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); }
+
+    .waiting { display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 13.5px; }
+    .spinner {
+      width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto;
+      border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 560px) {
+      .brand-text h1 { font-size: 18px; }
+      .code-value { font-size: 24px; letter-spacing: 4px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Декоративный фон -->
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="app">
+
+    <!-- ===== Шапка ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
+        <div class="brand-text">
+          <h1>Narutodle: дуэль</h1>
+          <p>Один персонаж на двоих · кто угадает первым</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="status-pill" type="button" id="conn-pill" title="Состояние подключения к серверу">
+          <span class="dot"></span>
+          <span id="conn-text">подключаемся…</span>
+        </button>
+        <div class="user-pill" id="user-pill" hidden>
+          <span aria-hidden="true">👤</span>
+          <span id="user-name">—</span>
+        </div>
+        <button class="icon-btn" type="button" id="logout" title="Выйти из аккаунта" hidden>⎋</button>
+        <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
+        <a class="icon-btn" href="../" title="Вернуться в игровую комнату">←</a>
+      </div>
+    </header>
+
+    <!-- ===== Адрес сервера (нужен, если он не пришёл в ссылке) ===== -->
+    <section class="card" id="server-card" hidden>
+      <header class="card-head">
+        <h2>Сервер дуэли</h2>
+        <span class="badge" id="server-badge">не подключён</span>
+      </header>
+      <p class="muted">
+        Игра идёт на сервере теплицы. Обычно адрес приходит в ссылке-приглашении,
+        но его можно вписать и руками.
+      </p>
+      <label class="field">
+        <span>Адрес API</span>
+        <input type="text" id="srv-input" placeholder="https://ваш-адрес-сервера" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" type="button" id="srv-save">Подключиться</button>
+      </div>
+      <p class="muted">Пустой адрес — обращения к тому же домену, с которого открыта страница.</p>
+    </section>
+
+    <!-- ===== Вход и регистрация ===== -->
+    <section class="card auth-card" id="auth-card" hidden>
+      <h2 id="auth-title">Регистрация</h2>
+      <p class="muted" id="auth-hint">
+        Аккаунт нужен, чтобы соперник видел, с кем играет. Он же открывает панель теплицы.
+      </p>
+      <label class="field">
+        <span>Логин</span>
+        <input type="text" id="auth-user" autocomplete="username" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Пароль</span>
+        <input type="password" id="auth-pass" autocomplete="current-password">
+      </label>
+      <label class="field" id="auth-confirm-field">
+        <span>Повторите пароль</span>
+        <input type="password" id="auth-confirm" autocomplete="new-password">
+      </label>
+      <p class="login-error" id="auth-error" hidden></p>
+      <button class="btn btn-primary btn-wide" type="button" id="auth-submit">Зарегистрироваться</button>
+      <button class="link-btn" type="button" id="auth-toggle">У меня уже есть аккаунт</button>
+    </section>
+
+    <!-- ===== Лобби ===== -->
+    <section class="card" id="lobby" hidden>
+      <header class="card-head">
+        <h2>Начать дуэль</h2>
+        <span class="badge" id="lobby-badge">на двоих</span>
+      </header>
+      <p class="muted">
+        Создайте комнату и отправьте другу ссылку — он попадёт сразу в вашу дуэль.
+        Либо введите код, который прислали вам.
+      </p>
+      <div class="lobby-actions">
+        <button class="btn btn-primary" type="button" id="create-room">Создать комнату</button>
+      </div>
+      <div class="row">
+        <label class="field" style="flex: 1 1 200px;">
+          <span>Или код комнаты</span>
+          <input type="text" id="room-code" maxlength="4" placeholder="ABCD"
+                 autocomplete="off" spellcheck="false" style="text-transform: uppercase;">
+        </label>
+        <button class="btn btn-ghost" type="button" id="join-room">Войти по коду</button>
+      </div>
+      <p class="muted" id="lobby-hint"></p>
+    </section>
+
+    <!-- ===== Ожидание соперника ===== -->
+    <section class="card" id="wait-card" hidden>
+      <header class="card-head">
+        <h2>Комната создана</h2>
+        <span class="badge" id="wait-round">раунд 1</span>
+      </header>
+      <div class="code-box">
+        <div>
+          <div class="muted" style="font-size: 12.5px;">Код комнаты</div>
+          <div class="code-value" id="wait-code">----</div>
+        </div>
+        <button class="btn btn-primary" type="button" id="copy-code">Скопировать код</button>
+      </div>
+      <label class="field link-box">
+        <span>Ссылка-приглашение <b>— адрес сервера уже внутри</b></span>
+        <input type="text" id="invite-link" readonly>
+      </label>
+      <div class="row">
+        <button class="btn btn-ghost" type="button" id="copy-link">Скопировать ссылку</button>
+        <button class="btn btn-ghost" type="button" id="leave-wait">Закрыть комнату</button>
+      </div>
+      <p class="waiting">
+        <span class="spinner"></span>
+        <span>Ждём соперника — раунд начнётся сразу после его входа</span>
+      </p>
+    </section>
+
+    <!-- ===== Дуэль ===== -->
+    <section class="stack" id="game" hidden>
+      <section class="card">
+        <header class="card-head">
+          <h2>Раунд <span id="game-round">1</span></h2>
+          <span class="badge" id="game-score">счёт 0 : 0</span>
+        </header>
+
+        <div class="players">
+          <div class="player mine">
+            <span aria-hidden="true">🎮</span>
+            <span><b id="me-name">—</b><br><small id="me-state">попыток: 0</small></span>
+          </div>
+          <div class="player">
+            <span aria-hidden="true">⚔️</span>
+            <span><b id="rival-name">—</b><br><small id="rival-state">попыток: 0</small></span>
+          </div>
+          <div class="player">
+            <span aria-hidden="true">🔑</span>
+            <span>комната <b id="game-code">----</b></span>
+          </div>
+        </div>
+
+        <form class="guess-form" id="guess-form" autocomplete="off">
+          <label>
+            <span class="muted" style="font-size: 13px;">Ваша догадка</span>
+            <input type="text" id="guess-input" list="characters" placeholder="Начните вводить имя персонажа"
+                   autocomplete="off" spellcheck="false">
+            <datalist id="characters"></datalist>
+          </label>
+          <button class="btn btn-primary" type="submit" id="guess-submit">Угадать</button>
+        </form>
+        <p class="muted" id="guess-hint"></p>
+
+        <div class="legend">
+          <span><i class="l-match"></i>совпало</span>
+          <span><i class="l-near"></i>похоже</span>
+          <span><i class="l-miss"></i>не совпало</span>
+        </div>
+
+        <div class="board-wrap">
+          <table class="board" id="my-board"></table>
+        </div>
+
+        <div class="row">
+          <button class="btn btn-ghost" type="button" id="give-up">Сдаться в раунде</button>
+          <button class="btn btn-primary" type="button" id="rematch" hidden>Ещё раунд</button>
+        </div>
+      </section>
+
+      <section class="stack" id="result-card" hidden>
+        <div class="result" id="result">
+          <h2 id="result-title">Раунд завершён</h2>
+          <div>
+            <div class="muted" style="font-size: 12.5px;">Это был</div>
+            <div class="answer-name" id="result-name">—</div>
+          </div>
+          <div class="answer-attrs" id="result-attrs"></div>
+          <p class="muted" id="result-text"></p>
+          <div class="row">
+            <button class="btn btn-primary" type="button" id="rematch-2">Ещё раунд</button>
+          </div>
+        </div>
+
+        <div class="card" id="rival-card" hidden>
+          <header class="card-head">
+            <h2>Ходы соперника</h2>
+            <span class="badge" id="rival-badge">—</span>
+          </header>
+          <div class="board-wrap">
+            <table class="board" id="rival-board"></table>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <footer class="footer">
+      <span>narutodle · дуэль на двоих · доступ по прямой ссылке</span>
+      <span id="clock">—</span>
+    </footer>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    /* Настройки подключения — те же, что у страницы игр: адрес приходит
+       в ссылке (?srv=). API-ключ игре не нужен: играет аккаунт. */
+    const CONN_KEY = 'greenhouse.games.conn.v1';
+    const AUTH_KEY = 'greenhouse.auth.v1';
+    const THEME_KEY = 'greenhouse.games.theme';
+    const GAME = '/api/games/narutodle';
+
+    const POLL_PLAYING_MS = 1200;   // идёт раунд: чаще, чтобы видеть соперника
+    const POLL_FINISHED_MS = 3000;  // после итога: реже, но ловим чужой реванш
+    const REQUEST_TIMEOUT_MS = 8000;
+
+    const $ = (selector) => document.querySelector(selector);
+
+    let apiBase = '';   // адрес сервера дуэли
+    let auth = { token: '', user: null };
+    let catalog = { characters: [], attributes: [], max_attempts: 60 };
+    let state = null;   // состояние комнаты с сервера
+    let pollTimer = null;
+    let busy = false;   // запрос уже в пути
+
+    /* ------------------------------- утилиты -------------------------------- */
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function toast(message, kind) {
+      const box = $('#toasts');
+      const node = document.createElement('div');
+      node.className = 'toast' + (kind ? ' ' + kind : '');
+      node.textContent = message;
+      box.appendChild(node);
+      setTimeout(() => {
+        node.classList.add('out');
+        setTimeout(() => node.remove(), 320);
+      }, 4200);
+    }
+
+    function readJson(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' ? value : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeJson(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function show(selector, visible) {
+      const node = $(selector);
+      if (node) node.hidden = !visible;
+    }
+
+    async function copyText(text, message) {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(message);
+      } catch (error) {
+        toast('Скопируйте вручную: ' + text, 'warn');
+      }
+    }
+
+    /* ------------------------------ сеть ------------------------------------ */
+
+    const root = () => (apiBase || '').replace(/\/+$/, '');
+
+    async function api(path, options = {}) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const headers = { 'Content-Type': 'application/json' };
+      if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+      try {
+        const response = await fetch(root() + path, {
+          method: options.method || 'GET',
+          headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(data.error || ('Сервер ответил HTTP ' + response.status));
+          error.status = response.status;
+          throw error;
+        }
+        return data;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function setConnection(kind, text) {
+      const pill = $('#conn-pill');
+      pill.classList.toggle('online', kind === 'online');
+      pill.classList.toggle('err', kind === 'err');
+      $('#conn-text').textContent = text;
+      const badge = $('#server-badge');
+      if (badge) badge.textContent = text;
+    }
+
+    /* Адрес приходит в ссылке-приглашении: тогда настраивать ничего не нужно. */
+    function applyServerFromLink() {
+      const fromLink = (new URLSearchParams(location.search).get('srv') || '').trim();
+      const stored = readJson(CONN_KEY) || {};
+      if (fromLink) {
+        apiBase = fromLink.replace(/\/+$/, '');
+        writeJson(CONN_KEY, { apiBase: apiBase, apiToken: stored.apiToken || '' });
+        return;
+      }
+      apiBase = (stored.apiBase || '').replace(/\/+$/, '');
+    }
+
+    const roomFromLink = () => (new URLSearchParams(location.search).get('room') || '').toUpperCase();
+
+    function inviteLink(code) {
+      const params = new URLSearchParams();
+      if (root()) params.set('srv', root());
+      params.set('room', code);
+      return location.origin + location.pathname + '?' + params.toString();
+    }
+
+    /* --------------------------- вход в аккаунт ----------------------------- */
+
+    function loadAuth() {
+      const saved = readJson(AUTH_KEY);
+      auth = saved && saved.token
+        ? { token: saved.token, user: saved.user || null }
+        : { token: '', user: null };
+      renderUser();
+    }
+
+    function saveAuth() {
+      if (auth.token) {
+        writeJson(AUTH_KEY, { token: auth.token, user: auth.user });
+      } else {
+        try {
+          localStorage.removeItem(AUTH_KEY);
+        } catch (error) {
+          /* приватный режим: просто не запомним */
+        }
+      }
+      renderUser();
+    }
+
+    function renderUser() {
+      const name = auth.user ? auth.user.username : '';
+      $('#user-name').textContent = name || '—';
+      show('#user-pill', Boolean(name));
+      show('#logout', Boolean(auth.token));
+    }
+
+    function setAuthMode(mode) {
+      const register = mode !== 'login';
+      $('#auth-title').textContent = register ? 'Регистрация' : 'Вход в игру';
+      $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
+      $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
+      $('#auth-hint').textContent = register
+        ? 'Аккаунт нужен, чтобы соперник видел, с кем играет. Он же открывает панель теплицы.'
+        : 'Войдите тем же логином, что и в панели теплицы.';
+      show('#auth-confirm-field', register);
+      show('#auth-error', false);
+      $('#auth-card').dataset.mode = register ? 'register' : 'login';
+    }
+
+    async function submitAuth() {
+      const mode = $('#auth-card').dataset.mode === 'login' ? 'login' : 'register';
+      const username = ($('#auth-user').value || '').trim();
+      const password = $('#auth-pass').value || '';
+      const fail = (message) => {
+        const box = $('#auth-error');
+        box.textContent = message;
+        show('#auth-error', true);
+      };
+
+      if (!username || !password) return fail('Заполните логин и пароль');
+      if (mode === 'register' && password !== $('#auth-confirm').value) return fail('Пароли не совпадают');
+
+      const button = $('#auth-submit');
+      button.disabled = true;
+      try {
+        const data = await api('/api/auth/' + mode, { method: 'POST', body: { username, password } });
+        auth = { token: data.token, user: data.user };
+        saveAuth();
+        toast(mode === 'register' ? 'Аккаунт создан — можно играть' : 'С возвращением, ' + (data.user && data.user.username));
+        show('#auth-card', false);
+        await afterAuth();
+      } catch (error) {
+        fail(error.message || 'Не удалось выполнить запрос');
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function signOut() {
+      if (auth.token) {
+        api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      }
+      auth = { token: '', user: null };
+      saveAuth();
+      state = null;
+      stopPolling();
+      showAuth('register');
+    }
+
+    /* ------------------------------ отрисовка ------------------------------- */
+
+    function renderAttempts(table, attempts) {
+      if (!attempts || !attempts.length || !catalog.attributes.length) {
+        table.innerHTML = '';
+        return;
+      }
+      const head = ['Персонаж'].concat(catalog.attributes.map((attribute) => attribute.label))
+        .map((label) => '<th>' + escapeHtml(label) + '</th>').join('');
+      const rows = attempts.map((attempt) => {
+        const cells = attempt.result.map((row) => {
+          const value = Array.isArray(row.value) ? row.value.join(', ') : row.value;
+          return '<td class="' + row.state + '">' + escapeHtml(value) + '</td>';
+        }).join('');
+        return '<tr class="' + (attempt.correct ? 'correct' : '') + '">'
+          + '<td class="who">' + escapeHtml(attempt.name) + '</td>' + cells + '</tr>';
+      }).join('');
+      table.innerHTML = '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody>';
+    }
+
+    function renderResult() {
+      const winner = state.winner;
+      const box = $('#result');
+      box.className = 'result' + (winner === 'you' ? ' win' : (winner === 'rival' ? ' lose' : ''));
+      $('#result-title').textContent = winner === 'you' ? 'Раунд ваш!'
+        : (winner === 'rival' ? 'Раунд за соперником' : 'Ничья');
+      $('#result-name').textContent = state.answer ? state.answer.name : '—';
+      $('#result-attrs').innerHTML = state.answer
+        ? catalog.attributes.map((attribute) => {
+            const value = state.answer[attribute.key];
+            return '<span>' + escapeHtml(attribute.label + ': '
+              + (Array.isArray(value) ? value.join(', ') : value)) + '</span>';
+          }).join('')
+        : '';
+      $('#result-text').textContent = state.finish_reason === 'gave_up'
+        ? 'Раунд закончился сдачей одного из игроков.'
+        : 'Попыток: у вас ' + state.you.guess_count + ', у соперника '
+          + (state.rival ? state.rival.guess_count : 0) + '.';
+
+      const rivalAttempts = state.rival && state.rival.attempts;
+      show('#rival-card', Boolean(rivalAttempts && rivalAttempts.length));
+      if (rivalAttempts && rivalAttempts.length) {
+        $('#rival-badge').textContent = state.rival.name + ' · попыток: ' + state.rival.guess_count;
+        renderAttempts($('#rival-board'), rivalAttempts);
+      }
+    }
+
+    function renderGame() {
+      const finished = state.status === 'finished';
+
+      $('#game-round').textContent = state.round;
+      $('#game-code').textContent = state.code;
+      $('#game-score').textContent = 'счёт ' + state.score.you + ' : ' + state.score.rival;
+      $('#me-name').textContent = state.you.name;
+      $('#me-state').textContent = 'попыток: ' + state.you.guess_count;
+      $('#rival-name').textContent = state.rival ? state.rival.name : 'соперник ещё не вошёл';
+      $('#rival-state').textContent = state.rival ? 'попыток: ' + state.rival.guess_count : '';
+
+      renderAttempts($('#my-board'), state.you.attempts);
+
+      show('#guess-form', !finished);
+      show('#give-up', !finished);
+      show('#rematch', finished);
+      $('#guess-submit').disabled = finished;
+      $('#guess-hint').textContent = finished
+        ? 'Раунд закончен — можно начать новый.'
+        : ('В наборе ' + catalog.characters.length + ' персонажей: подсказка появится при вводе.');
+
+      if (finished) {
+        renderResult();
+        show('#result-card', true);
+      } else {
+        show('#result-card', false);
+      }
+    }
+
+    function renderScreen() {
+      if (!state) return;
+      show('#wait-card', state.status === 'waiting');
+      show('#game', state.status !== 'waiting');
+
+      if (state.status === 'waiting') {
+        $('#wait-code').textContent = state.code;
+        $('#invite-link').value = inviteLink(state.code);
+        $('#wait-round').textContent = 'раунд ' + state.round;
+      } else {
+        renderGame();
+      }
+    }
+
+    /* --------------------------- опрос сервера ------------------------------ */
+
+    function stopPolling() {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = null;
+    }
+
+    function schedulePoll(delay) {
+      stopPolling();
+      pollTimer = setTimeout(refresh, delay);
+    }
+
+    async function refresh() {
+      if (!state) return;
+      if (document.hidden) {
+        schedulePoll(POLL_FINISHED_MS);
+        return;
+      }
+      if (busy) {
+        schedulePoll(POLL_PLAYING_MS);
+        return;
+      }
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + state.code);
+        state = data.state;
+        setConnection('online', 'на связи');
+        renderScreen();
+        schedulePoll(state.status === 'finished' ? POLL_FINISHED_MS : POLL_PLAYING_MS);
+      } catch (error) {
+        if (error.status === 401) {
+          sessionExpired();
+          return;
+        }
+        setConnection('err', root() ? 'сервер не отвечает' : 'адрес не задан');
+        schedulePoll(POLL_FINISHED_MS);
+      } finally {
+        busy = false;
+      }
+    }
+
+    function sessionExpired() {
+      stopPolling();
+      auth = { token: '', user: null };
+      saveAuth();
+      toast('Сессия истекла — войдите заново', 'warn');
+      showAuth('login');
+    }
+
+    /* ------------------------------ команды --------------------------------- */
+
+    async function createRoom() {
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms', { method: 'POST' });
+        state = data.state;
+        setConnection('online', 'на связи');
+        history.replaceState(null, '', inviteLink(state.code));
+        show('#lobby', false);
+        renderScreen();
+        schedulePoll(POLL_PLAYING_MS);
+        toast('Комната ' + state.code + ' создана — отправьте ссылку другу');
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function joinRoom(code) {
+      const value = (code || '').trim().toUpperCase();
+      if (value.length !== 4) {
+        toast('Код комнаты — четыре символа', 'warn');
+        return;
+      }
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + value + '/join', { method: 'POST' });
+        state = data.state;
+        setConnection('online', 'на связи');
+        history.replaceState(null, '', inviteLink(state.code));
+        show('#lobby', false);
+        renderScreen();
+        schedulePoll(POLL_PLAYING_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function sendGuess(name) {
+      if (!state || state.status !== 'playing') return;
+      const value = (name || '').trim();
+      if (!value) return;
+      if (catalog.characters.length
+          && !catalog.characters.some((item) => item.toLowerCase() === value.toLowerCase())) {
+        toast('Такого персонажа нет в наборе — выберите из подсказки', 'warn');
+        return;
+      }
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + state.code + '/guess',
+          { method: 'POST', body: { name: value } });
+        state = data.state;
+        $('#guess-input').value = '';
+        const last = state.you.attempts[state.you.attempts.length - 1];
+        if (last && last.correct) toast('Точно! Раунд ваш');
+        renderScreen();
+        schedulePoll(state.status === 'finished' ? POLL_FINISHED_MS : POLL_PLAYING_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, error.status === 400 ? 'warn' : 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function giveUp() {
+      if (!state || state.status !== 'playing') return;
+      if (!window.confirm('Сдаться в этом раунде? Победа достанется сопернику.')) return;
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + state.code + '/giveup', { method: 'POST' });
+        state = data.state;
+        renderScreen();
+        schedulePoll(POLL_FINISHED_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function rematch() {
+      if (!state) return;
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + state.code + '/rematch', { method: 'POST' });
+        state = data.state;
+        renderScreen();
+        schedulePoll(POLL_PLAYING_MS);
+        $('#guess-input').focus();
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'warn');
+      } finally {
+        busy = false;
+      }
+    }
+
+    function leaveRoom() {
+      stopPolling();
+      state = null;
+      show('#wait-card', false);
+      history.replaceState(null, '', location.pathname);
+      show('#lobby', true);
+      toast('Комната закрыта у вас: ссылка перестанет работать, когда выйдет соперник');
+    }
+
+    /* ------------------------------ запуск --------------------------------- */
+
+    async function loadCatalog() {
+      try {
+        catalog = await api(GAME + '/characters');
+        $('#characters').innerHTML = catalog.characters
+          .map((name) => '<option value="' + escapeHtml(name) + '"></option>').join('');
+        return true;
+      } catch (error) {
+        console.warn('Не удалось получить набор персонажей:', error);
+        return false;
+      }
+    }
+
+    async function checkConnection() {
+      const served = ['http:', 'https:'].includes(location.protocol);
+      if (!root() && !served) {
+        setConnection('err', 'адрес не задан');
+        return false;
+      }
+      try {
+        await api('/api/health');
+        setConnection('online', 'на связи');
+        return true;
+      } catch (error) {
+        if (error.status === 401) {
+          // Сервер жив, просто закрыт общим ключом — игре это не мешает.
+          setConnection('online', 'на связи');
+          return true;
+        }
+        setConnection('err', root() ? 'сервер не отвечает' : 'API на этом домене нет');
+        return false;
+      }
+    }
+
+    async function afterAuth() {
+      const ok = await checkConnection();
+      if (!ok) {
+        $('#srv-input').value = root();
+        show('#server-card', true);
+        return;
+      }
+      show('#server-card', false);
+      await loadCatalog();
+
+      const code = roomFromLink();
+      if (code) {
+        await joinRoom(code);
+        return;
+      }
+      show('#lobby', true);
+    }
+
+    function showAuth(mode) {
+      setAuthMode(mode);
+      show('#auth-card', true);
+      show('#lobby', false);
+      show('#wait-card', false);
+      show('#game', false);
+      $('#auth-user').focus();
+    }
+
+    async function boot() {
+      applyTheme(readJson(THEME_KEY) || readJson('greenhouse.state.v1') || {});
+      initClock();
+      applyServerFromLink();
+      loadAuth();
+
+      $('#srv-input').value = root();
+      $('#lobby-hint').textContent = 'Комнаты живут два часа: за это время дуэль можно продолжить.';
+
+      $('#auth-submit').addEventListener('click', submitAuth);
+      $('#auth-toggle').addEventListener('click', () => {
+        setAuthMode($('#auth-card').dataset.mode === 'login' ? 'register' : 'login');
+      });
+      $('#auth-card').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          submitAuth();
+        }
+      });
+      $('#create-room').addEventListener('click', createRoom);
+      $('#join-room').addEventListener('click', () => joinRoom($('#room-code').value));
+      $('#room-code').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          joinRoom($('#room-code').value);
+        }
+      });
+      $('#copy-code').addEventListener('click', () => copyText(state ? state.code : '', 'Код скопирован'));
+      $('#copy-link').addEventListener('click', () => copyText($('#invite-link').value, 'Ссылка скопирована'));
+      $('#leave-wait').addEventListener('click', leaveRoom);
+      $('#guess-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        sendGuess($('#guess-input').value);
+      });
+      $('#give-up').addEventListener('click', giveUp);
+      $('#rematch').addEventListener('click', rematch);
+      $('#rematch-2').addEventListener('click', rematch);
+      $('#logout').addEventListener('click', signOut);
+      $('#toggle-theme').addEventListener('click', toggleTheme);
+      $('#srv-save').addEventListener('click', async () => {
+        apiBase = ($('#srv-input').value || '').trim().replace(/\/+$/, '');
+        const stored = readJson(CONN_KEY) || {};
+        writeJson(CONN_KEY, { apiBase: apiBase, apiToken: stored.apiToken || '' });
+        await afterAuth();
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && state) refresh();
+      });
+
+      if (auth.token) {
+        try {
+          const data = await api('/api/auth/me');
+          auth.user = data.user || auth.user;
+          saveAuth();
+          await afterAuth();
+        } catch (error) {
+          if (error.status === 401) {
+            auth = { token: '', user: null };
+            saveAuth();
+            showAuth('login');
+          } else {
+            // Сервер молчит: покажем адрес и попросим войти, когда он ответит.
+            showAuth('login');
+            show('#server-card', true);
+          }
+        }
+        return;
+      }
+
+      if (!(await checkConnection())) {
+        $('#srv-input').value = root();
+        show('#server-card', true);
+      }
+      showAuth('register');
+    }
+
+    /* -------------------------------- тема ---------------------------------- */
+
+    function applyTheme(saved) {
+      document.documentElement.dataset.theme = saved && saved.theme === 'dark' ? 'dark' : 'light';
+    }
+
+    function toggleTheme() {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      writeJson(THEME_KEY, { theme: next });
+    }
+
+    function initClock() {
+      const node = $('#clock');
+      const update = () => {
+        node.textContent = new Date().toLocaleString('ru-RU', {
+          day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+      };
+      update();
+      setInterval(update, 1000);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      boot().catch((error) => toast('Не удалось запустить игру: ' + error.message, 'err'));
+    });
+  </script>
+</body>
+</html>
