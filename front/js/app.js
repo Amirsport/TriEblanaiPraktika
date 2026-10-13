@@ -14,7 +14,7 @@ const MAX_POINTS = 60;
 const STATE_SYNC_MS = 10000;
 // Версия ссылок на assets: поднимайте вместе с VERSION в service-worker.js
 // и ссылками в index.html — хостинг кэширует .js/.css на 45 дней.
-const ASSET_VERSION = '11';
+const ASSET_VERSION = '12';
 
 const MODE_NAMES = { auto: 'Авто', eco: 'Эко', boost: 'Интенсив', manual: 'Ручной' };
 
@@ -1451,6 +1451,41 @@ function apiHeaders(extra = {}) {
   return headers;
 }
 
+/* ------------------------------ связь с сервером -------------------------- */
+
+let addressCheckedAt = 0;
+
+/* Адрес, опубликованный на сайте при выгрузке (_publish_address.py): поддомен
+   туннеля меняется при перезапуске, поэтому копия в браузере может устареть,
+   а этот файл обновляет серверная сторона. */
+async function publishedApiBase() {
+  const onHttp = location.protocol === 'http:' || location.protocol === 'https:';
+  if (!onHttp) return '';
+  try {
+    const response = await fetch('games/api-address.json', { cache: 'no-store' });
+    if (!response.ok) return '';
+    const data = await response.json();
+    return String((data && data.apiBase) || '').replace(/\/+$/, '');
+  } catch (error) {
+    return '';
+  }
+}
+
+/* Спрашиваем файл не чаще раза в минуту: панель опрашивает сервер постоянно,
+   а файл лежит на статике. */
+async function healAddressFromSite() {
+  if (Date.now() - addressCheckedAt < 60000) return false;
+  addressCheckedAt = Date.now();
+  const current = (state.apiBase || '').replace(/\/+$/, '');
+  const fresh = await publishedApiBase();
+  if (!fresh || fresh === current) return false;
+  state.apiBase = fresh;
+  toast('Адрес сервера обновлён: туннель перезапускался');
+  saveState();
+  render();
+  return true;
+}
+
 async function loadRemote(notify = false) {
   const base = (state.apiBase || '').replace(/\/$/, '');
   const onHttp = location.protocol === 'http:' || location.protocol === 'https:';
@@ -1534,6 +1569,15 @@ async function loadRemote(notify = false) {
     }
   } catch (error) {
     state.online = false;
+    /* Адрес мог устареть в браузере: если на сайте опубликован свежий — берём
+       его и пробуем ещё раз. Меняем адрес, когда сервер не ответил вовсе или
+       когда адрес вообще не задан (тогда «тот же домен» — лишь догадка); при
+       неверном ключе или ошибке сервера это не поможет. */
+    const dropped = error.name === 'AbortError' || error.name === 'TypeError';
+    const blind = !(state.apiBase || '').trim();
+    if ((dropped || blind) && await healAddressFromSite()) {
+      return loadRemote(notify);
+    }
     if (notify) toast(`Сервер недоступен (${error.name === 'AbortError' ? 'таймаут' : error.message}). Демо-режим.`, 'warn');
   }
   saveState();

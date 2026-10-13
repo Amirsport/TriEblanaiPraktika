@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
   <link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
-  <link rel="stylesheet" href="../css/main.css?v=11">
+  <link rel="stylesheet" href="../css/main.css?v=12">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -271,7 +271,7 @@
 
     /* Состояние связи. /api/health закрыт API-ключом, поэтому 401 значит
        «сервер жив, а ключ не подошёл», а не «сервера нет». */
-    async function checkConnection(notify = false) {
+    async function checkConnection(notify = false, recheck = false) {
       if (checking) return online;
 
       const url = healthUrl();
@@ -326,7 +326,36 @@
       if (notify) {
         toast(online ? `Связь есть: ${url} — ${ms} мс` : `Нет связи: ${text}`, online ? '' : 'warn');
       }
+      /* Адрес в браузере мог устареть (поддомен туннеля меняется при
+         перезапуске): если на сайте опубликован свежий, пробуем его один раз. */
+      if (!online && !recheck && await healFromPublished()) {
+        return checkConnection(notify, true);
+      }
       return online;
+    }
+
+    /* Адрес, опубликованный на сайте при выгрузке (_publish_address.py): файл
+       обновляет серверная сторона, поэтому он свежее любой копии в браузере. */
+    async function publishedApiBase() {
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
+      try {
+        const response = await fetch('api-address.json', { cache: 'no-store' });
+        if (!response.ok) return '';
+        const data = await response.json();
+        return String((data && data.apiBase) || '').trim().replace(/\/+$/, '');
+      } catch (error) {
+        return '';
+      }
+    }
+
+    async function healFromPublished() {
+      const current = apiBase();
+      const fresh = await publishedApiBase();
+      if (!fresh || fresh === current) return false;
+      $('#api-base').value = fresh;
+      storeConnection({ apiBase: fresh, apiToken: apiToken() });
+      toast('Адрес сервера обновлён: туннель перезапускался');
+      return true;
     }
 
     function saveConnection() {

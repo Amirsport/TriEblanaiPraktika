@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
   <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=11">
+  <link rel="stylesheet" href="../../css/main.css?v=12">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -621,6 +621,21 @@
       }
     }
 
+    /* Адрес, опубликованный на сайте при выгрузке: поддомен туннеля меняется
+       при перезапуске, поэтому копия в браузере может устареть, а этот файл
+       обновляет серверная сторона. */
+    async function publishedApiBase() {
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
+      try {
+        const response = await fetch('../api-address.json', { cache: 'no-store' });
+        if (!response.ok) return '';
+        const data = await response.json();
+        return trimBase(data && data.apiBase);
+      } catch (error) {
+        return '';
+      }
+    }
+
     /* Туннель меняет имя при перезапуске, поэтому сохранённый адрес может
        устареть: пробуем по очереди всё, что знаем, и берём живой. */
     async function resolveApiBase() {
@@ -630,6 +645,9 @@
         return apiBase;
       }
       const stored = trimBase(storedConnection().apiBase);
+      /* Файл сайта тянем сразу: если сохранённый адрес мёртв, ждать впустую
+         не придётся. */
+      const published = publishedApiBase();
       for (const candidate of list) {
         if (await pingServer(candidate)) {
           apiBase = candidate;
@@ -637,7 +655,13 @@
           return apiBase;
         }
       }
-      apiBase = list[0] || '';
+      const fresh = await published;
+      if (fresh && fresh !== (list[0] || '')) {
+        if (list.length) toast('Адрес сервера обновлён: туннель перезапускался');
+        apiBase = fresh;
+        return apiBase;
+      }
+      apiBase = list[0] || fresh || '';
       return apiBase;
     }
 

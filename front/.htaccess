@@ -8,9 +8,11 @@
 
 # Код панели обновляется часто, а хостинг по умолчанию отдаёт его
 # с кэшем на 45 дней. Ставим перепроверку: браузер спросит сервер и получит
-# 304, если файл не менялся. Иконки остаются с длинным кэшем.
+# 304, если файл не менялся. Иконки остаются с длинным кэшем. JSON — это
+# games/api-address.json: он должен быть всегда свежим, иначе браузер
+# подставит адрес прошлого туннеля.
 <IfModule mod_headers.c>
-  <FilesMatch "\.(html|js|css|webmanifest)$">
+  <FilesMatch "\.(html|js|css|webmanifest|json)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
 </IfModule>

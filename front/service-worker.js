@@ -7,7 +7,7 @@
    (регистрация service worker) и в front/index.html. */
 'use strict';
 
-const VERSION = '11';
+const VERSION = '12';
 const CACHE = `ai-greenhouse-v4-${VERSION}`;
 const ASSETS = [
   './',
@@ -41,6 +41,9 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.pathname.startsWith('/api/')) return; // данные всегда свежие
+  // Текущий адрес API тоже всегда из сети: из кэша страница получила бы адрес
+  // прошлого запуска туннеля и не смогла бы подключиться.
+  if (url.pathname.endsWith('/api-address.json')) return;
 
   // Страницы всегда тянем из сети: иначе после обновления версии браузер
   // отдавал бы старый HTML из кэша. Кэш — только запасной вариант офлайн.

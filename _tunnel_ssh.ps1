@@ -79,6 +79,21 @@ function Test-TunnelServes([string]$tunnelUrl) {
     return ($code -eq '200' -or $code -eq '401')
 }
 
+# Публикация текущего адреса на сайте: поддомен меняется при перезапуске, а
+# страницы и панель берут адрес из games/api-address.json (см. _publish_address.py).
+# Без пароля хостинга (GH_HOST_PASSWORD) шаг просто пропускается.
+function Publish-Address([string]$Address) {
+    $script = Join-Path $root '_publish_address.py'
+    if (-not (Test-Path $script)) { return }
+    if (-not $env:GH_HOST_PASSWORD) {
+        Write-Attempt 'адрес не опубликован: задайте $env:GH_HOST_PASSWORD (пароль хостинга)'
+        return
+    }
+    $python = Join-Path $root '.venv\Scripts\python.exe'
+    if (-not (Test-Path $python)) { $python = 'python' }
+    & $python $script --address $Address --quiet 2>&1 | ForEach-Object { Write-Attempt "публикация: $_" }
+}
+
 Write-Attempt "старт: режим $mode, порт $Port, предел $MaxHours ч, журнал $attemptLog"
 @{ script = $PID; started = (Get-Date).ToString('s'); mode = $mode } |
     ConvertTo-Json -Compress | Set-Content -Path $pidFile -Encoding UTF8
@@ -112,7 +127,8 @@ while ((Get-Date) -lt $deadline) {
         $url | Set-Content -Path $urlFile -Encoding ascii
         Write-Attempt "ТУННЕЛЬ РАБОТАЕТ: $url"
         Write-Attempt "адрес сохранён в $urlFile"
-        Write-Attempt 'введите его и API-ключ в панели: раздел Режим -> Подключение к серверу'
+        Publish-Address $url
+        Write-Attempt 'дальше адрес подставляется сам; ключ вводится один раз: раздел Режим -> Подключение к серверу'
         if (-not $KeepAlive) {
             Write-Attempt 'одиночный режим: туннель держится, пока запущен этот скрипт'
             Write-Attempt 'остановить: powershell -ExecutionPolicy Bypass -File _tunnel_stop.ps1'
