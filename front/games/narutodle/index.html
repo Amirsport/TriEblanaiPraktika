@@ -447,8 +447,11 @@
   <script>
     'use strict';
 
-    /* Настройки подключения — те же, что у страницы игр: адрес приходит
-       в ссылке (?srv=). API-ключ игре не нужен: играет аккаунт. */
+    /* Настройки подключения — те же, что у страницы игр: адрес берётся из
+       ссылки (?srv=), иначе из своих сохранённых настроек, иначе из настроек
+       панели теплицы. API-ключ игре не нужен (играет аккаунт), но хранится
+       рядом с адресом, чтобы не теряться при сохранении. */
+    const PANEL_STATE_KEY = 'greenhouse.state.v1';
     const CONN_KEY = 'greenhouse.games.conn.v1';
     const AUTH_KEY = 'greenhouse.auth.v1';
     const THEME_KEY = 'greenhouse.games.theme';
@@ -565,16 +568,88 @@
       if (badge) badge.textContent = text;
     }
 
-    /* Адрес приходит в ссылке-приглашении: тогда настраивать ничего не нужно. */
-    function applyServerFromLink() {
-      const fromLink = (new URLSearchParams(location.search).get('srv') || '').trim();
-      const stored = readJson(CONN_KEY) || {};
-      if (fromLink) {
-        apiBase = fromLink.replace(/\/+$/, '');
-        writeJson(CONN_KEY, { apiBase: apiBase, apiToken: stored.apiToken || '' });
-        return;
+    /* Адрес приходит в ссылке-приглашении: тогда настраивать ничего не нужно.
+       Если ссылки нет, берём свой сохранённый адрес, а если и его нет — тот,
+       что указан в настройках панели теплицы. Так игроку не приходится
+       вводить адрес заново на каждом устройстве. */
+    function storedConnection() {
+      const own = readJson(CONN_KEY) || {};
+      return {
+        apiBase: String(own.apiBase || '').trim(),
+        apiToken: String(own.apiToken || '').trim()
+      };
+    }
+
+    function panelConnection() {
+      const panel = readJson(PANEL_STATE_KEY) || {};
+      return {
+        apiBase: String(panel.apiBase || '').trim(),
+        apiToken: String(panel.apiToken || '').trim()
+      };
+    }
+
+    const trimBase = (value) => String(value || '').trim().replace(/\/+$/, '');
+
+    /* Список адресов, которые стоит попробовать. Адрес из ссылки — закон:
+       комната живёт именно на том сервере, с которого пришло приглашение. */
+    function apiCandidates() {
+      const fromLink = trimBase(new URLSearchParams(location.search).get('srv'));
+      if (fromLink) return { fixed: true, list: [fromLink] };
+      const list = [];
+      [storedConnection().apiBase, panelConnection().apiBase].forEach((value) => {
+        const item = trimBase(value);
+        if (item && !list.includes(item)) list.push(item);
+      });
+      return { fixed: false, list };
+    }
+
+    /* Короткая проверка адреса: 401 тоже значит «сервер жив, он закрыт ключом». */
+    async function pingServer(base) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await fetch(base + '/api/health', {
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        return response.ok || response.status === 401;
+      } catch (error) {
+        return false;
+      } finally {
+        clearTimeout(timer);
       }
-      apiBase = (stored.apiBase || '').replace(/\/+$/, '');
+    }
+
+    /* Туннель меняет имя при перезапуске, поэтому сохранённый адрес может
+       устареть: пробуем по очереди всё, что знаем, и берём живой. */
+    async function resolveApiBase() {
+      const { fixed, list } = apiCandidates();
+      if (fixed) {
+        apiBase = list[0];
+        return apiBase;
+      }
+      const stored = trimBase(storedConnection().apiBase);
+      for (const candidate of list) {
+        if (await pingServer(candidate)) {
+          apiBase = candidate;
+          if (candidate !== stored) toast('Адрес сервера взят из настроек панели теплицы');
+          return apiBase;
+        }
+      }
+      apiBase = list[0] || '';
+      return apiBase;
+    }
+
+    /* Адрес помним вместе с ключом панели: игры ключ не спрашивают, но он
+       нужен странице игровой комнаты, а терять его при сохранении нельзя. */
+    function rememberServer(value) {
+      const own = storedConnection();
+      const panel = panelConnection();
+      writeJson(CONN_KEY, {
+        apiBase: value,
+        apiToken: own.apiToken || panel.apiToken || ''
+      });
     }
 
     const roomFromLink = () => (new URLSearchParams(location.search).get('room') || '').toUpperCase();
@@ -1351,10 +1426,12 @@
     }
 
     async function boot() {
-      applyTheme(readJson(THEME_KEY) || readJson('greenhouse.state.v1') || {});
+      applyTheme(readJson(THEME_KEY) || readJson(PANEL_STATE_KEY) || {});
       initClock();
-      applyServerFromLink();
       loadAuth();
+      /* Адрес берём из ссылки, своих сохранённых настроек или панели теплицы
+         и сразу проверяем, что он живой — вводить вручную не нужно. */
+      await resolveApiBase();
 
       $('#srv-input').value = root();
       $('#lobby-hint').textContent = 'Комнаты живут два часа: за это время дуэль можно продолжить.';
@@ -1396,8 +1473,7 @@
       $('#toggle-theme').addEventListener('click', toggleTheme);
       $('#srv-save').addEventListener('click', async () => {
         apiBase = ($('#srv-input').value || '').trim().replace(/\/+$/, '');
-        const stored = readJson(CONN_KEY) || {};
-        writeJson(CONN_KEY, { apiBase: apiBase, apiToken: stored.apiToken || '' });
+        rememberServer(apiBase);
         await afterAuth();
       });
       document.addEventListener('visibilitychange', () => {
