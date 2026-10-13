@@ -59,6 +59,7 @@ API (JSON):
     POST /api/games/narutodle/rooms                создать комнату дуэли
     POST /api/games/narutodle/rooms/<код>/join     войти вторым игроком
     GET  /api/games/narutodle/rooms/<код>          состояние комнаты (опрос страницей)
+    GET  /api/games/narutodle/rooms/<код>/watch    наблюдение за дуэлью (обе таблицы)
     POST /api/games/narutodle/rooms/<код>/guess    {"name":"..."} догадка
     POST /api/games/narutodle/rooms/<код>/giveup   сдаться в раунде
     POST /api/games/narutodle/rooms/<код>/rematch  новый раунд
@@ -855,6 +856,12 @@ class Handler(BaseHTTPRequestHandler):
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})", path)
             if method == "GET" and match:
                 return self._json({"state": app.narutodle.state(match.group(1), user)})
+
+            # Наблюдение: пускает любого вошедшего, участник получает member=true
+            # и уходит в обычную дуэль. Поле живёт на опросе, поэтому без лимита.
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/watch", path)
+            if method == "GET" and match:
+                return self._json({"state": app.narutodle.watch(match.group(1), user)})
 
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/join", path)
             if method == "POST" and match:

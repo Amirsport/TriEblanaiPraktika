@@ -214,6 +214,22 @@
       <button class="link-btn" type="button" id="auth-toggle">У меня уже есть аккаунт</button>
     </section>
 
+    <!-- ===== Выбор по ссылке-приглашению: играть или смотреть ===== -->
+    <section class="card auth-card" id="choice-card" hidden>
+      <header class="card-head">
+        <h2>Вас пригласили в дуэль</h2>
+        <span class="badge" id="choice-code">----</span>
+      </header>
+      <p class="muted" id="choice-hint">
+        По одной ссылке можно и играть, и смотреть: выберите, что вам ближе.
+      </p>
+      <p class="login-error" id="choice-error" hidden></p>
+      <div class="row">
+        <button class="btn btn-primary" type="button" id="choice-play">Играть</button>
+        <button class="btn btn-ghost" type="button" id="choice-watch">Смотреть</button>
+      </div>
+    </section>
+
     <!-- ===== Лобби ===== -->
     <section class="card" id="lobby" hidden>
       <header class="card-head">
@@ -261,7 +277,7 @@
       </div>
       <p class="waiting">
         <span class="spinner"></span>
-        <span>Ждём соперника — раунд начнётся сразу после его входа</span>
+        <span>Ждём соперника — раунд начнётся сразу после его входа. По этой же ссылке заходят и смотреть</span>
       </p>
     </section>
 
@@ -359,8 +375,69 @@
       </div>
     </section>
 
+    <!-- ===== Наблюдение за дуэлью ===== -->
+    <section class="stack" id="watch" hidden>
+      <section class="card">
+        <header class="card-head">
+          <h2>Наблюдение</h2>
+          <span class="badge" id="watch-status">—</span>
+        </header>
+        <p class="muted" id="watch-hint"></p>
+        <div class="row">
+          <button class="btn btn-primary" type="button" id="watch-play" hidden>Занять место в дуэли</button>
+          <button class="btn btn-ghost" type="button" id="watch-exit">Выйти из наблюдения</button>
+        </div>
+      </section>
+
+      <div class="stack">
+        <section class="card">
+          <header class="card-head">
+            <h2 id="watch-name-1">—</h2>
+            <span class="badge" id="watch-badge-1">—</span>
+          </header>
+          <div class="board-wrap">
+            <table class="board" id="watch-board-1"></table>
+          </div>
+        </section>
+        <section class="card" id="watch-card-2">
+          <header class="card-head">
+            <h2 id="watch-name-2">соперник ещё не вошёл</h2>
+            <span class="badge" id="watch-badge-2">—</span>
+          </header>
+          <div class="board-wrap">
+            <table class="board" id="watch-board-2"></table>
+          </div>
+        </section>
+      </div>
+
+      <section class="stack" id="watch-result" hidden>
+        <div class="result" id="watch-result-box">
+          <h2 id="watch-result-title">Раунд завершён</h2>
+          <div class="portrait">
+            <span id="watch-result-avatar"></span>
+            <div>
+              <div class="muted" style="font-size: 12.5px;">Это был</div>
+              <div class="answer-name" id="watch-result-name">—</div>
+            </div>
+          </div>
+          <div class="answer-attrs" id="watch-result-attrs"></div>
+          <p class="muted" id="watch-result-text"></p>
+        </div>
+      </section>
+
+      <section class="card" id="watch-history" hidden>
+        <header class="card-head">
+          <h2>Раунды дуэли</h2>
+          <span class="badge" id="watch-history-badge">—</span>
+        </header>
+        <div class="board-wrap">
+          <table class="matches" id="watch-history-table"></table>
+        </div>
+      </section>
+    </section>
+
     <footer class="footer">
-      <span>narutodle · дуэль на двоих · доступ по прямой ссылке</span>
+      <span>narutodle · дуэль на двоих · по ссылке можно играть или смотреть</span>
       <span id="clock">—</span>
     </footer>
   </div>
@@ -390,8 +467,12 @@
     let matches = [];                // мои матчи из журнала
     let loadedRound = 0;             // раунд, для которого уже обновили журнал
     let state = null;   // состояние комнаты с сервера
+    let watchState = null;  // состояние комнаты глазами зрителя
+    let mode = 'player';    // 'player' — играю, 'watch' — смотрю со стороны
     let pollTimer = null;
     let busy = false;   // запрос уже в пути
+
+    const MAX_PLAYERS = 2;
 
     /* ------------------------------- утилиты -------------------------------- */
 
@@ -584,10 +665,14 @@
       auth = { token: '', user: null };
       saveAuth();
       state = null;
+      watchState = null;
+      mode = 'player';
       matches = [];
       loadedRound = 0;
       stopPolling();
       show('#matches-card', false);
+      show('#watch', false);
+      show('#choice-card', false);
       showAuth('register');
     }
 
@@ -751,6 +836,8 @@
 
     function renderScreen() {
       if (!state) return;
+      show('#choice-card', false);
+      show('#watch', false);
       show('#wait-card', state.status === 'waiting');
       show('#game', state.status !== 'waiting');
 
@@ -776,6 +863,7 @@
     }
 
     async function refresh() {
+      if (mode === 'watch') return refreshWatch();
       if (!state) return;
       if (document.hidden) {
         schedulePoll(POLL_FINISHED_MS);
@@ -797,6 +885,10 @@
           sessionExpired();
           return;
         }
+        if (error.status === 400) {
+          roomGone(error.message);
+          return;
+        }
         setConnection('err', root() ? 'сервер не отвечает' : 'адрес не задан');
         schedulePoll(POLL_FINISHED_MS);
       } finally {
@@ -812,15 +904,194 @@
       showAuth('login');
     }
 
+    /* ---------------------------- наблюдение -------------------------------- */
+
+    async function openWatch(code) {
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + code + '/watch');
+        mode = 'watch';
+        state = null;
+        watchState = data.state;
+        setConnection('online', 'на связи');
+        history.replaceState(null, '', inviteLink(code));
+        show('#choice-card', false);
+        show('#lobby', false);
+        show('#wait-card', false);
+        show('#game', false);
+        renderWatch();
+        schedulePoll(POLL_PLAYING_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    /* Зритель опрашивает комнату отдельным адресом: игроку видно меньше,
+       чем наблюдателю, поэтому состояние живёт в watchState. */
+    async function refreshWatch() {
+      if (!watchState) return;
+      if (document.hidden) {
+        schedulePoll(POLL_FINISHED_MS);
+        return;
+      }
+      if (busy) {
+        schedulePoll(POLL_PLAYING_MS);
+        return;
+      }
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + watchState.code + '/watch');
+        watchState = data.state;
+        setConnection('online', 'на связи');
+        renderWatch();
+        schedulePoll(watchState.status === 'finished' ? POLL_FINISHED_MS : POLL_PLAYING_MS);
+      } catch (error) {
+        if (error.status === 401) {
+          sessionExpired();
+          return;
+        }
+        if (error.status === 400) {
+          roomGone(error.message);
+          return;
+        }
+        setConnection('err', root() ? 'сервер не отвечает' : 'адрес не задан');
+        schedulePoll(POLL_FINISHED_MS);
+      } finally {
+        busy = false;
+      }
+    }
+
+    function watchHint(status) {
+      if (status === 'waiting') return 'Соперник ещё не подключился — ссылку можно отправить друзьям.';
+      if (status === 'finished') return 'Раунд закончен. Новый начнут игроки — вы увидите его здесь.';
+      return 'Загадка откроется после раунда: до этого её не видит никто, даже зрители.';
+    }
+
+    function renderWatch() {
+      const data = watchState;
+      if (!data) return;
+      const players = data.players || [];
+      const finished = data.status === 'finished';
+
+      show('#watch', true);
+      $('#watch-status').textContent = data.status === 'waiting'
+        ? 'раунд ' + data.round + ' · ждём соперника'
+        : 'раунд ' + data.round + (finished ? ' · итог' : '');
+      $('#watch-hint').textContent = watchHint(data.status);
+      show('#watch-play', data.status === 'waiting');
+
+      /* Обе стороны показываем одинаково: зритель пришёл смотреть на дуэль. */
+      for (let index = 0; index < MAX_PLAYERS; index += 1) {
+        const place = index + 1;
+        const player = players[index];
+        if (!player) {
+          $('#watch-name-' + place).textContent = 'соперник ещё не вошёл';
+          $('#watch-badge-' + place).textContent = '—';
+          renderAttempts($('#watch-board-' + place), []);
+          continue;
+        }
+        $('#watch-name-' + place).textContent = player.name;
+        const bits = ['попыток: ' + player.guess_count];
+        if (player.solved_in) bits.push('угадал с ' + player.solved_in + '-й попытки');
+        if (player.gave_up) bits.push('сдался');
+        if (data.rounds) bits.push('побед: ' + player.wins);
+        $('#watch-badge-' + place).textContent = bits.join(' · ');
+        renderAttempts($('#watch-board-' + place), player.attempts);
+      }
+
+      if (finished) {
+        $('#watch-result-box').className = 'result' + (data.draw ? '' : ' win');
+        $('#watch-result-title').textContent = data.draw
+          ? 'Раунд закончился ничьей'
+          : ('Раунд забрал ' + (data.winner_name || '—'));
+        $('#watch-result-name').textContent = data.answer ? data.answer.name : '—';
+        $('#watch-result-avatar').innerHTML = data.answer
+          ? avatarHtml(data.answer.name, 'avatar-lg') : '';
+        $('#watch-result-attrs').innerHTML = data.answer
+          ? catalog.attributes.map((attribute) => {
+              const value = data.answer[attribute.key];
+              return '<span>' + escapeHtml(attribute.label + ': '
+                + (Array.isArray(value) ? value.join(', ') : value)) + '</span>';
+            }).join('')
+          : '';
+        $('#watch-result-text').textContent = data.finish_reason === 'gave_up'
+          ? 'Один из игроков сдался, не дожидаясь разгадки.'
+          : 'Оба искали одного и того же персонажа.';
+      }
+      show('#watch-result', finished);
+
+      show('#watch-history', data.history.length > 0);
+      if (data.history.length) {
+        $('#watch-history-badge').textContent = 'раундов: ' + data.rounds;
+        const rows = data.history.map((item) => {
+          const moves = Object.keys(item.attempts || {})
+            .map((name) => name + ': ' + item.attempts[name]).join(', ');
+          return '<tr>'
+            + '<td class="dim">раунд ' + escapeHtml(item.round) + '</td>'
+            + '<td>' + escapeHtml(item.winner_name || 'ничья') + '</td>'
+            + '<td class="dim">' + escapeHtml(moves || '—') + '</td>'
+            + '<td><span class="who-line">' + avatarHtml(item.target)
+            + escapeHtml(item.target || '—') + '</span></td>'
+            + '</tr>';
+        }).join('');
+        $('#watch-history-table').innerHTML = '<thead><tr><th>Раунд</th><th>Победитель</th>'
+          + '<th>Ходы</th><th>Персонаж</th></tr></thead><tbody>' + rows + '</tbody>';
+      }
+    }
+
+    /* Комната живёт два часа: если её уже нет, возвращаем в лобби, а не
+       продолжаем опрашивать несуществующую комнату. */
+    function roomGone(message) {
+      stopPolling();
+      state = null;
+      watchState = null;
+      mode = 'player';
+      show('#watch', false);
+      show('#choice-card', false);
+      show('#game', false);
+      show('#wait-card', false);
+      history.replaceState(null, '', location.pathname);
+      show('#lobby', true);
+      toast(message || 'Комната больше недоступна', 'warn');
+    }
+
+    function leaveWatch() {
+      stopPolling();
+      mode = 'player';
+      watchState = null;
+      show('#watch', false);
+      history.replaceState(null, '', location.pathname);
+      show('#lobby', true);
+      toast('Наблюдение закрыто');
+    }
+
+    /* Зритель может занять освободившееся место: пока комната ждёт соперника. */
+    async function playFromWatch() {
+      const code = watchState ? watchState.code : '';
+      if (!code) return;
+      if (await joinRoom(code)) {
+        show('#watch', false);
+        return;
+      }
+      renderWatch();
+    }
+
     /* ------------------------------ команды --------------------------------- */
 
     async function createRoom() {
       busy = true;
       try {
         const data = await api(GAME + '/rooms', { method: 'POST' });
+        mode = 'player';
+        watchState = null;
         state = data.state;
         setConnection('online', 'на связи');
         history.replaceState(null, '', inviteLink(state.code));
+        show('#choice-card', false);
+        show('#watch', false);
         show('#lobby', false);
         renderScreen();
         schedulePoll(POLL_PLAYING_MS);
@@ -837,20 +1108,26 @@
       const value = (code || '').trim().toUpperCase();
       if (value.length !== 4) {
         toast('Код комнаты — четыре символа', 'warn');
-        return;
+        return false;
       }
       busy = true;
       try {
         const data = await api(GAME + '/rooms/' + value + '/join', { method: 'POST' });
+        mode = 'player';
+        watchState = null;
         state = data.state;
         setConnection('online', 'на связи');
         history.replaceState(null, '', inviteLink(state.code));
+        show('#choice-card', false);
+        show('#watch', false);
         show('#lobby', false);
         renderScreen();
         schedulePoll(POLL_PLAYING_MS);
+        return true;
       } catch (error) {
         if (error.status === 401) sessionExpired();
         else toast(error.message, 'err');
+        return false;
       } finally {
         busy = false;
       }
@@ -979,17 +1256,87 @@
 
       const code = roomFromLink();
       if (code) {
-        await joinRoom(code);
+        await enterByInvite(code);
         return;
       }
       show('#lobby', true);
     }
 
-    function showAuth(mode) {
-      setAuthMode(mode);
+    /* Ссылка-приглашение ведёт в одну комнату, но по ней можно и играть,
+       и смотреть. Кто мы в этой комнате — отвечает сервер: участник уходит
+       в свою дуэль, остальным показываем выбор. */
+    async function enterByInvite(code) {
+      let info = null;
+      try {
+        info = (await api(GAME + '/rooms/' + code + '/watch')).state;
+      } catch (error) {
+        if (error.status === 401) return sessionExpired();
+        toast(error.message, 'err');
+        history.replaceState(null, '', location.pathname);
+        show('#lobby', true);
+        return;
+      }
+      if (info.member) return openMyRoom(code);
+      showChoice(code, info);
+    }
+
+    /* Участник открыл свою же ссылку (или обновил страницу) — сразу дуэль. */
+    async function openMyRoom(code) {
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + code);
+        mode = 'player';
+        watchState = null;
+        state = data.state;
+        show('#choice-card', false);
+        show('#watch', false);
+        show('#lobby', false);
+        renderScreen();
+        schedulePoll(POLL_PLAYING_MS);
+      } catch (error) {
+        if (error.status === 401) sessionExpired();
+        else toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    function showChoice(code, info) {
+      const taken = Boolean(info && info.players && info.players.length >= MAX_PLAYERS);
+      stopPolling();
+      mode = 'player';
+      state = null;
+      watchState = null;
+      show('#game', false);
+      show('#wait-card', false);
+      show('#watch', false);
+      show('#lobby', false);
+      show('#choice-error', false);
+      $('#choice-code').textContent = code;
+      $('#choice-hint').textContent = taken
+        ? 'Мест в дуэли уже нет — двое играют, но за ними можно наблюдать.'
+        : 'В комнате есть свободное место: можно занять его или просто смотреть.';
+      show('#choice-card', true);
+    }
+
+    async function playFromChoice() {
+      const code = $('#choice-code').textContent.trim();
+      if (await joinRoom(code)) {
+        show('#choice-card', false);
+        return;
+      }
+      const box = $('#choice-error');
+      box.textContent = 'Занять место не вышло — можно посмотреть дуэль.';
+      show('#choice-error', true);
+    }
+
+    function showAuth(form) {
+      setAuthMode(form);
       show('#auth-card', true);
       show('#lobby', false);
+      show('#choice-card', false);
       show('#wait-card', false);
+      show('#watch', false);
       show('#game', false);
       show('#matches-card', false);
       $('#auth-user').focus();
@@ -1016,6 +1363,11 @@
       });
       $('#create-room').addEventListener('click', createRoom);
       $('#join-room').addEventListener('click', () => joinRoom($('#room-code').value));
+      $('#choice-play').addEventListener('click', playFromChoice);
+      $('#choice-watch').addEventListener('click',
+        () => openWatch($('#choice-code').textContent.trim()));
+      $('#watch-play').addEventListener('click', playFromWatch);
+      $('#watch-exit').addEventListener('click', leaveWatch);
       $('#room-code').addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
@@ -1041,7 +1393,7 @@
         await afterAuth();
       });
       document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && state) refresh();
+        if (!document.hidden && (state || watchState)) refresh();
       });
 
       if (auth.token) {

@@ -6,6 +6,7 @@
     * обоим загадан один и тот же персонаж, у каждого своя таблица попыток;
     * решивший первым забирает раунд; сдавшийся отдаёт раунд сопернику;
     * после раунда видно ответ и обе таблицы, дальше — новый раунд.
+    * за дуэлью можно наблюдать: зритель видит обе таблицы, но не загадку.
 
 Комнаты живут в памяти процесса: это партии на несколько минут, переживать
 перезапуск сервера им не нужно. Доступ к комнатам закрыт аккаунтом панели,
@@ -262,6 +263,67 @@ class Narutodle:
         with self._lock:
             self._cleanup(time.time())
             return self._payload(self._room(code), user)
+
+    def watch(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Состояние комнаты глазами зрителя: обе таблицы, загадка — только в итоге.
+
+        Зрителем может быть любой вошедший в аккаунт: по ссылке-приглашению
+        человек сам выбирает, играть ему или смотреть. Участник комнаты тоже
+        может смотреть, но тогда ответ помечен `member` — страница отправит его
+        в обычную дуэль.
+        """
+        with self._lock:
+            self._cleanup(time.time())
+            return self._watch_payload(self._room(code), user)
+
+    def _watch_payload(self, room: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+        """Публичное состояние комнаты для наблюдателя.
+
+        Отличие от `_payload` в том, что «моей» стороны здесь нет: отдаются
+        обе таблицы попыток, чтобы за дуэлью было интересно следить. Загадка
+        при этом остаётся закрытой до конца раунда — иначе зритель просто
+        выкрикнул бы ответ игрокам.
+        """
+        round_ = room["round"]
+        finished = round_["finished"]
+        waiting = len(room["players"]) < MAX_PLAYERS
+        status = "finished" if finished else ("waiting" if waiting else "playing")
+
+        players: List[Dict[str, Any]] = []
+        for player in room["players"].values():
+            wins = sum(1 for result in room["history"] if result["winner"] == player["id"])
+            players.append({
+                "id": player["id"],
+                "name": player["name"],
+                "wins": wins,
+                "guess_count": len(player["attempts"]),
+                "solved_in": player["solved_in"],
+                "gave_up": player["gave_up"],
+                "attempts": player["attempts"],
+            })
+
+        winner = room["players"].get(round_["winner"]) if finished and round_["winner"] else None
+        return {
+            "code": room["code"],
+            "status": status,
+            "round": round_["number"],
+            "watching": True,
+            "member": user["id"] in room["players"],
+            "players": players,
+            "rounds": len(room["history"]),
+            "winner_name": str(winner["name"]) if winner else None,
+            "draw": bool(finished and round_["winner"] is None),
+            "finish_reason": round_["reason"],
+            "answer": public_character(round_["target"]) if finished else None,
+            "history": [
+                {"round": item["round"],
+                 "winner_name": item["winner_name"],
+                 "attempts": item["attempts"],
+                 "target": item["target"]["name"] if item["target"] else None}
+                for item in room["history"]
+            ],
+            "updated": round(room["updated"], 3),
+        }
 
     def _payload(self, room: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
         """Публичное состояние комнаты с точки зрения одного игрока.
