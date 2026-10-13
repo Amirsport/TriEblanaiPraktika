@@ -12,11 +12,15 @@
   --text-dim: #5d6b57;
   --accent: #4f9a48;
   --accent-2: #78c257;
+  /* Тот же акцент в виде rgb(r, g, b): нужен там, где полупрозрачность
+     задаётся в CSS (свечение кнопок, пульсация индикатора связи). */
+  --accent-rgb: 79, 154, 72;
   --accent-soft: rgba(79, 154, 72, 0.12);
   --water: #3a9bd9;
   --sun: #e5a72c;
   --danger: #d9564f;
   --warn: #d9913c;
+  --warn-rgb: 217, 145, 60;
   --radius: 20px;
   --radius-sm: 12px;
   --shadow: 0 10px 30px rgba(35, 60, 30, 0.10);
@@ -34,12 +38,54 @@
   --text-dim: #9db096;
   --accent: #6fc25f;
   --accent-2: #9ade7a;
+  --accent-rgb: 111, 194, 95;
   --accent-soft: rgba(111, 194, 95, 0.16);
   --water: #57b6ef;
   --sun: #f0bb4b;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 18px 45px rgba(0, 0, 0, 0.55);
   --grid: rgba(150, 210, 150, 0.12);
+}
+
+/* ===== Красная палитра раздела игр =====
+   Включается атрибутом data-palette="red" у <html> (только /games).
+   Панель теплицы и служебная консоль остаются в зелёной теме. */
+:root[data-palette="red"] {
+  --bg: #f2ebea;
+  --bg-2: #faf5f4;
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-solid: #ffffff;
+  --border: rgba(95, 50, 45, 0.14);
+  --text: #2a1c1a;
+  --text-dim: #6b5854;
+  --accent: #c5342b;
+  --accent-2: #e8735c;
+  --accent-rgb: 197, 52, 43;
+  --accent-soft: rgba(197, 52, 43, 0.12);
+  --water: #b8404a;
+  --sun: #e5903c;
+  --shadow: 0 10px 30px rgba(70, 32, 28, 0.10);
+  --shadow-lg: 0 18px 45px rgba(70, 32, 28, 0.16);
+  --grid: rgba(95, 50, 45, 0.12);
+}
+
+:root[data-palette="red"][data-theme="dark"] {
+  --bg: #150f0e;
+  --bg-2: #1d1413;
+  --surface: rgba(46, 29, 27, 0.72);
+  --surface-solid: #271a18;
+  --border: rgba(235, 160, 150, 0.14);
+  --text: #f7eae7;
+  --text-dim: #b49a95;
+  --accent: #e2554a;
+  --accent-2: #ff9075;
+  --accent-rgb: 226, 85, 74;
+  --accent-soft: rgba(226, 85, 74, 0.16);
+  --water: #e0707f;
+  --sun: #f0b060;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 18px 45px rgba(0, 0, 0, 0.55);
+  --grid: rgba(235, 160, 150, 0.12);
 }
 
 * {
@@ -166,7 +212,7 @@ body {
   height: 9px;
   border-radius: 50%;
   background: var(--warn);
-  box-shadow: 0 0 0 4px rgba(217, 145, 60, 0.18);
+  box-shadow: 0 0 0 4px rgba(var(--warn-rgb), 0.18);
 }
 
 .status-pill.online .dot {
@@ -175,9 +221,14 @@ body {
   animation: pulse 2s ease-out infinite;
 }
 
+.status-pill.err .dot {
+  background: var(--danger);
+  box-shadow: 0 0 0 4px rgba(217, 86, 79, 0.18);
+}
+
 @keyframes pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(79, 154, 72, 0.5); }
-  100% { box-shadow: 0 0 0 14px rgba(79, 154, 72, 0); }
+  0%   { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5); }
+  100% { box-shadow: 0 0 0 14px rgba(var(--accent-rgb), 0); }
 }
 
 .icon-btn {
@@ -235,7 +286,7 @@ body {
 .tab.active {
   background: linear-gradient(140deg, var(--accent), var(--accent-2));
   color: #fff;
-  box-shadow: 0 8px 18px rgba(79, 154, 72, 0.32);
+  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.32);
 }
 
 /* ===== Представления ===== */
@@ -473,7 +524,7 @@ body {
 .btn-primary {
   background: linear-gradient(140deg, var(--accent), var(--accent-2));
   color: #fff;
-  box-shadow: 0 10px 22px rgba(79, 154, 72, 0.30);
+  box-shadow: 0 10px 22px rgba(var(--accent-rgb), 0.30);
 }
 
 .btn-ghost {
