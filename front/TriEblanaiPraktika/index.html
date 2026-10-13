@@ -6,7 +6,7 @@
   <title>Служебная страница · Теплица</title>
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
-  <link rel="stylesheet" href="../css/main.css?v=6">
+  <link rel="stylesheet" href="../css/main.css?v=7">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -276,7 +276,7 @@
       $('#logout').hidden = !token;
       $('#auth-state').textContent = user
         ? (isAdmin() ? 'Вы вошли как администратор.' : 'Вы вошли как пользователь: данные доступны только для чтения.')
-        : 'Просмотр данных доступен всем, кто знает этот адрес. Изменения — только администратору.';
+        : 'Записи видны после входа в аккаунт. Изменения — только администратору.';
     }
 
     async function checkSession() {
@@ -339,6 +339,11 @@
 
     async function loadData() {
       const body = $('#data-body');
+      if (!token) {
+        $('#data-count').textContent = '—';
+        body.innerHTML = '<tr><td colspan="4" class="empty">Войдите в аккаунт, чтобы увидеть записи</td></tr>';
+        return;
+      }
       try {
         const data = await api('/api/secret/data');
         const entries = data.data || [];

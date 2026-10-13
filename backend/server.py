@@ -705,6 +705,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": True, "user": app.delete_user(int(match.group(1)))})
 
             if path == "/api/secret/data":
+                if not user:
+                    return self._error("Требуется вход", 401)
                 if method == "GET":
                     return self._json({"data": app.db.secret_data()})
                 if not self._require_admin(user):
