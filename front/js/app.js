@@ -14,7 +14,7 @@ const MAX_POINTS = 60;
 const STATE_SYNC_MS = 10000;
 // Версия ссылок на assets: поднимайте вместе с VERSION в service-worker.js
 // и ссылками в index.html — хостинг кэширует .js/.css на 45 дней.
-const ASSET_VERSION = '7';
+const ASSET_VERSION = '9';
 
 const MODE_NAMES = { auto: 'Авто', eco: 'Эко', boost: 'Интенсив', manual: 'Ручной' };
 
@@ -245,6 +245,18 @@ async function fetchSavedState() {
   }
 }
 
+/* Понятное описание сбоя: голое «HTTP 404» ничего не объясняет, а чаще всего
+   дело в адресе API — например, панель открыта по адресу сайта, где API нет. */
+function apiFailureMessage(response, data) {
+  if (data && data.error) return data.error;
+  if (response.status === 404 || response.status === 405) {
+    const where = apiRoot() || location.origin;
+    return `По адресу ${where} нет API теплицы (HTTP ${response.status}). `
+      + 'Нажмите «Без входа» и укажите адрес сервера на вкладке «Режим».';
+  }
+  return `HTTP ${response.status}`;
+}
+
 async function login(username, password) {
   const response = await fetch(`${apiRoot()}/api/auth/login`, {
     method: 'POST',
@@ -252,7 +264,7 @@ async function login(username, password) {
     body: JSON.stringify({ username, password })
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  if (!response.ok) throw new Error(apiFailureMessage(response, data));
   auth = { token: data.token, user: data.user, guest: false };
   saveAuth();
   if (data.state) applyRemoteState(data.state);
@@ -268,7 +280,7 @@ async function registerUser(username, password) {
     body: JSON.stringify({ username, password })
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  if (!response.ok) throw new Error(apiFailureMessage(response, data));
   auth = { token: data.token, user: data.user, guest: false };
   saveAuth();
   if (data.state) applyRemoteState(data.state);
@@ -456,13 +468,19 @@ async function initAuth() {
     hideLoginGate();
     return;
   }
-  if (await serverReachable()) {
+  const ok = await serverReachable();
+  // Новый посетитель сразу видит регистрацию: искать «Создать аккаунт» внизу
+  // экрана неудобно, а без аккаунта теряются настройки и доступ к управлению.
+  if (ok) {
+    setGateMode('register', 'Похоже, вы здесь впервые. Создайте аккаунт — к нему привяжутся '
+      + 'настройки и доступ к управлению теплицей.');
     showLoginGate();
-  } else {
-    // Демо без сервера: вход не требуется, панель работает на локальных данных.
-    gateDismissed = true;
-    hideLoginGate();
+    return;
   }
+  // Порядок важен: setGateMode переписывает подсказку и очищает строку ошибки.
+  setGateMode('register');
+  showLoginGate(`Сервер теплицы не отвечает по адресу ${apiRoot() || location.origin}. `
+    + 'Нажмите «Без входа» и укажите адрес на вкладке «Режим» — панель покажет демо-данные.');
 }
 
 async function submitLogin() {
