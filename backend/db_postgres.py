@@ -649,13 +649,12 @@ class PostgresDatabase:
             for row in rows:
                 db.execute(
                     "INSERT INTO narutodle_characters (name, gender, village, clan, nature, "
-                    "kekkei, jinchuriki, debut, status, color, image, updated_at) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "kekkei, jinchuriki, debut, color, image, updated_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (name) DO UPDATE SET "
                     "gender = EXCLUDED.gender, village = EXCLUDED.village, clan = EXCLUDED.clan, "
                     "nature = EXCLUDED.nature, kekkei = EXCLUDED.kekkei, "
                     "jinchuriki = EXCLUDED.jinchuriki, debut = EXCLUDED.debut, "
-                    "status = EXCLUDED.status, "
                     "color = CASE WHEN EXCLUDED.color <> '' THEN EXCLUDED.color "
                     "ELSE narutodle_characters.color END, "
                     "image = CASE WHEN EXCLUDED.image <> '' THEN EXCLUDED.image "
@@ -670,7 +669,6 @@ class PostgresDatabase:
                         str(row.get("kekkei") or ""),
                         str(row.get("jinchuriki") or ""),
                         str(row.get("debut") or ""),
-                        str(row.get("status") or ""),
                         str(row.get("color") or ""),
                         str(row.get("image") or ""),
                         datetime.now(timezone.utc),
@@ -926,7 +924,7 @@ TRANSFERS: Tuple[Tuple[str, Tuple[str, ...], Tuple[str, ...]], ...] = (
     ("user_states", ("user_id", "payload", "updated_at"), ("user_id",)),
     ("secret_data", ("id", "name", "value", "updated_at"), ("id",)),
     ("narutodle_characters", ("id", "name", "gender", "village", "clan", "nature", "kekkei",
-                              "jinchuriki", "debut", "status", "color", "image", "updated_at"),
+                              "jinchuriki", "debut", "color", "image", "updated_at"),
      ("id",)),
     ("narutodle_matches", ("id", "room", "round_number", "target", "player1_id", "player1_name",
                            "player2_id", "player2_name", "winner_id", "winner_name", "loser_name",

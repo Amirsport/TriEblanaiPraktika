@@ -12,6 +12,9 @@ data/
 *.tmp
 ~$*
 
+# временные записи проверок «Аниме-сонглесса»: их создаёт songless_test_data.py
+front/games/animesongless/audio/sl-test-*.wav
+
 # редакторы
 .vscode/
 .idea/

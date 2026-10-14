@@ -103,7 +103,6 @@ CREATE TABLE IF NOT EXISTS narutodle_characters (
     kekkei     TEXT NOT NULL DEFAULT '',
     jinchuriki TEXT NOT NULL DEFAULT '',
     debut      TEXT NOT NULL DEFAULT '',
-    status     TEXT NOT NULL DEFAULT '',
     color      TEXT NOT NULL DEFAULT '',
     image      TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

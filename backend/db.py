@@ -158,7 +158,6 @@ CREATE TABLE IF NOT EXISTS narutodle_characters (
     kekkei     TEXT    NOT NULL DEFAULT '',
     jinchuriki TEXT    NOT NULL DEFAULT '',
     debut      TEXT    NOT NULL DEFAULT '',
-    status     TEXT    NOT NULL DEFAULT '',
     color      TEXT    NOT NULL DEFAULT '',
     image      TEXT    NOT NULL DEFAULT '',
     updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -786,13 +785,12 @@ class Database:
             for row in rows:
                 db.execute(
                     "INSERT INTO narutodle_characters (name, gender, village, clan, nature, "
-                    "kekkei, jinchuriki, debut, status, color, image, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "kekkei, jinchuriki, debut, color, image, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT(name) DO UPDATE SET "
                     "gender = excluded.gender, village = excluded.village, clan = excluded.clan, "
                     "nature = excluded.nature, kekkei = excluded.kekkei, "
                     "jinchuriki = excluded.jinchuriki, debut = excluded.debut, "
-                    "status = excluded.status, "
                     "color = CASE WHEN excluded.color <> '' THEN excluded.color "
                     "ELSE narutodle_characters.color END, "
                     "image = CASE WHEN excluded.image <> '' THEN excluded.image "
@@ -807,7 +805,6 @@ class Database:
                         str(row.get("kekkei") or ""),
                         str(row.get("jinchuriki") or ""),
                         str(row.get("debut") or ""),
-                        str(row.get("status") or ""),
                         str(row.get("color") or ""),
                         str(row.get("image") or ""),
                         _now(),

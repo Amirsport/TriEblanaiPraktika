@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
   <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=14">
+  <link rel="stylesheet" href="../../css/main.css?v=15">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -60,6 +60,32 @@
 
     .guess-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     .guess-form label { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; }
+
+    /* Выпадающий список персонажей: аватар и имя, отбор по введённым буквам. */
+    .combo { position: relative; display: block; }
+    .combo-list {
+      position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px);
+      max-height: 268px; overflow-y: auto; padding: 6px;
+      border-radius: var(--radius-sm); border: 1px solid var(--accent);
+      background: var(--surface-solid); box-shadow: var(--shadow);
+    }
+    .combo-item {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      padding: 7px 9px; border: 0; border-radius: 9px; background: transparent;
+      color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+    }
+    .combo-item:hover, .combo-item.active { background: var(--accent-soft); }
+    .combo-empty { padding: 8px 10px; font-size: 13px; color: var(--text-dim); }
+
+    /* Стихии показываем знаком стихии на её цвете: 火 風 水 土 雷. Слово
+       остаётся в подсказке, поэтому графа читается и без знания знаков. */
+    .nature { display: inline-flex; gap: 4px; flex-wrap: wrap; vertical-align: middle; }
+    .nature-chip {
+      display: inline-grid; place-items: center; width: 22px; height: 22px;
+      border-radius: 7px; font-size: 13px; font-weight: 700; line-height: 1;
+      color: #fff; background: #7a6a5f;
+      font-family: 'Noto Sans JP', 'Yu Gothic', 'Meiryo', 'MS Gothic', sans-serif;
+    }
 
     .board-wrap { overflow-x: auto; }
     .board { border-collapse: separate; border-spacing: 6px; width: 100%; min-width: 700px; }
@@ -307,9 +333,12 @@
         <form class="guess-form" id="guess-form" autocomplete="off">
           <label>
             <span class="muted" style="font-size: 13px;">Ваша догадка</span>
-            <input type="text" id="guess-input" list="characters" placeholder="Начните вводить имя персонажа"
-                   autocomplete="off" spellcheck="false">
-            <datalist id="characters"></datalist>
+            <span class="combo">
+              <input type="text" id="guess-input" placeholder="Начните вводить имя персонажа"
+                     autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false"
+                     aria-controls="guess-list" aria-autocomplete="list">
+              <span class="combo-list" id="guess-list" role="listbox" hidden></span>
+            </span>
           </label>
           <button class="btn btn-primary" type="submit" id="guess-submit">Угадать</button>
         </form>
@@ -807,6 +836,40 @@
       });
     }
 
+    /* ----------------------------- стихии ---------------------------------- */
+
+    /* Стихия показывается знаком на своём цвете: так таблица читается быстрее
+       слов. Название стихии остаётся в title, поэтому смысл не теряется. */
+    const NATURES = {
+      'огонь': { sign: '火', color: '#c0392b', label: 'Огонь' },
+      'ветер': { sign: '風', color: '#2f9e7a', label: 'Ветер' },
+      'молния': { sign: '雷', color: '#c9a227', label: 'Молния' },
+      'земля': { sign: '土', color: '#8a6a3c', label: 'Земля' },
+      'вода': { sign: '水', color: '#2f7fa8', label: 'Вода' },
+      'неизвестно': { sign: '?', color: '#7a6a5f', label: 'Неизвестно' }
+    };
+
+    function natureChip(value) {
+      const text = String(value == null ? '' : value).trim();
+      const item = NATURES[text.toLowerCase()]
+        || { sign: '?', color: '#7a6a5f', label: text || 'нет' };
+      return '<span class="nature-chip" style="background: ' + item.color + '" title="'
+        + escapeHtml(item.label) + '">' + item.sign + '</span>';
+    }
+
+    function natureHtml(values) {
+      const list = Array.isArray(values) ? values : [values];
+      const filled = list.filter((item) => String(item == null ? '' : item).trim() !== '');
+      if (!filled.length) return '<span class="muted">—</span>';
+      return '<span class="nature">' + filled.map(natureChip).join('') + '</span>';
+    }
+
+    /* Значение графы для таблицы и разбора: стихии — знаками, остальное текстом. */
+    function attributeValueHtml(attribute, value) {
+      if (attribute && attribute.key === 'nature') return natureHtml(value);
+      return escapeHtml(Array.isArray(value) ? value.join(', ') : value);
+    }
+
     function renderAttempts(table, attempts) {
       if (!attempts || !attempts.length || !catalog.attributes.length) {
         table.innerHTML = '';
@@ -817,7 +880,8 @@
       const rows = attempts.map((attempt) => {
         const cells = attempt.result.map((row) => {
           const value = Array.isArray(row.value) ? row.value.join(', ') : row.value;
-          return '<td class="' + row.state + '">' + escapeHtml(value) + '</td>';
+          const shown = row.key === 'nature' ? natureHtml(row.value) : escapeHtml(value);
+          return '<td class="' + row.state + '">' + shown + '</td>';
         }).join('');
         return '<tr class="' + (attempt.correct ? 'correct' : '') + '">'
           + '<td class="who"><span class="who-line">' + avatarHtml(attempt.name)
@@ -886,8 +950,8 @@
       $('#result-attrs').innerHTML = state.answer
         ? catalog.attributes.map((attribute) => {
             const value = state.answer[attribute.key];
-            return '<span>' + escapeHtml(attribute.label + ': '
-              + (Array.isArray(value) ? value.join(', ') : value)) + '</span>';
+            return '<span>' + escapeHtml(attribute.label) + ': '
+              + attributeValueHtml(attribute, value) + '</span>';
           }).join('')
         : '';
       $('#result-text').textContent = state.finish_reason === 'gave_up'
@@ -942,6 +1006,7 @@
       show('#watch', false);
       show('#wait-card', state.status === 'waiting');
       show('#game', state.status !== 'waiting');
+      if (state.status !== 'playing') hideCombo();
 
       if (state.status === 'waiting') {
         $('#wait-code').textContent = state.code;
@@ -1115,8 +1180,8 @@
         $('#watch-result-attrs').innerHTML = data.answer
           ? catalog.attributes.map((attribute) => {
               const value = data.answer[attribute.key];
-              return '<span>' + escapeHtml(attribute.label + ': '
-                + (Array.isArray(value) ? value.join(', ') : value)) + '</span>';
+              return '<span>' + escapeHtml(attribute.label) + ': '
+                + attributeValueHtml(attribute, value) + '</span>';
             }).join('')
           : '';
         $('#watch-result-text').textContent = data.finish_reason === 'gave_up'
@@ -1253,6 +1318,7 @@
           { method: 'POST', body: { name: value } });
         state = data.state;
         $('#guess-input').value = '';
+        hideCombo();
         const last = state.you.attempts[state.you.attempts.length - 1];
         if (last && last.correct) toast('Точно! Раунд ваш');
         renderScreen();
@@ -1308,6 +1374,116 @@
       toast('Комната закрыта у вас: ссылка перестанет работать, когда выйдет соперник');
     }
 
+    /* ------------------------- выбор персонажа ------------------------------ */
+
+    /* Выпадающий список вместо подсказки браузера: видно портрет и имя, отбор
+       идёт по любой части имени. Управление — мышь, стрелки, Enter и Escape. */
+    const COMBO_LIMIT = 8;
+    let comboShown = [];
+    let comboActive = -1;
+
+    function comboMatches(query) {
+      const needle = String(query || '').trim().toLowerCase();
+      const all = catalog.characters || [];
+      if (!needle) return all.slice(0, COMBO_LIMIT);
+      const starts = [];
+      const contains = [];
+      all.forEach((item) => {
+        const name = String(item.name || '').toLowerCase();
+        if (name.startsWith(needle)) starts.push(item);
+        else if (name.includes(needle)) contains.push(item);
+      });
+      return starts.concat(contains).slice(0, COMBO_LIMIT);
+    }
+
+    function hideCombo() {
+      comboShown = [];
+      comboActive = -1;
+      const list = $('#guess-list');
+      list.hidden = true;
+      list.innerHTML = '';
+      $('#guess-input').setAttribute('aria-expanded', 'false');
+    }
+
+    function markComboActive() {
+      const items = document.querySelectorAll('#guess-list .combo-item');
+      items.forEach((item, index) => item.classList.toggle('active', index === comboActive));
+      const active = items[comboActive];
+      if (active) active.scrollIntoView({ block: 'nearest' });
+    }
+
+    function renderCombo() {
+      const input = $('#guess-input');
+      const list = $('#guess-list');
+      if (!catalog.characters.length || state === null || state.status !== 'playing') {
+        hideCombo();
+        return;
+      }
+      comboShown = comboMatches(input.value);
+      if (!comboShown.length) {
+        list.innerHTML = '<div class="combo-empty">Такого персонажа нет в наборе</div>';
+      } else {
+        list.innerHTML = comboShown.map((item, index) => (
+          '<button type="button" class="combo-item' + (index === comboActive ? ' active' : '')
+          + '" role="option" data-name="' + escapeHtml(item.name) + '">'
+          + avatarHtml(item.name) + '<span>' + escapeHtml(item.name) + '</span></button>'
+        )).join('');
+      }
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      markComboActive();
+    }
+
+    function pickCombo(name) {
+      hideCombo();
+      $('#guess-input').value = name;
+      sendGuess(name);
+    }
+
+    function setupCombo() {
+      const input = $('#guess-input');
+      const list = $('#guess-list');
+
+      input.addEventListener('input', () => {
+        comboActive = -1;
+        renderCombo();
+      });
+      input.addEventListener('focus', () => {
+        if (input.value.trim()) renderCombo();
+      });
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          hideCombo();
+          return;
+        }
+        const open = !list.hidden && comboShown.length > 0;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          if (list.hidden || !comboShown.length) {
+            renderCombo();
+            return;
+          }
+          const step = event.key === 'ArrowDown' ? 1 : -1;
+          comboActive = (comboActive + step + comboShown.length + 1) % (comboShown.length + 1);
+          markComboActive();
+          return;
+        }
+        if (event.key === 'Enter' && open && comboActive >= 0) {
+          event.preventDefault();
+          pickCombo(comboShown[comboActive].name);
+        }
+      });
+      list.addEventListener('mousedown', (event) => {
+        const item = event.target.closest('.combo-item');
+        if (!item) return;
+        event.preventDefault();
+        pickCombo(item.dataset.name);
+      });
+      document.addEventListener('click', (event) => {
+        if (!event.target.closest('.combo')) hideCombo();
+      });
+    }
+
     /* ------------------------------ запуск --------------------------------- */
 
     async function loadCatalog() {
@@ -1315,8 +1491,7 @@
         catalog = await api(GAME + '/characters');
         characterIndex = new Map(
           (catalog.characters || []).map((item) => [String(item.name).toLowerCase(), item]));
-        $('#characters').innerHTML = catalog.characters
-          .map((item) => '<option value="' + escapeHtml(item.name) + '"></option>').join('');
+        hideCombo();
         return true;
       } catch (error) {
         console.warn('Не удалось получить набор персонажей:', error);
@@ -1489,6 +1664,7 @@
       $('#copy-code').addEventListener('click', () => copyText(state ? state.code : '', 'Код скопирован'));
       $('#copy-link').addEventListener('click', () => copyText($('#invite-link').value, 'Ссылка скопирована'));
       $('#leave-wait').addEventListener('click', leaveRoom);
+      setupCombo();
       $('#guess-form').addEventListener('submit', (event) => {
         event.preventDefault();
         sendGuess($('#guess-input').value);
