@@ -1,0 +1,4 @@
+# Скрипты для Linux должны лежать с переводами строк LF: CRLF ломает bash
+# («\r: command not found»). На Windows с core.autocrlf=true git иначе
+# переписал бы рабочий файл в CRLF.
+*.sh text eol=lf

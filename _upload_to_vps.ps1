@@ -106,7 +106,9 @@ Write-Output 'Копирую архив на сервер...'
 # Секреты не передаются аргументами командной строки (они видны в списке процессов):
 # установщик создаёт их сам и печатает один раз, а на повторном запуске берёт из файла.
 Write-Output 'Готовлю проект на сервере...'
-& $ssh @sshArgs $target "mkdir -p '$RemoteRoot' && tar -xzf '$remoteArchive' -C '$RemoteRoot' && chmod +x '$RemoteRoot/_setup_vps.sh'"
+# sed снимает возможные CR: если рабочий файл попал в архив после checkout
+# на Windows, bash отказался бы работать с «\r» в конце строк.
+& $ssh @sshArgs $target "mkdir -p '$RemoteRoot' && tar -xzf '$remoteArchive' -C '$RemoteRoot' && sed -i 's/\r$//' '$remoteSetup' && chmod +x '$remoteSetup'"
 
 if ($Sqlite) {
     $dbPath = (Resolve-Path $Sqlite).Path
