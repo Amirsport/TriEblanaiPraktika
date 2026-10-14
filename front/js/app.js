@@ -14,7 +14,7 @@ const MAX_POINTS = 60;
 const STATE_SYNC_MS = 10000;
 // Версия ссылок на assets: поднимайте вместе с VERSION в service-worker.js
 // и ссылками в index.html — хостинг кэширует .js/.css на 45 дней.
-const ASSET_VERSION = '15';
+const ASSET_VERSION = '16';
 
 const MODE_NAMES = { auto: 'Авто', eco: 'Эко', boost: 'Интенсив', manual: 'Ручной' };
 
@@ -1472,32 +1472,50 @@ function apiHeaders(extra = {}) {
 
 let addressCheckedAt = 0;
 
-/* Адрес, опубликованный на сайте при выгрузке (_publish_address.py): поддомен
-   туннеля меняется при перезапуске, поэтому копия в браузере может устареть,
-   а этот файл обновляет серверная сторона. */
-async function publishedApiBase() {
+/* Адрес и ключ, опубликованные на сайте при выгрузке (_publish_address.py):
+   поддомен туннеля меняется при перезапуске, поэтому копии в браузере могут
+   устареть, а этот файл обновляет серверная сторона. Ключ в файле лежит
+   открыто: он нужен, чтобы панель подключалась без ввода руками. */
+async function publishedConnection() {
+  const empty = { apiBase: '', apiToken: '' };
   const onHttp = location.protocol === 'http:' || location.protocol === 'https:';
-  if (!onHttp) return '';
+  if (!onHttp) return empty;
   try {
     const response = await fetch('games/api-address.json', { cache: 'no-store' });
-    if (!response.ok) return '';
+    if (!response.ok) return empty;
     const data = await response.json();
-    return String((data && data.apiBase) || '').replace(/\/+$/, '');
+    return {
+      apiBase: String((data && data.apiBase) || '').replace(/\/+$/, ''),
+      apiToken: String((data && data.apiKey) || '').trim()
+    };
   } catch (error) {
-    return '';
+    return empty;
   }
 }
 
 /* Спрашиваем файл не чаще раза в минуту: панель опрашивает сервер постоянно,
    а файл лежит на статике. */
-async function healAddressFromSite() {
+async function healFromSite() {
   if (Date.now() - addressCheckedAt < 60000) return false;
   addressCheckedAt = Date.now();
-  const current = (state.apiBase || '').replace(/\/+$/, '');
-  const fresh = await publishedApiBase();
-  if (!fresh || fresh === current) return false;
-  state.apiBase = fresh;
-  toast('Адрес сервера обновлён: туннель перезапускался');
+  const currentBase = (state.apiBase || '').replace(/\/+$/, '');
+  const currentKey = (state.apiToken || '').trim();
+  const fresh = await publishedConnection();
+  let changed = false;
+  if (fresh.apiBase && fresh.apiBase !== currentBase) {
+    state.apiBase = fresh.apiBase;
+    toast('Адрес сервера обновлён: туннель перезапускался');
+    changed = true;
+  }
+  /* Ключ публикуется рядом с адресом: если сервер его поменял, браузер
+     подставит новый сам. */
+  if (fresh.apiToken && fresh.apiToken !== currentKey) {
+    const silent = changed;
+    state.apiToken = fresh.apiToken;
+    if (!silent) toast('Ключ доступа взят из файла на сайте');
+    changed = true;
+  }
+  if (!changed) return false;
   saveState();
   render();
   return true;
@@ -1600,13 +1618,15 @@ async function loadRemote(notify = false) {
     }
   } catch (error) {
     state.online = false;
-    /* Адрес мог устареть в браузере: если на сайте опубликован свежий — берём
-       его и пробуем ещё раз. Меняем адрес, когда сервер не ответил вовсе или
-       когда адрес вообще не задан (тогда «тот же домен» — лишь догадка); при
-       неверном ключе или ошибке сервера это не поможет. */
+    /* Адрес или ключ могли устареть в браузере: если на сайте опубликованы
+       свежие — берём их и пробуем ещё раз. Адрес меняем, когда сервер не
+       ответил вовсе или когда адрес вообще не задан (тогда «тот же домен» —
+       лишь догадка); ключ — когда сервер его не принял. При прочих ошибках
+       сервера это не поможет. */
     const dropped = error.name === 'AbortError' || error.name === 'TypeError';
     const blind = !(state.apiBase || '').trim();
-    if ((dropped || blind) && await healAddressFromSite()) {
+    const denied = error.message === 'неверный API-ключ';
+    if ((dropped || blind || denied) && await healFromSite()) {
       return loadRemote(notify);
     }
     if (notify) toast(`Сервер недоступен (${error.name === 'AbortError' ? 'таймаут' : error.message}). Демо-режим.`, 'warn');

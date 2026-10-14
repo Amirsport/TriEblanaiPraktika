@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
   <link rel="icon" type="image/png" sizes="192x192" href="../icons/icon-192.png">
-  <link rel="stylesheet" href="../css/main.css?v=15">
+  <link rel="stylesheet" href="../css/main.css?v=16">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -293,6 +293,7 @@
       let kind = 'err';
       let text = 'сервер не отвечает';
       let ms = null;
+      let keyRejected = false;
 
       try {
         const headers = {};
@@ -307,7 +308,9 @@
           // Сервер жив — он лишь закрыт общим ключом панели. Играм этот ключ
           // не нужен (в них пускает аккаунт), поэтому доступ не закрываем.
           kind = 'online';
-          text = 'на связи, ключ панели не задан';
+          text = token ? 'на связи, ключ панели не подошёл' : 'на связи, ключ панели не задан';
+          // Ключ либо не задан, либо сменился на сервере: свежий лежит на сайте.
+          keyRejected = true;
         } else if (response.status === 404 && !apiBase()) {
           // Хостинг статики: API живёт дома, поэтому адрес нужно указать явно.
           text = 'API на этом домене нет — укажите адрес сервера';
@@ -329,34 +332,51 @@
         toast(online ? `Связь есть: ${url} — ${ms} мс` : `Нет связи: ${text}`, online ? '' : 'warn');
       }
       /* Адрес в браузере мог устареть (поддомен туннеля меняется при
-         перезапуске): если на сайте опубликован свежий, пробуем его один раз. */
-      if (!online && !recheck && await healFromPublished()) {
+         перезапуске), а ключ — не задаваться или смениться: если на сайте
+         опубликованы свежие, пробуем их один раз. */
+      if (!recheck && (keyRejected || !online) && await healFromPublished(keyRejected)) {
         return checkConnection(notify, true);
       }
       return online;
     }
 
-    /* Адрес, опубликованный на сайте при выгрузке (_publish_address.py): файл
-       обновляет серверная сторона, поэтому он свежее любой копии в браузере. */
-    async function publishedApiBase() {
-      if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
+    /* Файл, опубликованный при выгрузке (_publish_address.py): в нём и адрес
+       сервера, и ключ панели, поэтому браузеру не нужно спрашивать их у
+       пользователя. */
+    async function publishedConnection() {
+      const empty = { apiBase: '', apiToken: '' };
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return empty;
       try {
         const response = await fetch('api-address.json', { cache: 'no-store' });
-        if (!response.ok) return '';
+        if (!response.ok) return empty;
         const data = await response.json();
-        return String((data && data.apiBase) || '').trim().replace(/\/+$/, '');
+        return {
+          apiBase: String((data && data.apiBase) || '').trim().replace(/\/+$/, ''),
+          apiToken: String((data && data.apiKey) || '').trim()
+        };
       } catch (error) {
-        return '';
+        return empty;
       }
     }
 
-    async function healFromPublished() {
-      const current = apiBase();
-      const fresh = await publishedApiBase();
-      if (!fresh || fresh === current) return false;
-      $('#api-base').value = fresh;
-      storeConnection({ apiBase: fresh, apiToken: apiToken() });
-      toast('Адрес сервера обновлён: туннель перезапускался');
+    /* Значения из файла ставим, когда своих нет, а силу применяем, если ключ
+       из браузера сервер не принял (401). */
+    async function healFromPublished(force = false) {
+      const fresh = await publishedConnection();
+      let changed = false;
+      if (fresh.apiBase && fresh.apiBase !== apiBase()) {
+        $('#api-base').value = fresh.apiBase;
+        toast('Адрес сервера обновлён: туннель перезапускался');
+        changed = true;
+      }
+      /* Ключ берём, когда своего нет или когда сервер его не принял. */
+      if (fresh.apiToken && (force || !apiToken()) && fresh.apiToken !== apiToken()) {
+        $('#api-token').value = fresh.apiToken;
+        if (!changed) toast('Ключ доступа взят из файла на сайте');
+        changed = true;
+      }
+      if (!changed) return false;
+      storeConnection({ apiBase: apiBase(), apiToken: apiToken() });
       return true;
     }
 

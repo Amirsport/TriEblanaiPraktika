@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
   <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=15">
+  <link rel="stylesheet" href="../../css/main.css?v=16">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -553,15 +553,17 @@
       }
     }
 
-    /* Адрес, опубликованный на сайте при выгрузке: поддомен туннеля меняется
-       при перезапуске, поэтому копия в браузере может устареть, а этот файл
-       обновляет серверная сторона. */
+    /* Адрес и ключ панели, опубликованные на сайте при выгрузке: поддомен
+       туннеля меняется при перезапуске, поэтому копия в браузере может
+       устареть, а этот файл обновляет серверная сторона. */
+    let publishedKey = '';
     async function publishedApiBase() {
       if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
       try {
         const response = await fetch('../api-address.json', { cache: 'no-store' });
         if (!response.ok) return '';
         const data = await response.json();
+        publishedKey = String((data && data.apiKey) || '').trim();
         return trimBase(data && data.apiBase);
       } catch (error) {
         return '';
@@ -598,13 +600,14 @@
     }
 
     /* Адрес помним вместе с ключом панели: игры ключ не спрашивают, но он
-       нужен странице игровой комнаты, а терять его при сохранении нельзя. */
+       нужен странице игровой комнаты, а терять его при сохранении нельзя.
+       Своего ключа может не быть — тогда берём опубликованный на сайте. */
     function rememberServer(value) {
       const own = storedConnection();
       const panel = panelConnection();
       writeJson(CONN_KEY, {
         apiBase: value,
-        apiToken: own.apiToken || panel.apiToken || ''
+        apiToken: own.apiToken || panel.apiToken || publishedKey || ''
       });
     }
 

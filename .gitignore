@@ -15,6 +15,10 @@ data/
 # временные записи проверок «Аниме-сонглесса»: их создаёт songless_test_data.py
 front/games/animesongless/audio/sl-test-*.wav
 
+# опубликованный на сайте файл подключения: в нём ключ панели, поэтому в
+# репозиторий он попадать не должен (на хостинг его кладёт _publish_address.py)
+front/games/api-address.json
+
 # редакторы
 .vscode/
 .idea/
