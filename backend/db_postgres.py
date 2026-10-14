@@ -125,6 +125,18 @@ def _track(row: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _command(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Строка очереди команд в том виде, в каком её ждёт домашний агент."""
+    data = dict(row)
+    data["id"] = int(data["id"])
+    data["zone_id"] = int(data["zone_id"])
+    data["on"] = bool(data["on_state"])
+    data["seconds"] = float(data["seconds"]) if data.get("seconds") is not None else None
+    for key in ("created_at", "delivered_at", "applied_at"):
+        data[key] = to_iso(data.get(key))
+    return data
+
+
 class PostgresDatabase:
     """Тонкая обёртка над PostgreSQL. Соединение открывается на каждую операцию."""
 
@@ -332,6 +344,82 @@ class PostgresDatabase:
                 "  FROM readings) AS ranked WHERE rn <= %s)",
                 (keep_per_zone,),
             )
+
+    # ------------------------------------------------- команды устройству
+    def device_command_add(self, zone_id: int, device: str, on: bool,
+                           seconds: Optional[float] = None) -> int:
+        """Кладёт команду в очередь: её заберёт домашний агент у платы."""
+        with self.connect() as db:
+            row = db.execute(
+                "INSERT INTO device_commands (zone_id, device, on_state, seconds) "
+                "VALUES (%s, %s, %s, %s) RETURNING id",
+                (int(zone_id), device, bool(on), seconds),
+            ).fetchone()
+            return int(row["id"]) if row else 0
+
+    def device_commands_pending(self, limit: int = 50,
+                                max_age: Optional[float] = None) -> List[Dict[str, Any]]:
+        """Отдаёт неподтверждённые команды и помечает их выданными агенту.
+
+        Команды старше max_age секунд закрываются как просроченные: полив,
+        который включился бы через час после нажатия кнопки, опаснее пропуска.
+        """
+        with self.connect() as db:
+            if max_age:
+                db.execute(
+                    "UPDATE device_commands SET applied_at = now(), error = %s "
+                    "WHERE applied_at IS NULL AND created_at < now() - make_interval(secs => %s)",
+                    ("просрочена: агент не был на связи", float(max_age)),
+                )
+            db.execute(
+                "UPDATE device_commands SET delivered_at = now() "
+                "WHERE applied_at IS NULL AND delivered_at IS NULL"
+            )
+            rows = db.execute(
+                "SELECT id, zone_id, device, on_state, seconds, created_at, delivered_at, applied_at, error "
+                "FROM device_commands WHERE applied_at IS NULL ORDER BY id LIMIT %s",
+                (int(limit),),
+            ).fetchall()
+        return [_command(row) for row in rows]
+
+    def device_commands_ack(self, applied: Iterable[int],
+                            errors: Optional[Dict[Any, str]] = None) -> int:
+        """Отмечает команды выполненными: агент применил их к плате либо сообщил об ошибке."""
+        problems = {int(key): str(value) for key, value in (errors or {}).items()}
+        ids = [int(item) for item in applied] + list(problems)
+        if not ids:
+            return 0
+        now = datetime.now(timezone.utc)
+        done = 0
+        with self.connect() as db:
+            for command_id in ids:
+                cursor = db.execute(
+                    "UPDATE device_commands SET applied_at = %s, error = %s "
+                    "WHERE id = %s AND applied_at IS NULL",
+                    (now, problems.get(command_id, ""), command_id),
+                )
+                done += cursor.rowcount
+        return done
+
+    def device_commands_prune(self, keep_hours: float = 24.0) -> int:
+        """Убирает старые выполненные команды, чтобы очередь не росла."""
+        with self.connect() as db:
+            cursor = db.execute(
+                "DELETE FROM device_commands WHERE applied_at IS NOT NULL "
+                "AND applied_at < now() - make_interval(secs => %s)",
+                (float(keep_hours) * 3600.0,),
+            )
+            return cursor.rowcount
+
+    def device_commands(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Последние команды для журнала и диагностики связи с агентом."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id, zone_id, device, on_state, seconds, created_at, delivered_at, applied_at, error "
+                "FROM device_commands ORDER BY id DESC LIMIT %s",
+                (int(limit),),
+            ).fetchall()
+        return [_command(row) for row in rows]
 
     # ------------------------------------------------------------------ users
     def user_count(self) -> int:
@@ -704,8 +792,11 @@ TRANSFERS: Tuple[Tuple[str, Tuple[str, ...], Tuple[str, ...]], ...] = (
                            "winner_attempts", "loser_attempts", "reason", "played_at"), ("id",)),
     ("songless_tracks", ("id", "anime", "song", "artist", "year", "audio", "clip_start",
                          "clip_length", "updated_at"), ("id",)),
+    ("device_commands", ("id", "zone_id", "device", "on_state", "seconds", "created_at",
+                         "delivered_at", "applied_at", "error"), ("id",)),
 )
 
 # Колонки, значения которых при переносе нужно привести к типу PostgreSQL.
-BOOL_COLUMNS = ("enabled", "auto_watering", "auto_ventilation", "auto_lighting")
-TIME_COLUMNS = ("recorded_at", "ts", "updated_at", "created_at", "expires_at", "played_at")
+BOOL_COLUMNS = ("enabled", "auto_watering", "auto_ventilation", "auto_lighting", "on_state")
+TIME_COLUMNS = ("recorded_at", "ts", "updated_at", "created_at", "expires_at", "played_at",
+                "delivered_at", "applied_at")

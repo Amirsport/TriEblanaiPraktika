@@ -149,3 +149,19 @@ CREATE TABLE IF NOT EXISTS songless_tracks (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_songless_tracks_anime ON songless_tracks (anime);
+
+-- Очередь команд домашнему агенту: сервер на VPS не держит COM-порт, поэтому
+-- записывает команду сюда, агент забирает её, применяет к плате и подтверждает.
+CREATE TABLE IF NOT EXISTS device_commands (
+    id           BIGSERIAL PRIMARY KEY,
+    zone_id      INTEGER NOT NULL,
+    device       TEXT NOT NULL,
+    on_state     BOOLEAN NOT NULL,
+    seconds      DOUBLE PRECISION,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    delivered_at TIMESTAMPTZ,
+    applied_at   TIMESTAMPTZ,
+    error        TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_commands_open ON device_commands (applied_at, id);

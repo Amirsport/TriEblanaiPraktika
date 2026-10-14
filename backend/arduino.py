@@ -140,14 +140,22 @@ class ArduinoLink:
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                if self._serial is not None:
-                    self._read_serial()
-                else:
-                    self._simulate()
+                self.tick()
             except Exception as exc:  # noqa: BLE001
                 self.stats["errors"] += 1
                 self.db.add_log(f"Сбой канала датчиков: {exc}", "err")
             self._stop.wait(self.interval)
+
+    def tick(self) -> None:
+        """Один цикл опроса: строка с платы либо шаг эмулятора.
+
+        Отдельным методом — потому что домашнему агенту нужен ровно один цикл
+        (проверки и разовый запуск), а не бесконечный поток опроса.
+        """
+        if self._serial is not None:
+            self._read_serial()
+        else:
+            self._simulate()
 
     def _read_serial(self) -> None:
         assert self._serial is not None

@@ -13,7 +13,8 @@
     user_states  — сохранённое состояние панели каждого пользователя;
     secret_data  — именованные записи секретной страницы /TriEblanaiPraktika;
     narutodle_characters / narutodle_matches — игра «Narutodle» и её журнал;
-    songless_tracks — игра «Аниме-сонглесс»: треки и записи к ним.
+    songless_tracks — игра «Аниме-сонглесс»: треки и записи к ним;
+    device_commands — очередь команд домашнему агенту (когда сервер не рядом с платой).
 
 Второй бэкенд — PostgreSQL (backend/db_postgres.py) с тем же набором методов.
 Бэкенд выбирается функцией open_database().
@@ -23,12 +24,14 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 if TYPE_CHECKING:  # psycopg нужен только при работе с PostgreSQL
+    from .arduino import ArduinoLink
     from .db_postgres import PostgresDatabase
+    from .device_link import RemoteDeviceLink
 
 ZONE_COUNT = 12
 ZONE_NAMES = [f"Участок {i}" for i in range(1, ZONE_COUNT + 1)]
@@ -198,6 +201,21 @@ CREATE TABLE IF NOT EXISTS songless_tracks (
     updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_songless_tracks_anime ON songless_tracks(anime);
+
+-- Очередь команд домашнему агенту: сервер на VPS не держит COM-порт, поэтому
+-- записывает команду сюда, агент забирает её, применяет к плате и подтверждает.
+CREATE TABLE IF NOT EXISTS device_commands (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    zone_id      INTEGER NOT NULL,
+    device       TEXT    NOT NULL,
+    on_state     INTEGER NOT NULL,
+    seconds      REAL,
+    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    delivered_at TEXT,
+    applied_at   TEXT,
+    error        TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_device_commands_open ON device_commands (applied_at, id);
 """
 
 
@@ -241,6 +259,16 @@ def _track(row: Dict[str, Any]) -> Dict[str, Any]:
         data[key] = float(data.get(key) or 0)
     if data.get("id") is not None:
         data["id"] = int(data["id"])
+    return data
+
+
+def _command(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Строка очереди команд в том виде, в каком её ждёт домашний агент."""
+    data = dict(row)
+    data["id"] = int(data["id"])
+    data["zone_id"] = int(data["zone_id"])
+    data["on"] = bool(data["on_state"])
+    data["seconds"] = float(data["seconds"]) if data.get("seconds") is not None else None
     return data
 
 
@@ -420,6 +448,82 @@ class Database:
                 "  FROM readings) WHERE rn <= ?)",
                 (keep_per_zone,),
             )
+
+    # ------------------------------------------------- команды устройству
+    def device_command_add(self, zone_id: int, device: str, on: bool,
+                           seconds: Optional[float] = None) -> int:
+        """Кладёт команду в очередь: её заберёт домашний агент у платы."""
+        with self.connect() as db:
+            cursor = db.execute(
+                "INSERT INTO device_commands (zone_id, device, on_state, seconds) VALUES (?, ?, ?, ?)",
+                (int(zone_id), device, 1 if on else 0, seconds),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def device_commands_pending(self, limit: int = 50,
+                                max_age: Optional[float] = None) -> List[Dict[str, Any]]:
+        """Отдаёт неподтверждённые команды и помечает их выданными агенту.
+
+        Команды старше max_age секунд закрываются как просроченные: полив,
+        который включился бы через час после нажатия кнопки, опаснее пропуска.
+        """
+        with self.connect() as db:
+            if max_age:
+                border = _iso(datetime.now(timezone.utc) - timedelta(seconds=float(max_age)))
+                db.execute(
+                    "UPDATE device_commands SET applied_at = ?, error = ? "
+                    "WHERE applied_at IS NULL AND created_at < ?",
+                    (_now(), "просрочена: агент не был на связи", border),
+                )
+            db.execute(
+                "UPDATE device_commands SET delivered_at = ? "
+                "WHERE applied_at IS NULL AND delivered_at IS NULL",
+                (_now(),),
+            )
+            rows = db.execute(
+                "SELECT id, zone_id, device, on_state, seconds, created_at, delivered_at, applied_at, error "
+                "FROM device_commands WHERE applied_at IS NULL ORDER BY id LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [_command(row) for row in rows]
+
+    def device_commands_ack(self, applied: Iterable[int],
+                            errors: Optional[Dict[Any, str]] = None) -> int:
+        """Отмечает команды выполненными: агент применил их к плате либо сообщил об ошибке."""
+        problems = {int(key): str(value) for key, value in (errors or {}).items()}
+        ids = [int(item) for item in applied] + list(problems)
+        if not ids:
+            return 0
+        stamp = _now()
+        with self.connect() as db:
+            done = 0
+            for command_id in ids:
+                cursor = db.execute(
+                    "UPDATE device_commands SET applied_at = ?, error = ? WHERE id = ? AND applied_at IS NULL",
+                    (stamp, problems.get(command_id, ""), command_id),
+                )
+                done += cursor.rowcount
+        return done
+
+    def device_commands_prune(self, keep_hours: float = 24.0) -> int:
+        """Убирает старые выполненные команды, чтобы очередь не росла."""
+        border = _iso(datetime.now(timezone.utc) - timedelta(hours=float(keep_hours)))
+        with self.connect() as db:
+            cursor = db.execute(
+                "DELETE FROM device_commands WHERE applied_at IS NOT NULL AND applied_at < ?",
+                (border,),
+            )
+            return cursor.rowcount
+
+    def device_commands(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Последние команды для журнала и диагностики связи с агентом."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id, zone_id, device, on_state, seconds, created_at, delivered_at, applied_at, error "
+                "FROM device_commands ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        return [_command(row) for row in rows]
 
     # ------------------------------------------------------------------ users
     def user_count(self) -> int:
@@ -772,6 +876,10 @@ class Database:
 
 # Любой из поддерживаемых бэкендов: SQLite (Database) или PostgreSQL (PostgresDatabase).
 DatabaseLike = Union[Database, "PostgresDatabase"]
+
+# Канал к плате: напрямую по COM-порту (ArduinoLink) либо через домашнего
+# агента, когда сервер стоит на VPS (RemoteDeviceLink). Набор методов общий.
+DeviceLink = Union["ArduinoLink", "RemoteDeviceLink"]
 
 
 def open_database(path: str | Path | None = None, dsn: Optional[str] = None) -> DatabaseLike:

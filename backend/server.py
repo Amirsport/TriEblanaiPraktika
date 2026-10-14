@@ -77,6 +77,12 @@ API (JSON):
     POST /api/games/songless/rooms/<код>/answer     {"choice": номер варианта}
     POST /api/games/songless/rooms/<код>/rematch    новая партия
     GET  /api/games/songless/rooms/<код>/clip?round= фрагмент текущего раунда
+
+Домашний агент (только устройство-токен, режим --device-remote): когда сервер
+стоит на VPS, а Arduino осталась дома, COM-порт держит agent (device_agent.py):
+    POST /api/device/sync                показания агента → очередь команд к плате
+    POST /api/device/ack                 {"applied":[1,2],"errors":{"3":"текст"}}
+    GET  /api/device/status              состояние канала «сервер ↔ дом»
 """
 from __future__ import annotations
 
@@ -102,8 +108,9 @@ try:  # запуск как модуль: python -m backend.server
         ROLES, SESSION_DAYS, hash_password, new_token, normalize_username, public_user,
         validate_password, validate_role, validate_username, verify_password,
     )
-    from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database
+    from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, DeviceLink, open_database
     from .arduino import ArduinoLink
+    from .device_link import RemoteDeviceLink
     from .narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError
     from .narutodle_data import attribute_list, seed_rows
     from .songless import (
@@ -122,8 +129,11 @@ except ImportError:  # запуск как файл: python backend/server.py
         ROLES, SESSION_DAYS, hash_password, new_token, normalize_username, public_user,
         validate_password, validate_role, validate_username, verify_password,
     )
-    from db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, open_database  # type: ignore
+    from db import (  # type: ignore
+        DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, DeviceLink, open_database,
+    )
     from arduino import ArduinoLink  # type: ignore
+    from device_link import RemoteDeviceLink  # type: ignore
     from narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError  # type: ignore
     from narutodle_data import attribute_list, seed_rows  # type: ignore
     from songless import (  # type: ignore
@@ -181,9 +191,13 @@ def _now_iso() -> str:
 class Application:
     """Связывает БД, канал Arduino и правила автоматики."""
 
-    def __init__(self, db: DatabaseLike, arduino: ArduinoLink, token: Optional[str] = None):
+    def __init__(self, db: DatabaseLike, arduino: DeviceLink, token: Optional[str] = None):
         self.db = db
         self.arduino = arduino
+        # В режиме агента COM-порт держит домашний ПК: раздел /api/device/* открыт
+        # ему одному, поэтому ссылку на канал храним отдельно.
+        self.device_link: Optional[RemoteDeviceLink] = (
+            arduino if isinstance(arduino, RemoteDeviceLink) else None)
         self.token = token or None
         self._timers: Dict[Tuple[int, str], float] = {}
         self._stop = threading.Event()
@@ -541,6 +555,14 @@ class Application:
     def _automation_tick(self) -> None:
         self._expire_timers()
 
+        # Через домашнего агента показания приходят снаружи: если он молчит,
+        # последние данные устарели, и решения по ним были бы выдуманными.
+        link = self.arduino.status()
+        if link.get("mode") == "remote" and not link.get("connected"):
+            if not self.db.has_recent_log("Автоматика ждёт связи с платой", 300):
+                self.db.add_log("Автоматика ждёт связи с платой: показания устарели", "warn")
+            return
+
         settings = self.db.settings()
         if settings["mode"] == "manual":
             return
@@ -688,6 +710,11 @@ class Handler(BaseHTTPRequestHandler):
         # в ссылку-приглашение, которую пересылают другу.
         if path.startswith("/api/games/"):
             return self._handle_games_api(method, path)
+
+        # Домашний агент приходит со своих устройств и своего токена: общий ключ
+        # панели лежит в браузере, поэтому ему он не подходит.
+        if path.startswith("/api/device/"):
+            return self._handle_device_api(method, path)
 
         if not app.authorized(self.headers, query):
             return self._error("Неверный или отсутствующий API-ключ", 401)
@@ -956,6 +983,52 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Внутренняя ошибка: {exc}", 500)
 
+    # ------------------------------------------------------ домашний агент (VPS)
+    def _device_token(self) -> str:
+        """Токен агента: заголовок X-Device-Token либо обычный Bearer."""
+        value = self.headers.get("X-Device-Token")
+        if value:
+            return value.strip()
+        return self._bearer_token()
+
+    def _handle_device_api(self, method: str, path: str) -> None:
+        """Приём показаний от домашнего агента и выдача ему команд к плате.
+
+        Раздел отделён от /api/* намеренно: общий ключ панели лежит в браузере,
+        а агенту нужен свой секрет, который известен только домашнему ПК.
+        """
+        app = self.app
+        link = app.device_link
+        if link is None:
+            return self._error("Сервер работает с платой напрямую: раздел агента выключен", 404)
+        provided = self._device_token()
+        if not provided or not hmac.compare_digest(provided, link.token):
+            return self._error("Неверный или отсутствующий токен устройства", 401)
+
+        try:
+            if method == "GET" and path == "/api/device/status":
+                return self._json(link.status())
+
+            if method == "POST" and path == "/api/device/sync":
+                result = link.ingest(self._body())
+                link.prune()
+                result["server_time"] = _now_iso()
+                # Агенту нужны включённые исполнители: дома он эмулирует датчики,
+                # а полив и досветка меняют их показания.
+                result["devices"] = link.devices_payload()
+                return self._json(result)
+
+            if method == "POST" and path == "/api/device/ack":
+                data = self._body()
+                done = link.acknowledge(data.get("applied") or [], data.get("errors") or {})
+                return self._json({"ok": True, "applied": done})
+
+            return self._error(f"Не найдено: {method} {path}", 404)
+        except ValueError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Внутренняя ошибка: {exc}", 500)
+
     @staticmethod
     def _require_admin(user: Optional[Dict[str, Any]]) -> bool:
         return bool(user and user.get("role") == "admin")
@@ -1139,10 +1212,17 @@ class Handler(BaseHTTPRequestHandler):
 
 def create_server(host: str, port: int, database: DatabaseLike, serial_port: Optional[str],
                   baud: int, simulator: bool, token: Optional[str] = None,
-                  admin_password: Optional[str] = None) -> ThreadingHTTPServer:
+                  admin_password: Optional[str] = None, device_remote: bool = False,
+                  device_token: Optional[str] = None) -> ThreadingHTTPServer:
     database.initialize()
     database.purge_sessions()
-    link = ArduinoLink(database, port=serial_port, baudrate=baud, allow_simulator=simulator)
+    link: DeviceLink
+    if device_remote:
+        # Плата осталась дома: COM-порт держит агент, а сервер только принимает
+        # показания и отдаёт ему команды из очереди.
+        link = RemoteDeviceLink(database, token=device_token or "")
+    else:
+        link = ArduinoLink(database, port=serial_port, baudrate=baud, allow_simulator=simulator)
     app = Application(database, link, token)
 
     server = ThreadingHTTPServer((host, port), Handler)
@@ -1177,13 +1257,22 @@ def main() -> None:
     parser.add_argument("--serial", dest="serial_port", default=None, help="COM-порт Arduino, например COM3")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--no-simulator", action="store_true", help="запретить эмулятор (нужна реальная плата)")
+    parser.add_argument("--device-remote", action="store_true",
+                        help="режим домашнего агента: плата не здесь, показания приносит "
+                             "device_agent.py, команды уходят через очередь")
+    parser.add_argument("--device-token", default=os.environ.get("GREENHOUSE_DEVICE_TOKEN"),
+                        help="токен домашнего агента (обязателен вместе с --device-remote)")
     parser.add_argument("--open", action="store_true", help="открыть панель в браузере")
     args = parser.parse_args()
+
+    if args.device_remote and not args.device_token:
+        parser.error("режим --device-remote требует --device-token (или GREENHOUSE_DEVICE_TOKEN): "
+                     "агент дома доказывает им, что он свой")
 
     database = open_database(args.db, args.dsn)
     server = create_server(args.host, args.port, database,
                            args.serial_port, args.baud, not args.no_simulator, args.token,
-                           args.admin_password)
+                           args.admin_password, args.device_remote, args.device_token)
     url = f"http://{args.host}:{server.server_port}/"
     print(f"Теплица: {url}")
     print(f"Участков: {ZONE_COUNT}, БД: {_mask_dsn(args.dsn) if args.dsn else args.db}")
@@ -1199,7 +1288,13 @@ def main() -> None:
     if not args.token and args.host not in ("127.0.0.1", "localhost", "::1"):
         print("ВНИМАНИЕ: сервер опубликован по сети без API-ключа — команды теплице "
               "доступны любому. Задайте --token или GREENHOUSE_TOKEN.", file=sys.stderr)
-    print("Датчики: " + (f"Arduino {args.serial_port}" if args.serial_port else "эмулятор (Arduino не подключена)"))
+    if args.device_remote:
+        print("Датчики: домашний агент — плата подключена к другому компьютеру "
+              "(backend/device_agent.py)")
+        print("Раздел агента: POST /api/device/sync и /api/device/ack по устройство-токену")
+    else:
+        print("Датчики: " + (f"Arduino {args.serial_port}" if args.serial_port
+                             else "эмулятор (Arduino не подключена)"))
     if args.open:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     try:

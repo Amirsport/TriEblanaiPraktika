@@ -14,7 +14,7 @@ const MAX_POINTS = 60;
 const STATE_SYNC_MS = 10000;
 // Версия ссылок на assets: поднимайте вместе с VERSION в service-worker.js
 // и ссылками в index.html — хостинг кэширует .js/.css на 45 дней.
-const ASSET_VERSION = '12';
+const ASSET_VERSION = '13';
 
 const MODE_NAMES = { auto: 'Авто', eco: 'Эко', boost: 'Интенсив', manual: 'Ручной' };
 
@@ -52,7 +52,8 @@ const DEFAULTS = {
   logs: [],
   logFilter: 'all',
   online: false,
-  source: 'simulator'
+  source: 'simulator',
+  link: null          // состояние канала с платой: при работе через домашнего агента важно, на связи ли дом
 };
 
 let deferredPrompt = null; // событие установки PWA (не сериализуется в localStorage)
@@ -721,9 +722,7 @@ function renderZones() {
   setText('#zones-hot', hot);
   setText('#zones-watering', watering);
 
-  const sourceLabel = state.online
-    ? (state.source === 'arduino' ? 'Arduino' : 'сервер · эмулятор')
-    : 'автономный режим';
+  const sourceLabel = state.online ? linkLabel() : 'автономный режим';
   setText('#zones-source', sourceLabel);
   setText('#zones-source-2', sourceLabel);
 
@@ -1027,13 +1026,31 @@ function renderCharts() {
   });
 }
 
+/* Что показывать про источник данных. В режиме домашнего агента сервер стоит
+   на VPS, а плата — дома: цифры свежие только пока агент выходит на связь,
+   поэтому обрыв связи виден на экране, а не выглядит как рабочие показания. */
+function linkLabel() {
+  const link = state.link;
+  if (link && link.mode === 'remote') {
+    if (!link.connected) return 'агент не на связи';
+    return link.device_source === 'arduino' ? 'Arduino через агента' : 'агент · эмулятор';
+  }
+  return state.source === 'arduino' ? 'Arduino' : 'сервер · эмулятор';
+}
+
 function renderConn() {
   const pill = $('#conn-pill');
   const text = $('#conn-text');
   if (!pill || !text) return;
-  pill.classList.toggle('online', state.online);
+  const linkDown = state.online && Boolean(state.link) && state.link.mode === 'remote' && !state.link.connected;
+  pill.classList.toggle('online', state.online && !linkDown);
   if (!state.online) {
     text.textContent = 'Автономный режим';
+  } else if (linkDown) {
+    text.textContent = 'Сервер · агент не на связи';
+  } else if (state.link && state.link.mode === 'remote') {
+    text.textContent = state.link.device_source === 'arduino'
+      ? 'Сервер · агент · Arduino' : 'Сервер · агент · эмулятор';
   } else {
     text.textContent = state.source === 'arduino' ? 'Сервер · Arduino' : 'Сервер · эмулятор';
   }
@@ -1511,6 +1528,17 @@ async function loadRemote(notify = false) {
     state.online = true;
     state.source = data.source || 'arduino';
 
+    /* Канал с платой может отвалиться отдельно от сервера: сервер на VPS жив,
+       а домашний агент у платы молчит — тогда показания перестают приходить. */
+    const linkWas = state.link && state.link.mode === 'remote' ? state.link.connected : null;
+    state.link = data.arduino || null;
+    const linkNow = state.link && state.link.mode === 'remote' ? state.link.connected : null;
+    if (linkWas === true && linkNow === false) {
+      toast('Домашний агент не на связи: показания не обновляются', 'warn');
+    } else if (linkWas === false && linkNow === true) {
+      toast('Домашний агент снова на связи');
+    }
+
     if (data.sensors) Object.assign(state.sensors, data.sensors);
     if (typeof data.tank === 'number') state.tank = data.tank;
     if (typeof data.window_open === 'number') state.windowOpen = data.window_open;
@@ -1554,7 +1582,10 @@ async function loadRemote(notify = false) {
     }
 
     if (notify || wasOffline) {
-      toast(`Сервер теплицы на связи (${state.source === 'arduino' ? 'Arduino' : 'эмулятор'})`);
+      const where = state.link && state.link.mode === 'remote'
+        ? (state.link.connected ? 'домашний агент' : 'агент не на связи')
+        : (state.source === 'arduino' ? 'Arduino' : 'эмулятор');
+      toast(`Сервер теплицы на связи (${where})`);
       try {
         const logsResp = await fetch(`${base}/api/logs?limit=40`, { headers: apiHeaders() });
         if (logsResp.ok) {

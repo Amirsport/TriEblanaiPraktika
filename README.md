@@ -93,6 +93,8 @@ backend/
   schema_postgres.sql      DDL для PostgreSQL (можно выполнить в pgAdmin)
   migrate_to_postgres.py   перенос данных из SQLite в PostgreSQL
   arduino.py               канал связи с Arduino + встроенный эмулятор датчиков
+  device_link.py           канал «сервер на VPS ↔ домашний агент»: очередь команд и приём показаний
+  device_agent.py          сам агент: запускается дома рядом с платой и держит COM-порт
   auth.py                  пароли (PBKDF2-SHA256), токены сессий, проверки логина
   narutodle.py             движок дуэли: раунды, комнаты, сравнение графов
   narutodle_data.py        набор персонажей и цвета деревень (источник для базы)
@@ -109,7 +111,8 @@ backend/
 `user_states` (сохранённое состояние панели по пользователям),
 `secret_data` (данные служебной страницы), `narutodle_characters` (персонажи
 дуэли: графы, цвет, картинка), `narutodle_matches` (журнал партий Narutodle),
-`songless_tracks` (треки «Аниме-сонглесса»: сведения и запись к ним).
+`songless_tracks` (треки «Аниме-сонглесса»: сведения и запись к ним),
+`device_commands` (очередь команд домашнему агенту, когда сервер стоит на VPS).
 
 #### Запуск
 
@@ -512,6 +515,9 @@ https://ai-parnik.ru/games/narutodle/?srv=https://84ede091ea2cf4.lhr.life&room=N
 | POST | `/api/games/songless/rooms/<код>/answer` | `{"choice":0..3}` — ответ (Bearer) |
 | POST | `/api/games/songless/rooms/<код>/rematch` | новая партия (Bearer) |
 | GET | `/api/games/songless/rooms/<код>/clip?round=` | фрагмент текущего раунда (Bearer) |
+| POST | `/api/device/sync` | показания домашнего агента → в ответ очередь команд (только устройство-токен) |
+| POST | `/api/device/ack` | `{"applied":[1,2],"errors":{"3":"текст"}}` — агент подтверждает команды (только устройство-токен) |
+| GET | `/api/device/status` | состояние канала «сервер ↔ дом» (только устройство-токен) |
 
 `zone_id = 0` в `POST /api/devices` — команда сразу всем 12 участкам.
 Логин одновременно является и паролем: `X-Api-Token` нужен для «теплицы»,
@@ -521,6 +527,12 @@ https://ai-parnik.ru/games/narutodle/?srv=https://84ede091ea2cf4.lhr.life&room=N
 работают **без** общего ключа: их закрывает аккаунт (`Bearer`). Так сделано
 специально — иначе придётся класть ключ в ссылку-приглашение на дуэль,
 а ссылки пересылают друзьям.
+
+Раздел `/api/device/*` открывается **устройство-токеном** (заголовок
+`X-Device-Token`): он принадлежит только домашнему агенту и не совпадает с
+ключом панели — если сервер стоит на VPS, ключ панели лежит в браузере у
+пользователей, и пускать им агента нельзя. Без `--device-remote` раздел закрыт
+(404): сервер сам работает с платой и агент ему не нужен.
 
 При заданном API-ключе любой из методов ниже требует заголовок
 `X-Api-Token` (или `?token=...`), иначе вернётся `401`.
@@ -625,6 +637,11 @@ py backend/migrate_to_postgres.py --dsn "..." --only users,auth_sessions,user_st
 (испарение, полив, нагрев, освещение от времени суток). Эмулятор полностью
 повторяет протокол платы, поэтому переход на реальное железо сводится к
 добавлению флага `--serial COM3`.
+
+Порт занимает та программа, что стоит рядом с платой. Если сервер переехал на
+VPS, `--serial` нужен не ему, а домашнему агенту
+([`backend/device_agent.py`](backend/device_agent.py)): он читает плату и
+отправляет показания серверу — см. «Бэкенд на VPS» ниже.
 
 ### 4. Мобильное приложение (PWA)
 
@@ -835,14 +852,175 @@ Apache. Поэтому заголовки задаёт файл [`front/.htacces
 
 Скрипты и стили идут мимо `.htaccess`, поэтому их ссылки версионируются:
 `css/main.css?v=N` и `js/app.js?v=N` в [`front/index.html`](front/index.html),
-то же `N` для `css/main.css?v=N` в
-[`front/games/index.html`](front/games/index.html), в `ASSET_VERSION` в
-[`front/js/app.js`](front/js/app.js) и в `VERSION` в
-[`front/service-worker.js`](front/service-worker.js). При выпуске новой версии
-поднимите `N` во всех четырёх файлах и загрузите файлы заново — обновление дойдёт
+то же `N` в `css/main.css?v=N` на страницах
+[`front/games/index.html`](front/games/index.html),
+[`front/games/narutodle/index.html`](front/games/narutodle/index.html) и
+[`front/games/animesongless/index.html`](front/games/animesongless/index.html),
+а также в `ASSET_VERSION` в [`front/js/app.js`](front/js/app.js) и в `VERSION`
+в [`front/service-worker.js`](front/service-worker.js). При выпуске новой версии
+поднимите `N` во всех этих файлах и загрузите файлы заново — обновление дойдёт
 и до тех, у кого панель уже установлена.
 
 Сами страницы service worker всегда запрашивает из сети: в кэш они попадают
 только как запасной вариант для офлайна, поэтому свежая вёрстка видна сразу
 после обновления, даже если приложение уже установлено.
+
+### 7. Бэкенд на VPS: сайт работает без домашнего ПК
+
+Схема из предыдущего раздела зависит от дома: выключили ПК, оборвался туннель,
+сменился поддомен — панель и игры недоступны. Если перенести сервер и базу на
+VPS, сайт работает круглосуточно, адрес API постоянный, а туннель не нужен
+вовсе. Дома остаётся только плата с агентом:
+
+```
+Дом:   Arduino ──COM-порт── device_agent.py ─────── HTTPS ──────┐
+                                                                ↓
+VPS:                        server.py + PostgreSQL  ◀────────────┘
+                                     ▲
+Сайт:  ai-parnik.ru (панель) ────────┘  https://api.ai-parnik.ru
+```
+
+Агент раз в 2 секунды отправляет показания (`POST /api/device/sync`) и в ответ
+получает команды, которые нажали в панели или выдала автоматика; применив их к
+плате, он подтверждает результат (`POST /api/device/ack`).
+
+#### Что понадобится
+
+* **VPS:** 1–2 ядра, 1–2 ГБ RAM, 10–20 ГБ диска, Ubuntu 24.04 или Debian 13.
+  Сервер написан на стандартной библиотеке Python, база — PostgreSQL, поэтому
+  такой конфигурации хватает с запасом: на VPS уезжают только API, база и
+  статика.
+* **Поддомен для API,** например `api.ai-parnik.ru`: A-запись на IP сервера.
+  Он нужен для HTTPS, а HTTPS здесь обязателен — панель отправляет API-ключ и
+  токены входа, агент — свой устройство-токен.
+* **Дома:** ПК или мини-ПК с Arduino и Python 3.9+ (там уже лежит репозиторий).
+
+#### Порядок
+
+1. Подготовить сервер:
+
+```bash
+sudo apt update && sudo apt install -y python3 python3-venv postgresql nginx
+sudo -u postgres psql -c "CREATE ROLE greenhouse LOGIN PASSWORD 'пароль';"
+sudo -u postgres psql -c "CREATE DATABASE greenhouse OWNER greenhouse;"
+```
+
+2. Разместить код и зависимости:
+
+```bash
+sudo mkdir -p /opt/greenhouse && sudo chown "$USER" /opt/greenhouse
+git clone <адрес репозитория> /opt/greenhouse && cd /opt/greenhouse
+python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt
+```
+
+3. Перенести данные: `python backend/migrate_to_postgres.py --dsn "postgresql://greenhouse@localhost:5432/greenhouse"`
+   (из копии `data/greenhouse.sqlite3`) либо наполнить базу заново через
+   [`seed_narutodle.py`](backend/seed_narutodle.py) и
+   [`seed_songless.py`](backend/seed_songless.py). Записи опенингов для
+   «Аниме-сонглесса» — обычные файлы в
+   [`front/games/animesongless/audio`](front/games/animesongless/audio), их
+   нужно скопировать вместе с кодом.
+
+4. Завести секреты (файл только для root и службы):
+
+```bash
+sudo install -m 600 /dev/null /etc/greenhouse.env
+```
+
+```
+GREENHOUSE_DSN=postgresql://greenhouse:пароль@localhost:5432/greenhouse
+GREENHOUSE_TOKEN=ключ-панели
+GREENHOUSE_DEVICE_TOKEN=токен-агента
+GREENHOUSE_ADMIN_PASSWORD=пароль-админа
+```
+
+5. Поставить службу сервера — `/etc/systemd/system/greenhouse.service`:
+
+```ini
+[Unit]
+Description=Умная AI-Теплица: API, база и панель
+After=network.target postgresql.service
+
+[Service]
+User=greenhouse
+WorkingDirectory=/opt/greenhouse
+EnvironmentFile=/etc/greenhouse.env
+ExecStart=/opt/greenhouse/.venv/bin/python backend/server.py --host 127.0.0.1 --port 8000 --device-remote
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now greenhouse
+journalctl -u greenhouse -n 30 --no-pager   # что написал сервер при запуске
+```
+
+Ключ `--device-remote` переводит сервер в режим агента: платы рядом нет,
+показания приносит агент, команды уходят через очередь. Без `--device-token`
+сервер в этом режиме не запустится — раздел агента должен быть закрыт своим
+секретом, а не ключом панели (он лежит в браузере у пользователей).
+
+6. Закрыть HTTPS: nginx как обратный прокси на `127.0.0.1:8000` и сертификат
+   Let's Encrypt (`certbot`). Минимальный конфиг:
+
+```nginx
+server {
+    server_name api.ai-parnik.ru;
+    client_max_body_size 8m;             # фрагменты записей для «Аниме-сонглесса»
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+7. Запустить агента дома (на компьютере, где воткнута Arduino):
+
+```powershell
+python backend/device_agent.py --server https://api.ai-parnik.ru `
+    --device-token <токен-агента> --serial COM3
+```
+
+Без `--serial` агент работает эмулятором — так удобно проверить связку до того,
+как плата будет подключена. Автозапуск: задача в Планировщике заданий Windows
+(«При входе в систему») или служба `systemd` на мини-ПК. COM-порт занимает
+**только агент**: не запускайте на этом же компьютере сервер с `--serial`, иначе
+порт окажется занят.
+
+8. Указать адрес в панели: раздел «Режим» → `https://api.ai-parnik.ru` (и один
+   раз опубликовать его для всех страниц: `python _publish_address.py --address https://api.ai-parnik.ru`).
+   Адрес постоянный, поэтому повторять публикацию при каждом запуске больше
+   не нужно — в отличие от туннеля из предыдущего раздела.
+
+#### Проверка
+
+```bash
+curl https://api.ai-parnik.ru/api/health  -H "X-Api-Token: <ключ панели>"
+curl https://api.ai-parnik.ru/api/arduino -H "X-Api-Token: <ключ панели>"
+```
+
+Во втором ответе ждём `"mode": "remote"` и `"connected": true`. В панели в шапке
+появится «Сервер · агент · Arduino», а в журнале — «Домашний агент на связи
+(Arduino COM3)».
+
+#### Если дом пропал
+
+* показания перестают приходить, в шапке панели — «агент не на связи»,
+  в журнале — «Домашний агент не выходит на связь 60 с»;
+* команды, нажатые в панели, ждут агента, но выполняются только свежими: через
+  2 минуты они закрываются с пометкой «просрочена» — полив через час после
+  нажатия кнопки опаснее пропуска команды;
+* автоматика не решает по устаревшим цифрам: она ждёт связи (в журнале
+  «Автоматика ждёт связи с платой») и продолжает работу, когда агент вернулся;
+* вход в аккаунт, Narutodle и «Аниме-сонглесс» работают всё это время — они
+  живут на сервере и от дома не зависят.
+
+Совсем без домашнего ПК можно обойтись, только если сама плата выйдет в сеть:
+Wi-Fi-контроллер (ESP32) обращается к серверу теми же запросами, что и агент.
+Это доработка прошивки, а не сервера: устройство-токен и раздел `/api/device/*`
+для неё уже готовы.
 
