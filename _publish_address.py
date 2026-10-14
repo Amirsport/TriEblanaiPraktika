@@ -32,9 +32,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 URL_FILE = ROOT / "data" / "tunnel-url.txt"
+PASSWORD_FILE = ROOT / "data" / "host-password.txt"
 FILE_NAME = "api-address.json"
 RELATIVE_DIR = "games"
 DEFAULT_DOMAINS = ("ai-parnik.ru", "ai-parnik.online")
+
+
+def read_password() -> str:
+    """Пароль хостинга: переменная окружения, иначе файл рядом с данными.
+
+    Каталог data/ в репозиторий не попадает, поэтому пароль можно держать там:
+    так адрес публикует и скрипт туннеля, которому переменные окружения не
+    передаются.
+    """
+    value = os.environ.get("GH_HOST_PASSWORD", "").strip()
+    if value:
+        return value
+    if PASSWORD_FILE.exists():
+        return PASSWORD_FILE.read_text(encoding="utf-8-sig").strip()
+    return ""
 
 
 def read_address(explicit: str) -> str:
@@ -149,10 +165,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Адрес {address} не отвечает — публикация отменена")
         return 1
 
-    password = os.environ.get("GH_HOST_PASSWORD", "")
+    password = read_password()
     if not password:
         # Из скрипта туннеля это не ошибка: просто нет доступа к хостингу.
-        print("Пароль хостинга не задан (GH_HOST_PASSWORD) — адрес не опубликован")
+        print("Пароль хостинга не задан (GH_HOST_PASSWORD или data/host-password.txt) — адрес не опубликован")
         return 0 if args.quiet else 1
 
     label = datetime.now().strftime("%H:%M:%S")

@@ -920,10 +920,16 @@ python _publish_address.py --dry-run           # показать, что буд
 python _publish_address.py --address https://abc.lhr.life
 ```
 
-Пароль хостинга в репозитории не хранится — он читается из переменной окружения.
+Пароль хостинга в репозитории не хранится — он читается из переменной окружения
+или из файла `data/host-password.txt` (каталог `data/` в репозиторий не попадает):
+
+```powershell
+Set-Content data\host-password.txt 'пароль хостинга' -Encoding UTF8
+```
+
 Скрипты туннеля [`_tunnel_ssh.ps1`](_tunnel_ssh.ps1) и
 [`_tunnel_retry.ps1`](_tunnel_retry.ps1) вызывают его сами после поднятия
-туннеля: с заданным `GH_HOST_PASSWORD` адрес обновляется автоматически, без
+туннеля: с заданным паролем адрес обновляется автоматически, без
 него шаг просто пропускается с предупреждением. Нужен `paramiko`
 (см. [`backend/requirements.txt`](backend/requirements.txt)).
 

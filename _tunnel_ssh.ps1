@@ -81,12 +81,14 @@ function Test-TunnelServes([string]$tunnelUrl) {
 
 # Публикация текущего адреса на сайте: поддомен меняется при перезапуске, а
 # страницы и панель берут адрес из games/api-address.json (см. _publish_address.py).
-# Без пароля хостинга (GH_HOST_PASSWORD) шаг просто пропускается.
+# Пароль хостинга берётся из GH_HOST_PASSWORD или из data\host-password.txt;
+# без него шаг просто пропускается.
 function Publish-Address([string]$Address) {
     $script = Join-Path $root '_publish_address.py'
     if (-not (Test-Path $script)) { return }
-    if (-not $env:GH_HOST_PASSWORD) {
-        Write-Attempt 'адрес не опубликован: задайте $env:GH_HOST_PASSWORD (пароль хостинга)'
+    $passwordFile = Join-Path $root 'data\host-password.txt'
+    if (-not $env:GH_HOST_PASSWORD -and -not (Test-Path $passwordFile)) {
+        Write-Attempt 'адрес не опубликован: нет пароля хостинга (GH_HOST_PASSWORD или data\host-password.txt)'
         return
     }
     $python = Join-Path $root '.venv\Scripts\python.exe'
