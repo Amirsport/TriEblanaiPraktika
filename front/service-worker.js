@@ -7,7 +7,7 @@
    (регистрация service worker) и в front/index.html. */
 'use strict';
 
-const VERSION = '13';
+const VERSION = '14';
 const CACHE = `ai-greenhouse-v4-${VERSION}`;
 const ASSETS = [
   './',

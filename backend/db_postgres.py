@@ -125,6 +125,53 @@ def _track(row: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _players(value: Any) -> List[Dict[str, Any]]:
+    """Игроки пака «87-0» лежат JSON-строкой: ник, роль и три оценки."""
+    if isinstance(value, (list, tuple)):
+        source = value
+    else:
+        try:
+            source = json.loads(value or "[]")
+        except (TypeError, ValueError):
+            source = []
+    players: List[Dict[str, Any]] = []
+    for item in source if isinstance(source, list) else []:
+        if not isinstance(item, dict):
+            continue
+        players.append({
+            "name": str(item.get("name") or ""),
+            "role": str(item.get("role") or ""),
+            "aim": float(item.get("aim") or 0),
+            "clutch": float(item.get("clutch") or 0),
+            "impact": float(item.get("impact") or 0),
+        })
+    return players
+
+
+def _pack_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Пак «87-0» из базы: карты и игроки разбираются из JSON."""
+    data = dict(row)
+    data["year"] = int(data.get("year") or 0)
+    data["major"] = bool(data.get("major"))
+    data["maps"] = _nature_list(data.get("maps"))
+    data["players"] = _players(data.get("players"))
+    data["updated_at"] = to_iso(data.get("updated_at"))
+    return data
+
+
+def _run_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Строка журнала прогонов «87-0»."""
+    data = dict(row)
+    data["champion"] = bool(data.get("champion"))
+    data["user_id"] = int(data["user_id"]) if data.get("user_id") is not None else None
+    data["id"] = int(data["id"])
+    for key in ("wins", "losses"):
+        data[key] = int(data.get(key) or 0)
+    data["rating"] = float(data.get("rating") or 0)
+    data["played_at"] = to_iso(data.get("played_at"))
+    return data
+
+
 def _command(row: Dict[str, Any]) -> Dict[str, Any]:
     """Строка очереди команд в том виде, в каком её ждёт домашний агент."""
     data = dict(row)
@@ -584,6 +631,13 @@ class PostgresDatabase:
             rows = db.execute("SELECT * FROM narutodle_characters ORDER BY name").fetchall()
         return [_character(row) for row in rows]
 
+    def narutodle_portrait(self, character_id: int) -> str:
+        """Картинка персонажа как она лежит в базе (строка data:image/... или путь)."""
+        with self.connect() as db:
+            row = db.execute("SELECT image FROM narutodle_characters WHERE id = %s",
+                             (int(character_id),)).fetchone()
+        return str((row or {}).get("image") or "")
+
     def narutodle_save_characters(self, rows: Iterable[Dict[str, Any]]) -> int:
         """Добавляет персонажей и обновляет свойства уже известных.
 
@@ -768,6 +822,93 @@ class PostgresDatabase:
             cursor = db.execute("DELETE FROM songless_tracks WHERE anime = %s", (anime,))
             return cursor.rowcount > 0
 
+    # --------------------------------------------------------------- 87-0 (CS)
+    def csdraft_pack_count(self) -> int:
+        with self.connect() as db:
+            return int(db.execute("SELECT COUNT(*) AS n FROM csdraft_packs").fetchone()["n"])
+
+    def csdraft_packs(self) -> List[Dict[str, Any]]:
+        """Паки «87-0»: источник правды для движка игры."""
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM csdraft_packs ORDER BY era, year, id").fetchall()
+        return [_pack_row(dict(row)) for row in rows]
+
+    def csdraft_save_packs(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет и обновляет паки (по идентификатору): ими правит владелец сайта."""
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                db.execute(
+                    "INSERT INTO csdraft_packs (id, team, event, year, place, major, region, era, "
+                    "maps, players, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()) "
+                    "ON CONFLICT(id) DO UPDATE SET team = excluded.team, event = excluded.event, "
+                    "year = excluded.year, place = excluded.place, major = excluded.major, "
+                    "region = excluded.region, era = excluded.era, maps = excluded.maps, "
+                    "players = excluded.players, updated_at = excluded.updated_at",
+                    (
+                        str(row.get("id") or ""),
+                        str(row.get("team") or ""),
+                        str(row.get("event") or ""),
+                        int(row.get("year") or 0),
+                        str(row.get("place") or ""),
+                        bool(row.get("major")),
+                        str(row.get("region") or ""),
+                        str(row.get("era") or "legacy"),
+                        json.dumps(list(row.get("maps") or ()), ensure_ascii=False),
+                        json.dumps(list(row.get("players") or ()), ensure_ascii=False),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def csdraft_delete_pack(self, pack_id: str) -> bool:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM csdraft_packs WHERE id = %s", (str(pack_id),))
+            return cursor.rowcount > 0
+
+    def csdraft_add_run(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Пишет прогон в журнал: кто играл, каким составом и чем закончилось."""
+        with self.connect() as db:
+            row = db.execute(
+                "INSERT INTO csdraft_runs (username, user_id, difficulty, era, champion, wins, "
+                "losses, stage, rating, squad, packs, score, played_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()) RETURNING *",
+                (
+                    str(record.get("username") or ""),
+                    record.get("user_id"),
+                    str(record.get("difficulty") or "hard"),
+                    str(record.get("era") or "legacy"),
+                    bool(record.get("champion")),
+                    int(record.get("wins") or 0),
+                    int(record.get("losses") or 0),
+                    str(record.get("stage") or ""),
+                    float(record.get("rating") or 0),
+                    str(record.get("squad") or ""),
+                    str(record.get("packs") or ""),
+                    str(record.get("score") or ""),
+                ),
+            ).fetchone()
+        return _run_row(dict(row))
+
+    def csdraft_runs(self, user_id: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Журнал прогонов: свои или все подряд (для администратора)."""
+        size = max(1, min(int(limit), 500))
+        with self.connect() as db:
+            if user_id is None:
+                rows = db.execute(
+                    "SELECT * FROM csdraft_runs ORDER BY id DESC LIMIT %s", (size,)
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM csdraft_runs WHERE user_id = %s ORDER BY id DESC LIMIT %s",
+                    (int(user_id), size),
+                ).fetchall()
+        return [_run_row(dict(row)) for row in rows]
+
+    def csdraft_run_count(self) -> int:
+        with self.connect() as db:
+            return int(db.execute("SELECT COUNT(*) AS n FROM csdraft_runs").fetchone()["n"])
+
 
 # Правила переноса данных из SQLite (используются backend/migrate_to_postgres.py):
 # таблица, колонки и ключ, по которому разрешаются конфликты повторного запуска.
@@ -794,9 +935,14 @@ TRANSFERS: Tuple[Tuple[str, Tuple[str, ...], Tuple[str, ...]], ...] = (
                          "clip_length", "updated_at"), ("id",)),
     ("device_commands", ("id", "zone_id", "device", "on_state", "seconds", "created_at",
                          "delivered_at", "applied_at", "error"), ("id",)),
+    ("csdraft_packs", ("id", "team", "event", "year", "place", "major", "region", "era",
+                       "maps", "players", "updated_at"), ("id",)),
+    ("csdraft_runs", ("id", "username", "user_id", "difficulty", "era", "champion", "wins",
+                      "losses", "stage", "rating", "squad", "packs", "score", "played_at"), ("id",)),
 )
 
 # Колонки, значения которых при переносе нужно привести к типу PostgreSQL.
-BOOL_COLUMNS = ("enabled", "auto_watering", "auto_ventilation", "auto_lighting", "on_state")
+BOOL_COLUMNS = ("enabled", "auto_watering", "auto_ventilation", "auto_lighting", "on_state",
+                "major", "champion")
 TIME_COLUMNS = ("recorded_at", "ts", "updated_at", "created_at", "expires_at", "played_at",
                 "delivered_at", "applied_at")

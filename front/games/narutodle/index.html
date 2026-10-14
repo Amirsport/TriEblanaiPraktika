@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
   <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=13">
+  <link rel="stylesheet" href="../../css/main.css?v=14">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -782,8 +782,11 @@
       const item = characterIndex.get(String(name || '').toLowerCase()) || {};
       const image = String(item.image || '');
       const color = String(item.color || '#8a5a3c');
-      const inner = image
-        ? `<img src="${escapeHtml(image)}" alt="" loading="lazy">`
+      // Портрет отдаёт сам сервер игры: путь /api/... ведёт на его адрес,
+      // а путь к файлу на сайте (portraits/...) остаётся как есть.
+      const src = image.startsWith('/api/') ? root() + image : image;
+      const inner = src
+        ? `<img src="${escapeHtml(src)}" alt="" loading="lazy">`
         : escapeHtml(initialsOf(name));
       return `<span class="avatar${extra ? ' ' + extra : ''}" style="background: ${escapeHtml(color)}">${inner}</span>`;
     }

@@ -77,6 +77,9 @@ DEFAULT_COLOR = "#8a5a3c"
 FIELDS = ("name", "gender", "village", "clan", "nature", "kekkei",
           "jinchuriki", "debut", "status")
 
+# Портрет персонажа отдаётся отдельным адресом: в каталоге — только ссылка.
+PORTRAIT_PATH = "/api/games/narutodle/portrait/%s"
+
 # name, gender, village, clan, nature, kekkei, jinchuriki, debut, status
 ROWS: List[tuple] = [
     # --- Коноха: команда 7 и наставники
@@ -237,6 +240,22 @@ def public_character(character: Dict[str, Any]) -> Dict[str, Any]:
     return {key: character[key] for key in FIELDS}
 
 
+def portrait_ref(character: Dict[str, Any]) -> str:
+    """Куда странице взять портрет персонажа.
+
+    Картинка может лежать прямо в базе строкой `data:image/...` — тогда в ответе
+    стоит ссылка на отдельный адрес API: сам base64 в каталоге весит мегабайты,
+    и через туннель страница не успевала его получить. Если в базе путь или
+    ссылка, отдаём как есть — файл кладёт владелец сайта.
+    """
+    image = str(character.get("image") or "")
+    if not image:
+        return ""
+    if image.startswith("data:"):
+        return PORTRAIT_PATH % character.get("id")
+    return image
+
+
 def attribute_list() -> List[Dict[str, Any]]:
     """Описание граф сравнения — страница строит по нему шапку таблицы."""
     return [dict(attribute) for attribute in ATTRIBUTES]
@@ -254,12 +273,14 @@ __all__ = [
     "ATTRIBUTES",
     "CHARACTERS",
     "FIELDS",
+    "PORTRAIT_PATH",
     "ROWS",
     "UNKNOWN",
     "VILLAGE_COLORS",
     "attribute_list",
     "character_names",
     "find_character",
+    "portrait_ref",
     "public_character",
     "seed_rows",
     "village_color",

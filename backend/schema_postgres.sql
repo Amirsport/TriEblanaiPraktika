@@ -165,3 +165,39 @@ CREATE TABLE IF NOT EXISTS device_commands (
 );
 
 CREATE INDEX IF NOT EXISTS idx_device_commands_open ON device_commands (applied_at, id);
+
+-- «87-0»: составы прошлых турниров (паки) и журнал прогонов драфт-рогалика.
+-- Паки правятся владельцем сайта: карты и игроки лежат JSON-строками, чтобы
+-- не заводить по таблице на каждую сущность.
+CREATE TABLE IF NOT EXISTS csdraft_packs (
+    id         TEXT PRIMARY KEY,
+    team       TEXT NOT NULL,
+    event      TEXT NOT NULL,
+    year       INTEGER NOT NULL DEFAULT 0,
+    place      TEXT NOT NULL DEFAULT '',
+    major      BOOLEAN NOT NULL DEFAULT FALSE,
+    region     TEXT NOT NULL DEFAULT '',
+    era        TEXT NOT NULL DEFAULT 'legacy',
+    maps       TEXT NOT NULL DEFAULT '[]',
+    players    TEXT NOT NULL DEFAULT '[]',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS csdraft_runs (
+    id         BIGSERIAL PRIMARY KEY,
+    username   TEXT NOT NULL DEFAULT '',
+    user_id    BIGINT,
+    difficulty TEXT NOT NULL DEFAULT 'hard',
+    era        TEXT NOT NULL DEFAULT 'legacy',
+    champion   BOOLEAN NOT NULL DEFAULT FALSE,
+    wins       INTEGER NOT NULL DEFAULT 0,
+    losses     INTEGER NOT NULL DEFAULT 0,
+    stage      TEXT NOT NULL DEFAULT '',
+    rating     DOUBLE PRECISION NOT NULL DEFAULT 0,
+    squad      TEXT NOT NULL DEFAULT '',
+    packs      TEXT NOT NULL DEFAULT '',
+    score      TEXT NOT NULL DEFAULT '',
+    played_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_csdraft_runs_user ON csdraft_runs (user_id, id DESC);

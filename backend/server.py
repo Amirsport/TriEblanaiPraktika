@@ -55,6 +55,7 @@ API (JSON):
 
 Игры (Bearer-токен аккаунта, без общего ключа):
     GET  /api/games/narutodle/characters           набор персонажей и графы сравнения
+    GET  /api/games/narutodle/portrait/<id>        портрет персонажа (картинка, кэшируется)
     GET  /api/games/narutodle/matches?limit=&scope= журнал матчей: свои или все (admin)
     POST /api/games/narutodle/rooms                создать комнату дуэли
     POST /api/games/narutodle/rooms/<код>/join     войти вторым игроком
@@ -78,6 +79,20 @@ API (JSON):
     POST /api/games/songless/rooms/<код>/rematch    новая партия
     GET  /api/games/songless/rooms/<код>/clip?round= фрагмент текущего раунда
 
+Игра «87-0» (драфт-рогалик по Counter-Strike, тоже по аккаунту):
+    GET  /api/games/csdraft/status                сколько составов, эпохи, сложности, роли
+    POST /api/games/csdraft/runs                  начать прогон: {"difficulty","era","assign"}
+    GET  /api/games/csdraft/runs/<id>             состояние прогона (опрос страницей)
+    POST /api/games/csdraft/runs/<id>/take        {"player":"ник","role":"awp"} взять игрока
+    POST /api/games/csdraft/runs/<id>/map         {"map":"Inferno"} карту в свой маппул
+    POST /api/games/csdraft/runs/<id>/pack        следующий состав (реролл не тратится)
+    POST /api/games/csdraft/runs/<id>/reroll      другой состав за реролл
+    POST /api/games/csdraft/runs/<id>/assign      {"mode":"auto|manual"} способ расстановки
+    POST /api/games/csdraft/runs/<id>/auto        расставить роли автоматически
+    POST /api/games/csdraft/runs/<id>/play        играть стадию мейджора
+    POST /api/games/csdraft/runs/<id>/boost       {"index":0..2} выбрать усиление
+    GET  /api/games/csdraft/matches?limit=&scope= журнал прогонов: свои; scope=all — все (admin)
+
 Домашний агент (только устройство-токен, режим --device-remote): когда сервер
 стоит на VPS, а Arduino осталась дома, COM-порт держит agent (device_agent.py):
     POST /api/device/sync                показания агента → очередь команд к плате
@@ -87,6 +102,8 @@ API (JSON):
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hmac
 import json
 import mimetypes
@@ -111,6 +128,20 @@ try:  # запуск как модуль: python -m backend.server
     from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, DeviceLink, open_database
     from .arduino import ArduinoLink
     from .device_link import RemoteDeviceLink
+    from .csdraft import (
+        ASSIGN_MODES,
+        DIFFICULTIES,
+        DIFFICULTY_LABELS,
+        DIFFICULTY_REROLLS,
+        ERAS,
+        POOL_SIZE,
+        ROLE_LABELS,
+        ROLES,
+        STAGES,
+        Csdraft,
+        CsdraftError,
+    )
+    from .csdraft_data import seed_rows as csdraft_seed_rows
     from .narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError
     from .narutodle_data import attribute_list, seed_rows
     from .songless import (
@@ -134,6 +165,20 @@ except ImportError:  # запуск как файл: python backend/server.py
     )
     from arduino import ArduinoLink  # type: ignore
     from device_link import RemoteDeviceLink  # type: ignore
+    from csdraft import (  # type: ignore
+        ASSIGN_MODES,
+        DIFFICULTIES,
+        DIFFICULTY_LABELS,
+        DIFFICULTY_REROLLS,
+        ERAS,
+        POOL_SIZE,
+        ROLE_LABELS,
+        ROLES,
+        STAGES,
+        Csdraft,
+        CsdraftError,
+    )
+    from csdraft_data import seed_rows as csdraft_seed_rows  # type: ignore
     from narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError  # type: ignore
     from narutodle_data import attribute_list, seed_rows  # type: ignore
     from songless import (  # type: ignore
@@ -210,6 +255,9 @@ class Application:
                                    provider=self.db.narutodle_characters)
         self.songless = Songless(tracks=self._songless_tracks(),
                                  provider=self.db.songless_tracks)
+        self.csdraft = Csdraft(packs=self._csdraft_packs(),
+                               provider=self.db.csdraft_packs,
+                               on_finish=self._log_csdraft_run)
 
     # ------------------------------------------------------------------- доступ
     def authorized(self, headers: Any, query: Dict[str, str]) -> bool:
@@ -299,6 +347,32 @@ class Application:
     def reload_songless_tracks(self) -> int:
         """Перечитывает набор треков из базы (на случай правок на ходу)."""
         return self.songless.refresh()
+
+    # ---------------------------------------------------------- игра «87-0»
+    def _csdraft_packs(self) -> List[Dict[str, Any]]:
+        """Составы из базы; на пустой таблице заливает исходный набор.
+
+        Дальше источник правды — база: составы, роли и оценки можно править
+        прямо в ней (backend/seed_csdraft.py умеет и то, и другое).
+        """
+        if not self.db.csdraft_pack_count():
+            seeded = self.db.csdraft_save_packs(csdraft_seed_rows())
+            self.db.add_log(f"87-0: набор составов залит в базу ({seeded})", "info")
+        return self.db.csdraft_packs()
+
+    def reload_csdraft_packs(self) -> int:
+        """Сбрасывает и перечитывает составы из базы."""
+        return self.csdraft.refresh()
+
+    def _log_csdraft_run(self, record: Dict[str, Any]) -> None:
+        """Пишет итог прогона в журнал игры и в общий журнал событий."""
+        entry = self.db.csdraft_add_run(record)
+        result = "титул мейджора" if entry.get("champion") else f"вылет на стадии «{entry['stage']}»"
+        self.db.add_log(
+            f"87-0: прогон #{entry['id']} у {entry['username']} — {result} "
+            f"({entry['wins']}:{entry['losses']}, состав {entry['squad']})",
+            "info",
+        )
 
     def _log_narutodle_match(self, record: Dict[str, Any]) -> None:
         """Пишет итог раунда в журнал матчей и в общий журнал событий."""
@@ -643,6 +717,38 @@ class Handler(BaseHTTPRequestHandler):
     def _error(self, message: str, status: int = 400) -> None:
         self._json({"error": message, "status": status}, status)
 
+    def _image(self, body: bytes, mime: str, max_age: int) -> None:
+        """Отдаёт картинку с браузерным кэшем: портреты не меняются каждый день."""
+        self.send_response(200)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "public, max-age=%d" % int(max_age))
+        self._cors()
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_portrait(self, character_id: int) -> None:
+        """Портрет персонажа: data-строку из базы превращаем в обычную картинку.
+
+        В каталоге вместо base64 стоит ссылка сюда: иначе страница тянула
+        несколько мегабайт и на медленном канале не успевала за таймаут.
+        """
+        raw = self.app.db.narutodle_portrait(character_id) or ""
+        if not raw:
+            return self._error("Портрет не найден", 404)
+        if not raw.startswith("data:"):
+            # Путь или ссылку на файл отдаёт владелец сайта, а не сервер игры.
+            return self._error("Портрет хранится не в базе", 404)
+        header, _, payload = raw.partition(",")
+        mime = header[5:].split(";")[0] or "image/webp"
+        if ";base64" not in header:
+            return self._error("Портрет хранится не в base64", 500)
+        try:
+            body = base64.b64decode(payload, validate=True)
+        except (binascii.Error, ValueError):
+            return self._error("Портрет повреждён", 500)
+        return self._image(body, mime, 86400)
+
     def _body(self) -> Dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)
         if not length:
@@ -911,6 +1017,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/games/songless"):
             return self._handle_songless_api(method, path)
 
+        if path.startswith("/api/games/csdraft"):
+            return self._handle_csdraft_api(method, path)
+
         try:
             user = app.user_by_token(self._bearer_token())
 
@@ -920,6 +1029,11 @@ class Handler(BaseHTTPRequestHandler):
                     "attributes": attribute_list(),
                     "max_attempts": MAX_ATTEMPTS,
                 })
+
+            # Портрет открыт без входа: это картинка из того же открытого каталога.
+            portrait = re.fullmatch(rf"{prefix}/portrait/(\d+)", path)
+            if method == "GET" and portrait:
+                return self._serve_portrait(int(portrait.group(1)))
 
             if not user:
                 return self._error("Требуется вход в аккаунт", 401)
@@ -1032,6 +1146,124 @@ class Handler(BaseHTTPRequestHandler):
     @staticmethod
     def _require_admin(user: Optional[Dict[str, Any]]) -> bool:
         return bool(user and user.get("role") == "admin")
+
+    @staticmethod
+    def _limit_arg(query: Dict[str, str], default: int = 50) -> int:
+        """Предел выдачи из строки запроса: мусор в ссылке не должен ронять журнал."""
+        try:
+            value = int(str(query.get("limit", default)).strip())
+        except (TypeError, ValueError):
+            return default
+        return max(1, min(value, 500))
+
+    def _handle_csdraft_api(self, method: str, path: str) -> None:
+        """«87-0»: драфт состава из прошлых турниров и прогон по сетке мейджора.
+
+        Вход — по аккаунту панели (Bearer): прогон принадлежит игроку, и чужой
+        его продолжить не может. Прогоны живут в памяти процесса, поэтому
+        перезапуск сервера их теряет; итог каждого уходит в журнал, он и
+        переживает перезапуск.
+        """
+        app = self.app
+        prefix = "/api/games/csdraft"
+        client = self.client_address[0] if self.client_address else "?"
+        query = self._query()
+
+        try:
+            user = app.user_by_token(self._bearer_token())
+
+            # Состояние набора открыто до входа: страница сразу объясняет, что
+            # играть можно, и какие есть эпохи, сложности и роли.
+            if method == "GET" and path == f"{prefix}/status":
+                app.csdraft.refresh()
+                return self._json({
+                    "packs": app.csdraft.pack_count(),
+                    "eras": app.csdraft.era_counts(),
+                    "ready": {era: app.csdraft.ready(era) for era in ERAS},
+                    "difficulties": [
+                        {"key": key, "label": DIFFICULTY_LABELS[key],
+                         "rerolls": DIFFICULTY_REROLLS[key]} for key in DIFFICULTIES],
+                    "stages": [{"key": stage["key"], "title": stage["title"],
+                                "best_of": stage["best_of"]} for stage in STAGES],
+                    "roles": [{"key": role, "label": ROLE_LABELS[role]} for role in ROLES],
+                    "pool_size": POOL_SIZE,
+                })
+
+            if not user:
+                return self._error("Требуется вход в аккаунт", 401)
+
+            if method == "POST" and path == f"{prefix}/runs":
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много прогонов за минуту — подождите немного", 429)
+                data = self._body()
+                return self._json({"state": app.csdraft.start(
+                    user,
+                    difficulty=str(data.get("difficulty") or "hard"),
+                    era=str(data.get("era") or "legacy"),
+                    assign=str(data.get("assign") or "auto"),
+                )}, 201)
+
+            if method == "GET" and path == f"{prefix}/matches":
+                scope = str(query.get("scope") or "mine").lower()
+                limit = self._limit_arg(query)
+                if scope == "all":
+                    if not self._require_admin(user):
+                        return self._error("Журнал всех прогонов доступен только администратору", 403)
+                    return self._json({"matches": app.db.csdraft_runs(None, limit)})
+                return self._json({"matches": app.db.csdraft_runs(user["id"], limit)})
+
+            run_pattern = rf"{prefix}/runs/([0-9a-f]{{8}})"
+            match = re.fullmatch(run_pattern, path)
+            if method == "GET" and match:
+                return self._json({"state": app.csdraft.state(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/take", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много действий за минуту — подождите немного", 429)
+                data = self._body()
+                role = str(data.get("role") or "").strip() or None
+                return self._json({"state": app.csdraft.take(
+                    match.group(1), user, str(data.get("player") or ""), role)})
+
+            match = re.fullmatch(rf"{run_pattern}/map", path)
+            if method == "POST" and match:
+                map_name = str(self._body().get("map") or "")
+                return self._json({"state": app.csdraft.take_map(match.group(1), user, map_name)})
+
+            match = re.fullmatch(rf"{run_pattern}/pack", path)
+            if method == "POST" and match:
+                return self._json({"state": app.csdraft.skip_pack(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/reroll", path)
+            if method == "POST" and match:
+                return self._json({"state": app.csdraft.reroll(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/assign", path)
+            if method == "POST" and match:
+                mode = str(self._body().get("mode") or "")
+                return self._json({"state": app.csdraft.set_assign(match.group(1), user, mode)})
+
+            match = re.fullmatch(rf"{run_pattern}/auto", path)
+            if method == "POST" and match:
+                return self._json({"state": app.csdraft.auto_assign(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/play", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много матчей за минуту — подождите немного", 429)
+                return self._json({"state": app.csdraft.play(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/boost", path)
+            if method == "POST" and match:
+                return self._json({"state": app.csdraft.boost(
+                    match.group(1), user, self._body().get("index"))})
+
+            return self._error(f"Не найдено: {method} {path}", 404)
+        except CsdraftError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Внутренняя ошибка: {exc}", 500)
 
     def _handle_songless_api(self, method: str, path: str) -> None:
         """«Аниме-сонглесс»: соло-заходы и комнаты на несколько игроков.

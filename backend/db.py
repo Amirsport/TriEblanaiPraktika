@@ -14,6 +14,7 @@
     secret_data  — именованные записи секретной страницы /TriEblanaiPraktika;
     narutodle_characters / narutodle_matches — игра «Narutodle» и её журнал;
     songless_tracks — игра «Аниме-сонглесс»: треки и записи к ним;
+    csdraft_packs / csdraft_runs — игра «87-0»: составы турниров и журнал прогонов;
     device_commands — очередь команд домашнему агенту (когда сервер не рядом с платой).
 
 Второй бэкенд — PostgreSQL (backend/db_postgres.py) с тем же набором методов.
@@ -216,6 +217,40 @@ CREATE TABLE IF NOT EXISTS device_commands (
     error        TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_device_commands_open ON device_commands (applied_at, id);
+
+-- «87-0»: составы прошлых турниров (паки) и журнал прогонов драфт-рогалика.
+-- Паки правятся владельцем сайта: карты и игроки лежат JSON-строками, чтобы
+-- не заводить по таблице на каждую сущность.
+CREATE TABLE IF NOT EXISTS csdraft_packs (
+    id         TEXT    PRIMARY KEY,
+    team       TEXT    NOT NULL,
+    event      TEXT    NOT NULL,
+    year       INTEGER NOT NULL DEFAULT 0,
+    place      TEXT    NOT NULL DEFAULT '',
+    major      INTEGER NOT NULL DEFAULT 0,
+    region     TEXT    NOT NULL DEFAULT '',
+    era        TEXT    NOT NULL DEFAULT 'legacy',
+    maps       TEXT    NOT NULL DEFAULT '[]',
+    players    TEXT    NOT NULL DEFAULT '[]',
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS csdraft_runs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT    NOT NULL DEFAULT '',
+    user_id    INTEGER,
+    difficulty TEXT    NOT NULL DEFAULT 'hard',
+    era        TEXT    NOT NULL DEFAULT 'legacy',
+    champion   INTEGER NOT NULL DEFAULT 0,
+    wins       INTEGER NOT NULL DEFAULT 0,
+    losses     INTEGER NOT NULL DEFAULT 0,
+    stage      TEXT    NOT NULL DEFAULT '',
+    rating     REAL    NOT NULL DEFAULT 0,
+    squad      TEXT    NOT NULL DEFAULT '',
+    packs      TEXT    NOT NULL DEFAULT '',
+    score      TEXT    NOT NULL DEFAULT '',
+    played_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_csdraft_runs_user ON csdraft_runs (user_id, id DESC);
 """
 
 
@@ -259,6 +294,50 @@ def _track(row: Dict[str, Any]) -> Dict[str, Any]:
         data[key] = float(data.get(key) or 0)
     if data.get("id") is not None:
         data["id"] = int(data["id"])
+    return data
+
+
+def _players(value: Any) -> List[Dict[str, Any]]:
+    """Игроки пака «87-0» лежат JSON-строкой: ник, роль и три оценки."""
+    if isinstance(value, (list, tuple)):
+        source = value
+    else:
+        try:
+            source = json.loads(value or "[]")
+        except (TypeError, ValueError):
+            source = []
+    players: List[Dict[str, Any]] = []
+    for item in source if isinstance(source, list) else []:
+        if not isinstance(item, dict):
+            continue
+        players.append({
+            "name": str(item.get("name") or ""),
+            "role": str(item.get("role") or ""),
+            "aim": float(item.get("aim") or 0),
+            "clutch": float(item.get("clutch") or 0),
+            "impact": float(item.get("impact") or 0),
+        })
+    return players
+
+
+def _pack_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Пак «87-0» из базы: карты и игроки разбираются из JSON."""
+    data = dict(row)
+    data["year"] = int(data.get("year") or 0)
+    data["major"] = bool(data.get("major"))
+    data["maps"] = _nature_list(data.get("maps"))
+    data["players"] = _players(data.get("players"))
+    return data
+
+
+def _run_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Строка журнала прогонов «87-0»."""
+    data = dict(row)
+    data["champion"] = bool(data.get("champion"))
+    for key in ("wins", "losses"):
+        data[key] = int(data.get(key) or 0)
+    if data.get("rating") is not None:
+        data["rating"] = float(data["rating"])
     return data
 
 
@@ -688,6 +767,14 @@ class Database:
             rows = db.execute("SELECT * FROM narutodle_characters ORDER BY name").fetchall()
         return [_character(dict(row)) for row in rows]
 
+    def narutodle_portrait(self, character_id: int) -> str:
+        """Картинка персонажа как она лежит в базе (строка data:image/... или путь)."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT image FROM narutodle_characters WHERE id = ?", (int(character_id),)
+            ).fetchone()
+        return str(row["image"] or "") if row else ""
+
     def narutodle_save_characters(self, rows: Iterable[Dict[str, Any]]) -> int:
         """Добавляет персонажей и обновляет свойства уже известных.
 
@@ -872,6 +959,98 @@ class Database:
         with self.connect() as db:
             cursor = db.execute("DELETE FROM songless_tracks WHERE anime = ?", (anime,))
             return cursor.rowcount > 0
+
+    # --------------------------------------------------------------- 87-0 (CS)
+    def csdraft_pack_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM csdraft_packs").fetchone()
+        return int(row["n"])
+
+    def csdraft_packs(self) -> List[Dict[str, Any]]:
+        """Паки «87-0»: источник правды для движка игры."""
+        with self.connect() as db:
+            rows = db.execute("SELECT * FROM csdraft_packs ORDER BY era, year, id").fetchall()
+        return [_pack_row(dict(row)) for row in rows]
+
+    def csdraft_save_packs(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет и обновляет паки (по идентификатору): ими правит владелец сайта."""
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                db.execute(
+                    "INSERT INTO csdraft_packs (id, team, event, year, place, major, region, era, "
+                    "maps, players, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET team = excluded.team, event = excluded.event, "
+                    "year = excluded.year, place = excluded.place, major = excluded.major, "
+                    "region = excluded.region, era = excluded.era, maps = excluded.maps, "
+                    "players = excluded.players, updated_at = excluded.updated_at",
+                    (
+                        str(row.get("id") or ""),
+                        str(row.get("team") or ""),
+                        str(row.get("event") or ""),
+                        int(row.get("year") or 0),
+                        str(row.get("place") or ""),
+                        1 if row.get("major") else 0,
+                        str(row.get("region") or ""),
+                        str(row.get("era") or "legacy"),
+                        json.dumps(list(row.get("maps") or ()), ensure_ascii=False),
+                        json.dumps(list(row.get("players") or ()), ensure_ascii=False),
+                        _now(),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def csdraft_delete_pack(self, pack_id: str) -> bool:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM csdraft_packs WHERE id = ?", (str(pack_id),))
+            return cursor.rowcount > 0
+
+    def csdraft_add_run(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Пишет прогон в журнал: кто играл, каким составом и чем закончилось."""
+        with self.connect() as db:
+            entry_id = db.execute(
+                "INSERT INTO csdraft_runs (username, user_id, difficulty, era, champion, wins, "
+                "losses, stage, rating, squad, packs, score, played_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(record.get("username") or ""),
+                    record.get("user_id"),
+                    str(record.get("difficulty") or "hard"),
+                    str(record.get("era") or "legacy"),
+                    1 if record.get("champion") else 0,
+                    int(record.get("wins") or 0),
+                    int(record.get("losses") or 0),
+                    str(record.get("stage") or ""),
+                    float(record.get("rating") or 0),
+                    str(record.get("squad") or ""),
+                    str(record.get("packs") or ""),
+                    str(record.get("score") or ""),
+                    _now(),
+                ),
+            ).lastrowid
+            row = db.execute("SELECT * FROM csdraft_runs WHERE id = ?", (entry_id,)).fetchone()
+        return _run_row(dict(row))
+
+    def csdraft_runs(self, user_id: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Журнал прогонов: свои или все подряд (для администратора)."""
+        size = max(1, min(int(limit), 500))
+        with self.connect() as db:
+            if user_id is None:
+                rows = db.execute(
+                    "SELECT * FROM csdraft_runs ORDER BY id DESC LIMIT ?", (size,)
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM csdraft_runs WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                    (int(user_id), size),
+                ).fetchall()
+        return [_run_row(dict(row)) for row in rows]
+
+    def csdraft_run_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM csdraft_runs").fetchone()
+        return int(row["n"])
 
 
 # Любой из поддерживаемых бэкендов: SQLite (Database) или PostgreSQL (PostgresDatabase).

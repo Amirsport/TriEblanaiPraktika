@@ -25,12 +25,13 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 try:  # запуск как модуль: python -m backend.server
-    from .narutodle_data import CHARACTERS, UNKNOWN, attribute_list, public_character
+    from .narutodle_data import CHARACTERS, UNKNOWN, attribute_list, portrait_ref, public_character
 except ImportError:  # запуск как файл: python backend/server.py
     from narutodle_data import (  # type: ignore
         CHARACTERS,
         UNKNOWN,
         attribute_list,
+        portrait_ref,
         public_character,
     )
 
@@ -128,15 +129,17 @@ class Narutodle:
         return [str(character["name"]) for character in self._characters]
 
     def catalog(self) -> List[Dict[str, Any]]:
-        """Список для подсказки в поле ввода: имя, цвет аватара и картинка.
+        """Список для подсказки в поле ввода: имя, цвет аватара и портрет.
 
         Скрытых свойств здесь нет — только то, что нужно нарисовать аватар.
+        Портрет отдаётся ссылкой (см. portrait_ref): base64 в этом ответе весит
+        мегабайты, и страница на медленном канале его не дожидалась.
         """
         return [
             {
                 "name": str(character["name"]),
                 "color": str(character.get("color") or ""),
-                "image": str(character.get("image") or ""),
+                "image": portrait_ref(character),
             }
             for character in self._characters
         ]
