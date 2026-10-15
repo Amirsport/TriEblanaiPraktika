@@ -1,0 +1,1418 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light" data-palette="red">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>322-0 · драфт по Dota 2 · Умная AI-Теплица</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#c5342b">
+  <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
+  <link rel="stylesheet" href="../../css/main.css?v=20">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* «322-0»: фэнтези-драфт по Dota 2 на Streamers Battle 13. Палитра та же,
+       что у панели, — красная (data-palette="red" выше); здесь только раскладка.
+
+       Как играть:
+         * в пуле 140 участников драфта, у каждого своя цена в очках;
+         * состав — пять игроков, и сумма цен не должна выйти за бюджет
+           сложности (хардкор 300, обычная 320, смёрф 340);
+         * каждому игроку выдаётся герой: позиция героя (1–5) становится
+           позицией игрока, а пять героев обязаны закрыть все пять позиций;
+         * потом сетка: группа (Bo1), четвертьфинал (Bo3), полуфинал (Bo3),
+           финал (Bo5). После каждой победы — усиление на выбор, поражение
+           заканчивает прогон.
+
+       Цены игроков — из таблицы владельца сайта; оценки героев игровые,
+       ники участников и герои Dota 2 — названия их владельцев. */
+
+    [hidden] { display: none !important; }
+
+    .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+    button.status-pill { font-family: inherit; cursor: pointer; }
+    a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
+
+    .stack { display: flex; flex-direction: column; gap: 20px; }
+    .auth-card { width: min(420px, 100%); margin: 0 auto; }
+    .auth-card h2 { text-align: center; }
+
+    .choices { display: flex; flex-wrap: wrap; gap: 10px; }
+    .choice {
+      display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+      padding: 10px 14px; border-radius: var(--radius-sm); cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface-solid);
+      font-family: inherit; color: var(--text); text-align: left;
+    }
+    .choice b { font-size: 13.5px; }
+    .choice span { font-size: 12px; color: var(--text-dim); }
+    .choice:hover { border-color: var(--accent); }
+    .choice.on { border-color: var(--accent); background: var(--accent-soft); }
+
+    .rules { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+    .rules li { font-size: 13.5px; color: var(--text-dim); }
+    .rules b { color: var(--text); }
+
+    /* Бюджет: полоса расхода и три числа рядом. */
+    .budget { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+    .cells { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+    .cells .cell {
+      padding: 10px 12px; border-radius: var(--radius-sm);
+      background: var(--surface-solid); border: 1px solid var(--border);
+    }
+    .cells .cell span { display: block; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+    .cells .cell b { font-size: 20px; font-variant-numeric: tabular-nums; }
+    .cells .cell.total { border-color: var(--accent); background: var(--accent-soft); }
+    .cells .cell.total b { color: var(--accent); }
+
+    /* Пять слотов позиций: керри … пятёрка. */
+    .slots { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+    .slot {
+      display: flex; flex-direction: column; gap: 3px; min-height: 84px;
+      padding: 10px 12px; border-radius: var(--radius-sm);
+      border: 1px dashed var(--border); background: var(--surface-solid);
+    }
+    .slot.filled { border-style: solid; border-color: var(--accent); }
+    .slot .pos { font-size: 11.5px; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-dim); }
+    .slot .who { font-weight: 700; font-size: 15px; line-height: 1.2; }
+    .slot .hero { font-size: 12px; }
+    .slot .where { font-size: 11.5px; color: var(--text-dim); }
+    .slot .boost { font-size: 11.5px; color: var(--accent); }
+
+    /* Состав: строки игроков с выбором героя. */
+    .roster { display: flex; flex-direction: column; gap: 10px; }
+    .squad-row {
+      display: grid; gap: 10px; align-items: center; padding: 10px 12px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid);
+      grid-template-columns: minmax(120px, 1fr) 68px minmax(180px, 260px) auto;
+    }
+    .squad-row .who { font-weight: 600; }
+    .squad-row .cost { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: 13px; }
+    .squad-row .note { grid-column: 1 / -1; font-size: 12px; color: var(--text-dim); }
+    .squad-row .note.warn { color: var(--warn); }
+    .squad-row .own { grid-column: 1 / -1; font-size: 12px; color: var(--accent); }
+
+    /* Витрина игроков: поиск, сортировка, строки с ценой. */
+    .shop-tools { display: grid; gap: 10px; grid-template-columns: minmax(160px, 1fr) minmax(150px, 220px); margin-bottom: 12px; }
+    .shop { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; padding-right: 4px; }
+    .shop-row {
+      display: grid; gap: 10px; align-items: center; padding: 8px 12px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid);
+      grid-template-columns: 1fr 64px auto;
+    }
+    .shop-row .who { font-weight: 600; }
+    .shop-row .cost { font-variant-numeric: tabular-nums; text-align: right; }
+    .shop-row .cost b { font-size: 15px; }
+    .shop-row.taken { opacity: 0.6; }
+    .shop-row .taken-tag { font-size: 12px; color: var(--accent); }
+
+    .stat-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
+    .stat-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    .boosts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .boost {
+      display: flex; flex-direction: column; gap: 8px; padding: 12px;
+      border-radius: var(--radius-sm); border: 1px solid var(--accent); background: var(--accent-soft);
+    }
+    .boost b { font-size: 14px; }
+    .boosts-taken { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag {
+      display: inline-flex; padding: 6px 12px; border-radius: 999px;
+      border: 1px solid var(--accent); background: var(--accent-soft);
+      color: var(--accent); font-size: 12.5px;
+    }
+
+    .matches { display: flex; flex-direction: column; gap: 12px; }
+    .match { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid); }
+    .match .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+    .match .stage { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+    .match .score { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .match .score.win { color: var(--accent); }
+    .match .score.lose { color: var(--danger); }
+    .match .sub { display: block; margin-top: 6px; font-size: 12.5px; color: var(--text-dim); }
+    .match .games { display: flex; gap: 6px; margin-top: 8px; }
+    .match .games i {
+      font-style: normal; font-size: 11.5px; padding: 3px 8px; border-radius: 999px;
+      border: 1px solid var(--border); color: var(--text-dim);
+    }
+    .match .games i.win { border-color: var(--accent); color: var(--accent); }
+
+    .opp-block { display: flex; flex-direction: column; gap: 10px; }
+    .opp-block .line { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 13px; }
+    .opp-block .line span { color: var(--text-dim); }
+    .opp-roster { display: flex; flex-wrap: wrap; gap: 8px; }
+    .opp-roster .who {
+      padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--surface-solid); font-size: 12.5px;
+    }
+    .opp-heroes { display: flex; flex-wrap: wrap; gap: 8px; }
+    .opp-heroes .hero-chip {
+      padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--surface-solid); font-size: 12.5px; color: var(--text-dim);
+    }
+    .opp-heroes .hero-chip b { color: var(--text); }
+
+    .feed { display: flex; flex-direction: column; gap: 6px; }
+    .feed .line { font-size: 13px; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid); }
+    .feed .line span { color: var(--text-dim); font-size: 11.5px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+
+    .journal { display: flex; flex-direction: column; gap: 8px; }
+    .journal .row-item {
+      display: grid; gap: 6px; padding: 10px 12px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--surface-solid); font-size: 13px;
+    }
+    .journal .head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: baseline; }
+    .journal .title { font-weight: 600; }
+    .journal .sub { color: var(--text-dim); font-size: 12px; }
+    .journal .win { color: var(--accent); }
+    .journal .loss { color: var(--danger); }
+
+    @media (max-width: 620px) {
+      .brand-text h1 { font-size: 18px; }
+      .squad-row { grid-template-columns: 1fr auto; }
+      .squad-row select { grid-column: 1 / -1; }
+      .shop-tools { grid-template-columns: 1fr; }
+      /* В общей main.css кнопки шапки не переносятся: на узком экране
+         с длинным ником они уезжают за край, поэтому переносим их сами. */
+      .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
+      .user-pill { max-width: 130px; }
+      .user-pill span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="app">
+
+    <!-- ===== Шапка ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
+        <div class="brand-text">
+          <h1>322-0</h1>
+          <p>Драфт по Dota 2 на Streamers Battle 13: состав в бюджет и герои по позициям</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="status-pill" type="button" id="conn-pill" title="Состояние подключения к серверу">
+          <span class="dot"></span>
+          <span id="conn-text">подключаемся…</span>
+        </button>
+        <div class="user-pill" id="user-pill" hidden>
+          <span aria-hidden="true">👤</span>
+          <span id="user-name">—</span>
+        </div>
+        <button class="icon-btn" type="button" id="logout" title="Выйти из аккаунта" hidden>⎋</button>
+        <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
+        <a class="icon-btn" href="../" title="Вернуться в игровую комнату">←</a>
+      </div>
+    </header>
+
+    <!-- ===== Адрес сервера ===== -->
+    <section class="card" id="server-card" hidden>
+      <header class="card-head">
+        <h2>Сервер игры</h2>
+        <span class="badge" id="server-badge">не подключён</span>
+      </header>
+      <p class="muted">
+        Прогоны считает сервер теплицы. Если адрес не подставился сам, впишите его руками.
+      </p>
+      <label class="field">
+        <span>Адрес API</span>
+        <input type="text" id="srv-input" placeholder="https://ваш-адрес-сервера" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" type="button" id="srv-save">Подключиться</button>
+      </div>
+      <p class="muted">Пустой адрес — обращения к тому же домену, с которого открыта страница.</p>
+    </section>
+
+    <!-- ===== Вход и регистрация ===== -->
+    <section class="card auth-card" id="auth-card" hidden>
+      <h2 id="auth-title">Регистрация</h2>
+      <p class="muted" id="auth-hint">
+        Аккаунт нужен, чтобы прогоны сохранялись за вами. Он же открывает панель теплицы.
+      </p>
+      <label class="field">
+        <span>Логин</span>
+        <input type="text" id="auth-user" autocomplete="username" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Пароль</span>
+        <input type="password" id="auth-pass" autocomplete="current-password">
+      </label>
+      <label class="field" id="auth-confirm-field">
+        <span>Повторите пароль</span>
+        <input type="password" id="auth-confirm" autocomplete="new-password">
+      </label>
+      <p class="login-error" id="auth-error" hidden></p>
+      <button class="btn btn-primary btn-wide" type="button" id="auth-submit">Зарегистрироваться</button>
+      <button class="link-btn" type="button" id="auth-toggle">У меня уже есть аккаунт</button>
+    </section>
+
+    <!-- ===== Лобби: сложность, справка, прошлые прогоны ===== -->
+    <section class="stack" id="lobby" hidden>
+      <section class="card" id="start-card">
+        <header class="card-head">
+          <h2>Новый прогон</h2>
+          <span class="badge" id="lobby-badge">—</span>
+        </header>
+        <p class="muted">
+          Собирайте состав мечты из участников Streamers Battle 13: пять игроков в бюджет,
+          каждому — герой. Герой приносит позицию, пять героев закрывают пять позиций.
+          Дальше сетка турнира, а после каждой победы — усиление на выбор.
+        </p>
+        <ul class="rules" id="rules"></ul>
+        <div class="field" style="margin: 16px 0 14px;">
+          <span>Сложность <b>— сколько очков даётся на состав</b></span>
+          <div class="choices" id="difficulty"></div>
+        </div>
+        <button class="btn btn-primary btn-wide" type="button" id="start">Начать прогон</button>
+        <p class="muted" id="pool-hint"></p>
+      </section>
+
+      <section class="card" id="journal-card">
+        <header class="card-head">
+          <h2>Мои прогоны</h2>
+          <div class="row row-tight">
+            <button class="btn btn-sm btn-ghost" type="button" id="journal-scope" hidden>Все прогоны</button>
+            <span class="badge" id="journal-badge">—</span>
+          </div>
+        </header>
+        <div class="journal" id="journal"></div>
+      </section>
+    </section>
+
+    <!-- ===== Драфт: состав и витрина игроков ===== -->
+    <section class="stack" id="draft" hidden>
+      <section class="card" id="squad-card">
+        <header class="card-head">
+          <h2>Ваш состав</h2>
+          <span class="badge" id="draft-badge">драфт</span>
+        </header>
+        <div class="budget">
+          <div class="meter">
+            <div class="meter-head">
+              <span id="budget-text">—</span>
+              <span id="budget-left">—</span>
+            </div>
+            <div class="meter-bar"><span id="budget-bar" style="width: 0%"></span></div>
+          </div>
+          <div class="cells" id="budget-cells"></div>
+        </div>
+        <div class="cells" id="rating"></div>
+        <div class="slots" id="slots" style="margin-top: 14px;"></div>
+        <div class="roster" id="roster" style="margin-top: 14px;"></div>
+        <div class="row" style="margin-top: 14px;">
+          <button class="btn btn-ghost" type="button" id="auto-heroes">Расставить героев</button>
+          <button class="btn btn-primary" type="button" id="play-run" disabled>Играть</button>
+          <button class="btn btn-ghost" type="button" id="to-lobby-draft">Выйти в лобби</button>
+        </div>
+        <p class="muted" id="draft-hint"></p>
+      </section>
+
+      <section class="card" id="shop-card">
+        <header class="card-head">
+          <h2>Витрина Streamers Battle 13</h2>
+          <span class="badge" id="shop-badge">—</span>
+        </header>
+        <div class="shop-tools">
+          <label class="field">
+            <span>Поиск по нику</span>
+            <input type="search" id="shop-search" placeholder="например, Cooman" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="field">
+            <span>Сортировка</span>
+            <select id="shop-sort">
+              <option value="cost-desc">Сначала дорогие</option>
+              <option value="cost-asc">Сначала дешёвые</option>
+              <option value="name">По нику</option>
+            </select>
+          </label>
+        </div>
+        <div class="shop" id="shop"></div>
+      </section>
+    </section>
+
+    <!-- ===== Прогон: стадии, усиления, журнал ===== -->
+    <section class="stack" id="run" hidden>
+      <section class="card" id="stage-card">
+        <header class="card-head">
+          <h2 id="stage-title">Стадия</h2>
+          <span class="badge" id="run-badge">—</span>
+        </header>
+        <div class="stat-row" id="run-stats"></div>
+        <div class="cells" id="run-rating"></div>
+        <div class="slots" id="run-slots" style="margin-top: 14px;"></div>
+        <div class="row" style="margin-top: 14px;">
+          <button class="btn btn-primary" type="button" id="play-stage">Играть стадию</button>
+          <button class="btn btn-ghost" type="button" id="to-lobby">Выйти в лобби</button>
+        </div>
+        <p class="muted" id="run-hint"></p>
+      </section>
+
+      <section class="card" id="reward-card" hidden>
+        <header class="card-head">
+          <h2>Усиление на выбор</h2>
+          <span class="badge">после победы</span>
+        </header>
+        <p class="muted">Возьмите одну карту — без неё следующая стадия не играется.</p>
+        <div class="boosts" id="reward"></div>
+      </section>
+
+      <section class="card" id="opponent-card" hidden>
+        <header class="card-head">
+          <h2>Последний соперник</h2>
+          <span class="badge" id="opponent-badge">—</span>
+        </header>
+        <div class="opp-block" id="opponent"></div>
+      </section>
+
+      <section class="card" id="matches-card">
+        <header class="card-head">
+          <h2>Серии прогона</h2>
+          <span class="badge" id="matches-badge">—</span>
+        </header>
+        <div class="matches" id="matches"></div>
+      </section>
+
+      <section class="card" id="boosts-card" hidden>
+        <header class="card-head">
+          <h2>Взятые усиления</h2>
+          <span class="badge" id="boosts-badge">—</span>
+        </header>
+        <div class="boosts-taken" id="boosts"></div>
+      </section>
+
+      <section class="card" id="log-card">
+        <header class="card-head">
+          <h2>Что происходит</h2>
+          <span class="badge">лог прогона</span>
+        </header>
+        <div class="feed" id="log"></div>
+      </section>
+
+      <section class="card" id="finish-card" hidden>
+        <header class="card-head">
+          <h2 id="finish-title">Прогон закончен</h2>
+          <span class="badge" id="finish-badge">—</span>
+        </header>
+        <p id="finish-text" class="muted"></p>
+        <div class="row">
+          <button class="btn btn-primary" type="button" id="again">Ещё прогон</button>
+        </div>
+      </section>
+    </section>
+
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    const PANEL_STATE_KEY = 'greenhouse.state.v1';
+    const CONN_KEY = 'greenhouse.games.conn.v1';
+    const AUTH_KEY = 'greenhouse.auth.v1';
+    const THEME_KEY = 'greenhouse.games.theme';
+    const GAME = '/api/games/dota322';
+
+    const REQUEST_TIMEOUT_MS = 10000;
+
+    const $ = (selector) => document.querySelector(selector);
+
+    let apiBase = '';
+    let auth = { token: '', user: null };
+    let info = null;                // /status: пул, позиции, сложности, стадии
+    let pool = { players: [], heroes: [] };
+    let run = null;                 // состояние текущего прогона
+    let journal = [];
+    let journalScope = 'mine';
+    let pick = { difficulty: 'hard' };
+    let shop = { query: '', sort: 'cost-desc' };
+    let busy = false;
+
+    /* ------------------------------- утилиты -------------------------------- */
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function toast(message, kind) {
+      const box = $('#toasts');
+      const node = document.createElement('div');
+      node.className = 'toast' + (kind ? ' ' + kind : '');
+      node.textContent = message;
+      box.appendChild(node);
+      setTimeout(() => {
+        node.classList.add('out');
+        setTimeout(() => node.remove(), 320);
+      }, 4200);
+    }
+
+    function readJson(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' ? value : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeJson(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function show(selector, visible) {
+      const node = $(selector);
+      if (node) node.hidden = !visible;
+    }
+
+    const num = (value) => (Math.round(Number(value || 0) * 10) / 10).toString();
+    const signed = (value) => (Number(value) > 0 ? '+' : '') + num(value);
+
+    /* Веса движка (backend/dotadraft_data.py): цена игрока и оценка героя.
+       По ним видно вклад каждой связки «игрок + герой» в силу состава. */
+    const PLAYER_WEIGHT = 0.62;
+    const HERO_WEIGHT = 0.38;
+    const pairStrength = (player) => PLAYER_WEIGHT * Number(player.cost || 0)
+      + HERO_WEIGHT * Number(player.hero ? player.hero.rating : 0);
+
+    function clockText(seconds) {
+      const date = new Date(Number(seconds || 0) * 1000);
+      if (isNaN(date.getTime())) return '';
+      const pad = (value) => String(value).padStart(2, '0');
+      return pad(date.getHours()) + ':' + pad(date.getMinutes());
+    }
+
+    /* ------------------------------ сеть ------------------------------------ */
+
+    const root = () => (apiBase || '').replace(/\/+$/, '');
+
+    async function api(path, options = {}) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const headers = { 'Content-Type': 'application/json' };
+      if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+      try {
+        const response = await fetch(root() + path, {
+          method: options.method || 'GET',
+          headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(data.error || ('Сервер ответил HTTP ' + response.status));
+          error.status = response.status;
+          throw error;
+        }
+        return data;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function setConnection(kind, text) {
+      const pill = $('#conn-pill');
+      pill.classList.toggle('online', kind === 'online');
+      pill.classList.toggle('err', kind === 'err');
+      $('#conn-text').textContent = text;
+      const badge = $('#server-badge');
+      if (badge) badge.textContent = text;
+    }
+
+    /* Адрес сервера: свой сохранённый, иначе из настроек панели теплицы. */
+    function storedConnection() {
+      const own = readJson(CONN_KEY) || {};
+      return {
+        apiBase: String(own.apiBase || '').trim(),
+        apiToken: String(own.apiToken || '').trim()
+      };
+    }
+
+    function panelConnection() {
+      const panel = readJson(PANEL_STATE_KEY) || {};
+      return {
+        apiBase: String(panel.apiBase || '').trim(),
+        apiToken: String(panel.apiToken || '').trim()
+      };
+    }
+
+    const trimBase = (value) => String(value || '').trim().replace(/\/+$/, '');
+
+    function apiCandidates() {
+      const fromLink = trimBase(new URLSearchParams(location.search).get('srv'));
+      if (fromLink) return { fixed: true, list: [fromLink] };
+      const list = [];
+      [storedConnection().apiBase, panelConnection().apiBase].forEach((value) => {
+        const item = trimBase(value);
+        if (item && !list.includes(item)) list.push(item);
+      });
+      return { fixed: false, list };
+    }
+
+    /* Короткая проверка адреса: 401 тоже значит «сервер жив, он закрыт ключом». */
+    async function pingServer(base) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await fetch(base + '/api/health', {
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        return response.ok || response.status === 401;
+      } catch (error) {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    /* Адрес и ключ панели, опубликованные на сайте при выгрузке: у туннеля
+       меняется поддомен, а этот файл обновляет серверная сторона. */
+    let publishedKey = '';
+    async function publishedApiBase() {
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
+      try {
+        const response = await fetch('../api-address.json', { cache: 'no-store' });
+        if (!response.ok) return '';
+        const data = await response.json();
+        publishedKey = String((data && data.apiKey) || '').trim();
+        return trimBase(data && data.apiBase);
+      } catch (error) {
+        return '';
+      }
+    }
+
+    /* Сохранённый адрес мог устареть: пробуем по очереди всё, что знаем. */
+    async function resolveApiBase() {
+      const { fixed, list } = apiCandidates();
+      if (fixed) {
+        apiBase = list[0];
+        rememberServer(apiBase);
+        return apiBase;
+      }
+      const stored = storedConnection().apiBase;
+      const published = publishedApiBase();
+      for (const candidate of list) {
+        if (await pingServer(candidate)) {
+          apiBase = candidate;
+          if (candidate !== stored) toast('Адрес сервера взят из настроек панели теплицы');
+          return apiBase;
+        }
+      }
+      const fresh = await published;
+      if (fresh && fresh !== (list[0] || '')) {
+        if (list.length) toast('Адрес сервера обновлён: туннель перезапускался');
+        apiBase = fresh;
+        return apiBase;
+      }
+      apiBase = list[0] || fresh || '';
+      return apiBase;
+    }
+
+    function rememberServer(value) {
+      const own = storedConnection();
+      const panel = panelConnection();
+      writeJson(CONN_KEY, {
+        apiBase: value,
+        apiToken: own.apiToken || panel.apiToken || publishedKey || ''
+      });
+    }
+
+    /* --------------------------- вход в аккаунт ----------------------------- */
+
+    function loadAuth() {
+      const saved = readJson(AUTH_KEY);
+      auth = saved && saved.token
+        ? { token: saved.token, user: saved.user || null }
+        : { token: '', user: null };
+      renderUser();
+    }
+
+    function saveAuth() {
+      if (auth.token) {
+        writeJson(AUTH_KEY, { token: auth.token, user: auth.user });
+      } else {
+        try {
+          localStorage.removeItem(AUTH_KEY);
+        } catch (error) {
+          /* приватный режим: просто не запомним */
+        }
+      }
+      renderUser();
+    }
+
+    function renderUser() {
+      const name = auth.user ? auth.user.username : '';
+      $('#user-name').textContent = name || '—';
+      show('#user-pill', Boolean(name));
+      show('#logout', Boolean(auth.token));
+    }
+
+    function setAuthMode(form) {
+      const register = form !== 'login';
+      $('#auth-title').textContent = register ? 'Регистрация' : 'Вход в игру';
+      $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
+      $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
+      $('#auth-hint').textContent = register
+        ? 'Аккаунт нужен, чтобы прогоны сохранялись за вами. Он же открывает панель теплицы.'
+        : 'Войдите тем же логином, что и в панели теплицы.';
+      show('#auth-confirm-field', register);
+      show('#auth-error', false);
+      $('#auth-card').dataset.mode = register ? 'register' : 'login';
+    }
+
+    /* Сессия истекла: сервер больше не узнаёт токен. */
+    function sessionExpired(error) {
+      if (!error || error.status !== 401 || !auth.token) return false;
+      auth = { token: '', user: null };
+      saveAuth();
+      run = null;
+      hideAll();
+      showAuth('login');
+      toast('Сессия истекла — войдите заново', 'err');
+      return true;
+    }
+
+    const failMessage = (error) => (error && error.status === 429
+      ? 'Слишком много действий подряд — подождите минуту и повторите'
+      : (error && error.message) || 'Не получилось');
+
+    async function submitAuth() {
+      const form = $('#auth-card').dataset.mode === 'login' ? 'login' : 'register';
+      const username = ($('#auth-user').value || '').trim();
+      const password = $('#auth-pass').value || '';
+      const fail = (message) => {
+        const box = $('#auth-error');
+        box.textContent = message;
+        show('#auth-error', true);
+      };
+
+      if (!username || !password) return fail('Заполните логин и пароль');
+      if (form === 'register' && password !== $('#auth-confirm').value) return fail('Пароли не совпадают');
+
+      const button = $('#auth-submit');
+      button.disabled = true;
+      try {
+        const data = await api('/api/auth/' + form, { method: 'POST', body: { username, password } });
+        auth = { token: data.token, user: data.user };
+        saveAuth();
+        toast(form === 'register' ? 'Аккаунт создан — можно собирать состав'
+          : 'С возвращением, ' + (data.user && data.user.username));
+        show('#auth-card', false);
+        await afterAuth();
+      } catch (error) {
+        fail(error.message || 'Не удалось выполнить запрос');
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function signOut() {
+      if (auth.token) {
+        api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      }
+      auth = { token: '', user: null };
+      saveAuth();
+      run = null;
+      hideAll();
+      showAuth('register');
+    }
+
+    /* ------------------------------ экраны ---------------------------------- */
+
+    function hideAll() {
+      ['#lobby', '#draft', '#run'].forEach((selector) => show(selector, false));
+    }
+
+    function showAuth(form) {
+      setAuthMode(form);
+      show('#auth-card', true);
+      hideAll();
+      $('#auth-user').focus();
+    }
+
+    async function showLobby() {
+      run = null;
+      hideAll();
+      show('#lobby', true);
+      await loadStatus();
+      await loadPool();
+      await loadJournal('mine');
+    }
+
+    /* --------------------------- состояние пула ------------------------------ */
+
+    async function loadStatus() {
+      try {
+        info = await api(GAME + '/status');
+      } catch (error) {
+        info = null;
+        console.warn('Не удалось узнать состояние игры:', error);
+        if (!sessionExpired(error)) toast(failMessage(error), 'err');
+        return;
+      }
+      renderChoices();
+      renderRules();
+      renderPoolHint();
+    }
+
+    function renderChoices() {
+      if (!info) return;
+      const list = info.difficulties || [];
+      if (list.length && !list.some((item) => item.key === pick.difficulty)) {
+        pick.difficulty = list[0].key;
+      }
+      $('#difficulty').innerHTML = list.map((item) => (
+        '<button type="button" class="choice' + (item.key === pick.difficulty ? ' on' : '')
+        + '" data-key="' + escapeHtml(item.key) + '">'
+        + '<b>' + escapeHtml(item.label) + '</b>'
+        + '<span>бюджет ' + item.budget + ' очков</span>'
+        + '<span>соперники ' + signed(item.opponent_shift) + ' к силе стадии</span></button>'
+      )).join('');
+    }
+
+    function renderRules() {
+      if (!info) return;
+      const stages = (info.stages || [])
+        .map((stage) => escapeHtml(stage.title) + ' (Bo' + stage.best_of + ')').join(' → ');
+      const positions = (info.positions || [])
+        .map((item) => '<b>' + item.position + '</b> ' + escapeHtml(item.label) + ' — '
+          + item.heroes + ' гер.')
+        .join(' · ');
+      $('#rules').innerHTML = [
+        '<li>В пуле <b>' + info.players + ' игроков</b> Streamers Battle 13 и <b>'
+          + info.heroes + ' героев</b> — у каждого игрока своя цена в очках.</li>',
+        '<li>Состав — <b>' + info.squad_size + ' игроков</b>, сумма цен не больше бюджета сложности.</li>',
+        '<li>Каждому игроку — герой: его позиция становится позицией игрока, а пять'
+          + ' героев обязаны закрыть все пять позиций. Повтор героя или позиции не пройдёт.</li>',
+        '<li>Герои по позициям: ' + positions + '.</li>',
+        '<li>Стадии: ' + stages + '. Поражение заканчивает прогон, после каждой победы'
+          + ' берётся усиление.</li>'
+      ].join('');
+    }
+
+    function renderPoolHint() {
+      if (!info) return;
+      const ready = info.ready !== false;
+      $('#start').disabled = !ready || !auth.token;
+      $('#lobby-badge').textContent = ready ? (info.players + ' игроков') : 'пул не готов';
+      let hint = 'В пуле: игроков ' + info.players + ', героев ' + info.heroes + '.';
+      const stages = (info.stages || [])
+        .map((stage) => stage.title + ' (Bo' + stage.best_of + ')').join(' → ');
+      if (stages) hint += ' Стадии: ' + stages + '.';
+      if (!ready) {
+        hint += ' Пул неполный: нужны игроки и хотя бы один герой на каждую позицию.';
+        const problems = info.problems || [];
+        if (problems.length) hint += ' Замечания: ' + problems.join('; ') + '.';
+      }
+      $('#pool-hint').textContent = hint;
+    }
+
+    /* Герои нужны и для витрины, и для выбора героя в составе. */
+    async function loadPool() {
+      try {
+        const data = await api(GAME + '/pool');
+        pool = {
+          players: Array.isArray(data.players) ? data.players : [],
+          heroes: Array.isArray(data.heroes) ? data.heroes : []
+        };
+      } catch (error) {
+        pool = { players: [], heroes: [] };
+        if (!sessionExpired(error)) toast('Пул не загрузился: ' + failMessage(error), 'err');
+      }
+      renderPoolHint();
+    }
+
+    /* ------------------------------- журнал --------------------------------- */
+
+    async function loadJournal(scope) {
+      journalScope = scope === 'all' ? 'all' : 'mine';
+      const query = journalScope === 'all' ? '?limit=20&scope=all' : '?limit=20';
+      try {
+        const data = await api(GAME + '/matches' + query);
+        journal = data.matches || [];
+      } catch (error) {
+        journal = [];
+        if (!sessionExpired(error)) toast(failMessage(error), 'err');
+      }
+      renderJournal();
+    }
+
+    /* В журнале стадия лежит ключом — игроку показываем её название. */
+    function stageLabel(key) {
+      const found = info && info.stages
+        ? info.stages.find((stage) => stage.key === key) : null;
+      return found ? found.title : (key || 'вылет');
+    }
+
+    function difficultyLabel(key) {
+      const found = info && info.difficulties
+        ? info.difficulties.find((item) => item.key === key) : null;
+      return found ? found.label : (key || '—');
+    }
+
+    function renderJournal() {
+      const node = $('#journal');
+      $('#journal-badge').textContent = journal.length ? ('прогонов: ' + journal.length) : 'пока пусто';
+      /* Журнал всех прогонов открыт только администратору: у обычного 403. */
+      const admin = Boolean(auth.user && auth.user.role === 'admin');
+      show('#journal-scope', admin);
+      if (admin) {
+        $('#journal-scope').textContent = journalScope === 'all' ? 'Только мои' : 'Все прогоны';
+      }
+      if (!journal.length) {
+        node.innerHTML = '<p class="muted">Здесь появятся законченные прогоны: состав,'
+          + ' сложность и результат.</p>';
+        return;
+      }
+      node.innerHTML = journal.map((item) => (
+        '<div class="row-item"><div class="head">'
+        + '<span class="title">#' + item.id + ' · ' + escapeHtml(item.squad || '—') + '</span>'
+        + '<span class="' + (item.champion ? 'win' : 'loss') + '">'
+        + (item.champion ? 'титул Streamers Battle 13' : escapeHtml(stageLabel(item.stage)))
+        + ' (' + item.wins + ':' + item.losses + ')</span></div>'
+        + '<span class="sub">' + escapeHtml(difficultyLabel(item.difficulty))
+        + ' · сила состава ' + num(item.rating) + '</span>'
+        + (item.score ? '<span class="sub">' + escapeHtml(item.score) + '</span>' : '')
+        + (journalScope === 'all'
+          ? '<span class="sub">игрок: ' + escapeHtml(item.username || '—') + '</span>' : '')
+        + '</div>'
+      )).join('');
+    }
+
+    /* ------------------------------- действия -------------------------------- */
+
+    async function act(method, path, body, message) {
+      if (busy) return;
+      busy = true;
+      try {
+        const data = await api(GAME + path, { method, body });
+        applyRun(data.state);
+        if (message) toast(message);
+      } catch (error) {
+        if (!sessionExpired(error)) toast(failMessage(error), 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function startRun() {
+      await act('POST', '/runs', { difficulty: pick.difficulty },
+        'Прогон начался: покупайте игроков');
+    }
+
+    function applyRun(state) {
+      run = state;
+      hideAll();
+      if (state.phase === 'draft' || state.phase === 'ready') {
+        show('#draft', true);
+        renderDraft();
+      } else {
+        show('#run', true);
+        renderRun();
+      }
+    }
+
+    /* -------------------------------- драфт --------------------------------- */
+
+    function ratingCells(rating) {
+      const cells = [
+        { label: 'Игроки и герои', value: num(rating.base) },
+        { label: 'Связки', value: signed(rating.pairs) },
+        { label: 'Позиции', value: signed(rating.position_boosts) },
+        { label: 'Усиления', value: signed(rating.boosts) },
+        { label: 'Сила состава', value: num(rating.total), total: true }
+      ];
+      return cells.map((cell) => (
+        '<div class="cell' + (cell.total ? ' total' : '') + '"><span>' + cell.label
+        + '</span><b>' + cell.value + '</b></div>'
+      )).join('');
+    }
+
+    function renderDraft() {
+      const filled = run.roster.length;
+      $('#draft-badge').textContent = run.ready ? 'состав собран' : 'драфт: ' + filled
+        + ' из ' + run.squad_size;
+      $('#play-run').disabled = !run.ready;
+      $('#play-run').textContent = run.ready ? 'Играть' : 'Играть (состав не готов)';
+
+      const share = run.budget ? Math.max(0, Math.min(100, (run.spent / run.budget) * 100)) : 0;
+      $('#budget-bar').style.width = share.toFixed(1) + '%';
+      $('#budget-text').textContent = 'Потрачено ' + run.spent + ' из ' + run.budget + ' очков';
+      $('#budget-left').textContent = 'Осталось ' + run.left + ' · ' + run.difficulty_label;
+      $('#budget-cells').innerHTML = [
+        { label: 'Потрачено', value: run.spent },
+        { label: 'Осталось', value: run.left },
+        { label: 'Бюджет', value: run.budget },
+        { label: 'Игроков', value: filled + ' / ' + run.squad_size },
+        { label: 'Героев', value: (run.rating ? run.rating.filled : 0) + ' / ' + run.squad_size }
+      ].map((cell) => (
+        '<div class="cell"><span>' + cell.label + '</span><b>' + cell.value + '</b></div>'
+      )).join('');
+
+      $('#rating').innerHTML = ratingCells(run.rating);
+      renderSlots('#slots');
+      renderRoster();
+      renderShop();
+      renderDraftHint();
+    }
+
+    function slotHtml(slot) {
+      if (!slot.player) {
+        // Позиция появляется у игрока вместе с героем: пока героев нет, слот
+        // подсказывает, что состав уже набран и ждёт выбора.
+        const waiting = (run.roster || []).filter((item) => !item.hero).length;
+        return '<div class="slot"><span class="pos">' + slot.position + '. '
+          + escapeHtml(slot.label) + '</span><span class="who muted">'
+          + (waiting ? 'ждёт героя (' + waiting + ' в составе)' : 'пусто') + '</span>'
+          + '<span class="where">' + escapeHtml(slot.hint || '') + '</span></div>';
+      }
+      return '<div class="slot filled"><span class="pos">' + slot.position + '. '
+        + escapeHtml(slot.label) + '</span>'
+        + '<span class="who">' + escapeHtml(slot.player.nickname) + '</span>'
+        + (slot.hero
+          ? '<span class="hero">' + escapeHtml(slot.hero.name) + ' · оценка '
+            + slot.hero.rating + '</span>'
+          : '<span class="hero muted">герой не выбран</span>')
+        + '<span class="where">цена ' + slot.player.cost + '</span>'
+        + (slot.hero ? '<span class="where">сила связки ' + num(pairStrength({
+          cost: slot.player.cost, hero: slot.hero
+        })) + '</span>' : '')
+        + (slot.boost ? '<span class="boost">усиление +' + num(slot.boost) + '</span>' : '')
+        + '</div>';
+    }
+
+    function renderSlots(selector) {
+      $(selector).innerHTML = (run.positions || []).map(slotHtml).join('');
+    }
+
+    function renderRoster() {
+      const node = $('#roster');
+      if (!run.roster.length) {
+        node.innerHTML = '<p class="muted">Купите пятерых игроков на витрине ниже —'
+          + ' они встанут в состав. Дорогие игроки не влезут все: считайте бюджет.</p>';
+        return;
+      }
+      node.innerHTML = run.roster.map((player) => {
+        const hero = player.hero;
+        const note = hero
+          ? 'Позиция ' + hero.position + ' (' + escapeHtml(hero.position_label) + ') · оценка героя '
+            + hero.rating
+          : 'Герой не выбран: позиция освободится после выбора.';
+        return '<div class="squad-row">'
+          + '<span class="who">' + escapeHtml(player.nickname) + '</span>'
+          + '<span class="cost">' + player.cost + ' очк.</span>'
+          + heroSelect(player)
+          + '<button class="btn btn-sm btn-ghost" type="button" data-drop="'
+          + escapeHtml(player.id) + '">Убрать</button>'
+          + '<span class="note' + (hero ? '' : ' warn') + '">' + note + '</span>'
+          + '</div>';
+      }).join('');
+    }
+
+    /* Список героев по позициям: занятые герои и позиции сразу помечены. */
+    function heroSelect(player) {
+      const mine = player.hero ? player.hero.id : '';
+      const usedHero = new Map();
+      const usedPos = new Map();
+      run.roster.forEach((item) => {
+        if (item.hero && item.id !== player.id) {
+          usedHero.set(item.hero.id, item.nickname);
+          usedPos.set(item.hero.position, item.nickname);
+        }
+      });
+      const groups = (run.positions_catalog || []).map((slot) => {
+        const heroes = pool.heroes
+          .filter((hero) => Number(hero.position) === Number(slot.position))
+          .sort((a, b) => (b.rating - a.rating)
+            || String(a.name).localeCompare(String(b.name), 'ru'));
+        const options = heroes.map((hero) => {
+          let disabled = '';
+          let note = '';
+          if (hero.id !== mine) {
+            if (usedHero.has(hero.id)) {
+              disabled = ' disabled';
+              note = ' — занят: ' + usedHero.get(hero.id);
+            } else if (usedPos.has(hero.position)) {
+              disabled = ' disabled';
+              note = ' — позиция ' + hero.position + ' занята';
+            }
+          }
+          return '<option value="' + escapeHtml(hero.id) + '"'
+            + (hero.id === mine ? ' selected' : '') + disabled + '>'
+            + escapeHtml(hero.name) + ' · ' + hero.rating + escapeHtml(note) + '</option>';
+        }).join('');
+        return '<optgroup label="' + slot.position + '. ' + escapeHtml(slot.label)
+          + ' — ' + escapeHtml(slot.hint || '') + ' · героев: ' + heroes.length + '">'
+          + options + '</optgroup>';
+      }).join('');
+      return '<select data-hero-for="' + escapeHtml(player.id) + '" title="Герой игрока">'
+        + '<option value=""' + (mine ? '' : ' selected') + '>— герой не выбран —</option>'
+        + groups + '</select>';
+    }
+
+    function sortPlayers(list) {
+      const items = list.slice();
+      if (shop.sort === 'cost-asc') {
+        items.sort((a, b) => (a.cost - b.cost)
+          || String(a.nickname).localeCompare(String(b.nickname), 'ru'));
+      } else if (shop.sort === 'name') {
+        items.sort((a, b) => String(a.nickname).localeCompare(String(b.nickname), 'ru'));
+      } else {
+        items.sort((a, b) => (b.cost - a.cost)
+          || String(a.nickname).localeCompare(String(b.nickname), 'ru'));
+      }
+      return items;
+    }
+
+    function renderShop() {
+      const taken = new Set(run.roster.map((player) => player.id));
+      const query = shop.query.trim().toLowerCase();
+      const filtered = (pool.players || []).filter((player) => (
+        !query || String(player.nickname).toLowerCase().includes(query)
+      ));
+      const items = sortPlayers(filtered);
+      const full = run.roster.length >= run.squad_size;
+      $('#shop-badge').textContent = 'игроков: ' + items.length + ' из ' + (pool.players || []).length;
+      if (!items.length) {
+        $('#shop').innerHTML = '<p class="muted">Никого не нашлось: измените поиск.</p>';
+        return;
+      }
+      $('#shop').innerHTML = items.map((player) => {
+        const mine = taken.has(player.id);
+        if (mine) {
+          return '<div class="shop-row taken"><span class="who">'
+            + escapeHtml(player.nickname) + '</span><span class="cost"><b>' + player.cost
+            + '</b></span><span class="taken-tag">в составе</span></div>';
+        }
+        const fits = !full && player.cost <= run.left;
+        const why = full ? 'состав уже собран' : (player.cost > run.left
+          ? 'не хватает ' + (player.cost - run.left) + ' очков' : '');
+        return '<div class="shop-row"><span class="who">' + escapeHtml(player.nickname)
+          + '</span><span class="cost"><b>' + player.cost + '</b></span>'
+          + '<button class="btn btn-sm' + (fits ? ' btn-primary' : ' btn-ghost')
+          + '" type="button" data-take="' + escapeHtml(player.id) + '"'
+          + (fits ? '' : ' disabled') + ' title="' + escapeHtml(why) + '">'
+          + (fits ? 'Купить' : escapeHtml(why)) + '</button></div>';
+      }).join('');
+    }
+
+    function renderDraftHint() {
+      const node = $('#draft-hint');
+      const heroes = run.rating ? run.rating.filled : 0;
+      if (run.ready) {
+        node.textContent = 'Состав готов: ' + run.roster.length + ' игроков, все пять позиций'
+          + ' закрыты героями. Можно играть — или подождите, если хотите другой состав.';
+        return;
+      }
+      if (run.roster.length < run.squad_size) {
+        const left = run.squad_size - run.roster.length;
+        node.textContent = 'До полного состава не хватает ' + left + ' игрок'
+          + (left > 1 ? 'ов' : '') + '. Осталось ' + run.left + ' очков —'
+          + ' этого хватит не на всех: дорогие игроки съедают бюджет.';
+        return;
+      }
+      node.textContent = 'Игроков пять, а героев ' + heroes + ' из ' + run.squad_size
+        + ': выдайте героя каждому — или нажмите «Расставить героев», и позиции'
+        + ' закроются сами.';
+    }
+
+    /* --------------------------------- прогон -------------------------------- */
+
+    function renderRun() {
+      const stage = run.stage || {};
+      $('#stage-title').textContent = (stage.title || 'Стадия') + ' · '
+        + ((stage.index || 0) + 1) + ' из ' + (stage.total || 0);
+      $('#run-badge').textContent = 'Bo' + (stage.best_of || 1) + ' · ' + run.difficulty_label;
+      $('#run-stats').innerHTML = 'Сила состава: <b>' + num(run.rating.total) + '</b>'
+        + ' · соперник стадии собирается под <b>' + (stage.opponent_cost != null
+          ? stage.opponent_cost : '—') + '</b> очков'
+        + ' · усилений: <b>' + (run.boosts || []).length + '</b>'
+        + ' · серий сыграно: <b>' + (run.history || []).length + '</b>';
+      $('#run-rating').innerHTML = ratingCells(run.rating);
+      renderSlots('#run-slots');
+
+      const finished = run.phase === 'dead' || run.phase === 'champion';
+      const reward = run.reward || [];
+      $('#play-stage').disabled = finished || !run.ready || reward.length > 0;
+      $('#play-stage').textContent = (run.history || []).length
+        ? 'Играть следующую стадию' : 'Играть стадию';
+      $('#run-hint').textContent = finished ? 'Прогон закончен — начните новый.'
+        : (reward.length ? 'Сначала выберите усиление: без него следующая стадия не играется.'
+          : 'Серия симулируется по силе составов: чем сильнее игроки и герои, тем выше шансы.');
+
+      show('#reward-card', reward.length > 0);
+      $('#reward').innerHTML = reward.map((boost, index) => (
+        '<div class="boost"><b>' + escapeHtml(boost.title) + '</b>'
+        + '<button type="button" class="btn btn-sm btn-primary" data-boost="' + index
+        + '">Взять</button></div>'
+      )).join('');
+
+      show('#boosts-card', (run.boosts || []).length > 0);
+      $('#boosts-badge').textContent = (run.boosts || []).length ? 'карт: ' + run.boosts.length : '—';
+      $('#boosts').innerHTML = (run.boosts || []).map((boost) => (
+        '<span class="tag">' + escapeHtml(boost.title) + '</span>'
+      )).join('');
+
+      renderOpponent();
+      renderMatches();
+      renderFeed();
+
+      show('#finish-card', finished);
+      if (finished) {
+        const champion = run.phase === 'champion';
+        const wins = (run.history || []).filter((item) => item.won).length;
+        const losses = (run.history || []).filter((item) => !item.won).length;
+        const last = (run.history || [])[(run.history || []).length - 1];
+        $('#finish-title').textContent = champion
+          ? 'Титул Streamers Battle 13 взят!' : 'Прогон закончен';
+        $('#finish-badge').textContent = champion ? 'без поражений' : 'вылет';
+        $('#finish-text').textContent = (champion
+          ? 'Состав прошёл все стадии и забрал титул. '
+          : 'Поражение завершает прогон — так устроен рогалик. ')
+          + 'Итог: ' + wins + ' побед, ' + losses + ' поражений, сила состава '
+          + num(run.rating.total) + '.'
+          + (last ? ' Последняя серия: ' + last.stage_title + ' ' + last.score + '.' : '');
+      }
+    }
+
+    function renderOpponent() {
+      const history = run.history || [];
+      const last = history[history.length - 1];
+      show('#opponent-card', Boolean(last));
+      if (!last) return;
+      const opponent = last.opponent || {};
+      const heroes = (opponent.heroes || []).map((hero) => (
+        '<span class="hero-chip"><b>' + escapeHtml(hero.name) + '</b> · '
+        + escapeHtml(hero.position_label || '') + ' · ' + hero.rating + '</span>'
+      )).join('');
+      const roster = (opponent.roster || []).map((player) => (
+        '<span class="who">' + escapeHtml(player.nickname) + ' · ' + player.cost + '</span>'
+      )).join('');
+      $('#opponent-badge').textContent = escapeHtml(last.stage_title || '') + ' · Bo'
+        + last.best_of + ' · ' + escapeHtml(last.score);
+      $('#opponent').innerHTML = '<div class="line"><span>Состав:</span> <b>'
+        + escapeHtml(opponent.label || '—') + '</b></div>'
+        + '<div class="line"><span>Сила:</span> <b>' + num(opponent.strength) + '</b>'
+        + ' <span>· наш состав:</span> <b>' + num(last.our_strength) + '</b>'
+        + ' <span>· бюджет соперника:</span> <b>' + (opponent.budget || 0) + '</b> очков</div>'
+        + '<div class="opp-roster">' + roster + '</div>'
+        + '<div class="opp-heroes">' + heroes + '</div>';
+    }
+
+    function renderMatches() {
+      const node = $('#matches');
+      const history = run.history || [];
+      $('#matches-badge').textContent = history.length
+        ? (history.filter((item) => item.won).length + ' побед из ' + history.length)
+        : 'серий пока нет';
+      if (!history.length) {
+        node.innerHTML = '<p class="muted">Серии появятся здесь: стадия, формат, счёт'
+          + ' и сила обоих составов.</p>';
+        return;
+      }
+      node.innerHTML = history.map((match) => (
+        '<div class="match"><div class="head">'
+        + '<span class="stage">' + escapeHtml(match.stage_title) + ' · Bo' + match.best_of
+        + ' · против ' + escapeHtml((match.opponent || {}).label || '—') + '</span>'
+        + '<span class="score ' + (match.won ? 'win' : 'lose') + '">'
+        + escapeHtml(match.score) + '</span></div>'
+        + '<span class="sub">наша сила ' + num(match.our_strength) + ' · сила соперника '
+        + num((match.opponent || {}).strength) + '</span>'
+        + '<div class="games">' + (match.games || []).map((game) => (
+          '<i class="' + (game.won ? 'win' : '') + '">игра ' + game.game + ': '
+          + (game.won ? 'победа' : 'поражение') + '</i>'
+        )).join('') + '</div></div>'
+      )).join('');
+    }
+
+    function renderFeed() {
+      const node = $('#log');
+      const entries = run.log || [];
+      if (!entries.length) {
+        node.innerHTML = '<p class="muted">Здесь видно, что происходит в прогоне.</p>';
+        return;
+      }
+      node.innerHTML = entries.slice().reverse().map((entry) => (
+        '<div class="line"><span>' + escapeHtml(clockText(entry.at)) + '</span>'
+        + escapeHtml(entry.text) + '</div>'
+      )).join('');
+    }
+
+    /* ------------------------------ соединение ------------------------------- */
+
+    let connSeq = 0;
+
+    async function checkConnection() {
+      const seq = ++connSeq;
+      const apply = (kind, text) => {
+        if (seq === connSeq) setConnection(kind, text);
+      };
+      const served = ['http:', 'https:'].includes(location.protocol);
+      if (!root() && !served) {
+        apply('err', 'адрес не задан');
+        return false;
+      }
+      try {
+        await api('/api/health');
+        apply('online', 'на связи');
+        return true;
+      } catch (error) {
+        if (error.status === 401) {
+          // Сервер жив, просто закрыт общим ключом — игре это не мешает.
+          apply('online', 'на связи');
+          return true;
+        }
+        apply('err', root() ? 'сервер не отвечает' : 'API на этом домене нет');
+        return false;
+      }
+    }
+
+    async function afterAuth() {
+      const ok = await checkConnection();
+      if (!ok) {
+        $('#srv-input').value = root();
+        show('#server-card', true);
+        return;
+      }
+      show('#server-card', false);
+      await showLobby();
+    }
+
+    async function boot() {
+      applyTheme(readJson(THEME_KEY) || readJson(PANEL_STATE_KEY) || {});
+      loadAuth();
+      /* Адрес берём из ссылки, своих сохранённых настроек или опубликованного
+         файла на сайте и сразу проверяем, что он живой — вводить вручную не нужно. */
+      await resolveApiBase();
+      $('#srv-input').value = root();
+
+      $('#auth-submit').addEventListener('click', submitAuth);
+      $('#auth-toggle').addEventListener('click', () => {
+        setAuthMode($('#auth-card').dataset.mode === 'login' ? 'register' : 'login');
+      });
+      $('#auth-card').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          submitAuth();
+        }
+      });
+      $('#logout').addEventListener('click', signOut);
+      $('#toggle-theme').addEventListener('click', toggleTheme);
+      $('#srv-save').addEventListener('click', async () => {
+        apiBase = trimBase($('#srv-input').value);
+        rememberServer(apiBase);
+        await afterAuth();
+      });
+
+      $('#lobby').addEventListener('click', (event) => {
+        const choice = event.target.closest('#difficulty .choice');
+        if (choice) {
+          pick.difficulty = choice.dataset.key;
+          renderChoices();
+          return;
+        }
+        if (event.target.closest('#start')) return void startRun();
+        if (event.target.closest('#journal-scope')) {
+          return void loadJournal(journalScope === 'all' ? 'mine' : 'all');
+        }
+      });
+
+      $('#draft').addEventListener('click', (event) => {
+        const take = event.target.closest('[data-take]');
+        if (take) {
+          if (take.disabled) return;
+          return void act('POST', '/runs/' + run.id + '/take',
+            { player: take.dataset.take }, 'Игрок куплен');
+        }
+        const drop = event.target.closest('[data-drop]');
+        if (drop) {
+          return void act('POST', '/runs/' + run.id + '/drop',
+            { player: drop.dataset.drop }, 'Игрок убран из состава');
+        }
+        if (event.target.closest('#auto-heroes')) {
+          return void act('POST', '/runs/' + run.id + '/auto', {},
+            'Герои расставлены по позициям');
+        }
+        if (event.target.closest('#play-run')) {
+          return void act('POST', '/runs/' + run.id + '/play', {}, '');
+        }
+        if (event.target.closest('#to-lobby-draft')) return void showLobby();
+      });
+
+      /* Выбор героя: пустое значение — снять героя с игрока. */
+      $('#draft').addEventListener('change', (event) => {
+        const select = event.target.closest('[data-hero-for]');
+        if (!select) return;
+        const hero = (select.value || '').trim();
+        act('POST', '/runs/' + run.id + '/hero',
+          { player: select.dataset.heroFor, hero: hero || null },
+          hero ? 'Герой выдан' : 'Герой снят');
+      });
+
+      $('#shop-search').addEventListener('input', (event) => {
+        shop.query = event.target.value || '';
+        if (run && (run.phase === 'draft' || run.phase === 'ready')) renderShop();
+      });
+      $('#shop-sort').addEventListener('change', (event) => {
+        shop.sort = event.target.value || 'cost-desc';
+        if (run && (run.phase === 'draft' || run.phase === 'ready')) renderShop();
+      });
+
+      $('#run').addEventListener('click', (event) => {
+        const boost = event.target.closest('[data-boost]');
+        if (boost) {
+          return void act('POST', '/runs/' + run.id + '/boost',
+            { index: Number(boost.dataset.boost) }, 'Усиление взято');
+        }
+        if (event.target.closest('#play-stage')) {
+          return void act('POST', '/runs/' + run.id + '/play', {}, '');
+        }
+        if (event.target.closest('#again') || event.target.closest('#to-lobby')) {
+          return void showLobby();
+        }
+      });
+
+      if (auth.token) {
+        await afterAuth();
+      } else {
+        showAuth('register');
+      }
+    }
+
+    function applyTheme(saved) {
+      document.documentElement.dataset.theme = saved && saved.theme === 'dark' ? 'dark' : 'light';
+    }
+
+    function toggleTheme() {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      writeJson(THEME_KEY, { theme: next });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      boot().catch((error) => toast('Не удалось запустить игру: ' + error.message, 'err'));
+    });
+  </script>
+</body>
+</html>

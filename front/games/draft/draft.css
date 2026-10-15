@@ -1,0 +1,135 @@
+/* Драфт-рогалики: «87-0» (CS), «13-0» (Valorant) и «4-0» (Rocket League).
+   Общая страница живёт в /games/draft/, у отдельных игр — свои страницы
+   (/games/valorant/ и /games/rl/), которые берут этот же файл. Тема та же,
+   что у панели, в красной палитре (data-palette="red" на страницах). Здесь —
+   только раскладка страницы; общие детали берутся из main.css.
+
+   Как играть:
+     * в драфте предлагается состав реальной команды на конкретном турнире:
+       игроки с ролями и площадки пула этой игры;
+     * игроков забирают в слоты ролей игры (в Valorant их пять, в RL — три),
+       а площадки — в свой пул; рероллы ограничены сложностью;
+     * сила состава = средний рейтинг игроков + попадание в роли +
+       сыгранность + усиления, а на своих площадках играть легче;
+     * затем прогон по стадиям турнира: между ними выбирается усиление.
+       Поражение заканчивает прогон — это рогалик.
+
+   Все подписи интерфейса приходят с сервера (backend/draft_games.py):
+   название игры, её правила, роли, эпохи, стадии, слова для пула и матча.
+   В самой странице их нет, поэтому та же страница обслуживает и новые игры,
+   которые появятся в реестре.
+
+   Оценки игроков (AIM, CLUTCH, IMP) — игровые, а не официальная
+   статистика; ники и названия турниров — исторические факты. */
+
+[hidden] { display: none !important; }
+
+.brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+button.status-pill { font-family: inherit; cursor: pointer; }
+a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
+
+.stack { display: flex; flex-direction: column; gap: 20px; }
+.auth-card { width: min(420px, 100%); margin: 0 auto; }
+.auth-card h2 { text-align: center; }
+
+.choices { display: flex; flex-wrap: wrap; gap: 10px; }
+.choice {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  padding: 10px 14px; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface-solid);
+  font-family: inherit; color: var(--text); text-align: left;
+}
+.choice b { font-size: 13.5px; }
+.choice span { font-size: 12px; color: var(--text-dim); }
+.choice:hover { border-color: var(--accent); }
+.choice.on { border-color: var(--accent); background: var(--accent-soft); }
+
+/* Состав: столько слотов ролей, сколько ролей у выбранной игры. */
+.squad { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.slot {
+  display: flex; flex-direction: column; gap: 4px; min-height: 78px;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px dashed var(--border); background: var(--surface-solid);
+}
+.slot.filled { border-style: solid; border-color: var(--accent); }
+.slot .role { font-size: 11.5px; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-dim); }
+.slot .who { font-weight: 700; font-size: 15px; line-height: 1.2; }
+.slot .where { font-size: 11.5px; color: var(--text-dim); }
+.slot .fit { font-size: 11.5px; }
+.slot .fit.good { color: var(--accent); }
+.slot .fit.bad { color: var(--danger); }
+
+/* Оценка состава: база, роли, сыгранность, усиления, итог. */
+.rating { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); margin: 4px 0 14px; }
+.rating .cell {
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--surface-solid); border: 1px solid var(--border);
+}
+.rating .cell span { display: block; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+.rating .cell b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.rating .cell.total { border-color: var(--accent); background: var(--accent-soft); }
+.rating .cell.total b { color: var(--accent); }
+
+.maps { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.map-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px;
+  border-radius: 999px; border: 1px solid var(--border); background: var(--surface-solid);
+  font-family: inherit; font-size: 13px; color: var(--text); cursor: pointer;
+}
+.map-chip:hover { border-color: var(--accent); }
+.map-chip.mine { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.map-chip[disabled] { opacity: 0.55; cursor: default; }
+
+.players { display: flex; flex-direction: column; gap: 8px; }
+.player-row {
+  display: grid; gap: 10px; align-items: center; padding: 10px 12px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid);
+  grid-template-columns: 64px 1fr auto auto;
+}
+.player-row .role-tag {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--accent); font-weight: 600;
+}
+.player-row .who { font-weight: 600; }
+.player-row .stats { display: flex; gap: 10px; font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.player-row .ovr { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.player-row.taken { opacity: 0.55; }
+
+.stat-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
+.stat-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.boosts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.boost {
+  display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  border-radius: var(--radius-sm); border: 1px solid var(--accent); background: var(--accent-soft);
+}
+.boost b { font-size: 14px; }
+
+.matches { display: flex; flex-direction: column; gap: 12px; }
+.match { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid); }
+.match .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+.match .stage { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+.match .score { font-weight: 700; font-variant-numeric: tabular-nums; }
+.match .score.win { color: var(--accent); }
+.match .score.lose { color: var(--danger); }
+.match .maps-line { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 12.5px; }
+.match .maps-line div { display: flex; gap: 8px; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.match .maps-line .mine { color: var(--accent); }
+.match .maps-line .ot { color: var(--warn); font-size: 11.5px; }
+
+.journal { display: flex; flex-direction: column; gap: 8px; }
+.journal .row-item {
+  display: grid; gap: 8px; padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface-solid); font-size: 13px;
+}
+.journal .head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: baseline; }
+.journal .title { font-weight: 600; }
+.journal .sub { color: var(--text-dim); font-size: 12px; }
+.journal .win { color: var(--accent); }
+.journal .loss { color: var(--danger); }
+
+@media (max-width: 560px) {
+  .brand-text h1 { font-size: 18px; }
+  .player-row { grid-template-columns: 56px 1fr auto; }
+  .player-row .stats { display: none; }
+}

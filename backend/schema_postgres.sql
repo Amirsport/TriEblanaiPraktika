@@ -232,3 +232,26 @@ CREATE TABLE IF NOT EXISTS raporder_matches (
 );
 
 CREATE INDEX IF NOT EXISTS idx_raporder_matches_player ON raporder_matches (player1_id, id DESC);
+
+-- «322-0» (драфт по Dota 2 на Streamers Battle 13): пул игроков со стоимостью
+-- и пул героев с позицией и игровой оценкой. Журнал прогонов общий с
+-- драфт-рогаликами (csdraft_runs, game = 'dota322').
+CREATE TABLE IF NOT EXISTS dotadraft_players (
+    id         TEXT PRIMARY KEY,
+    nickname   TEXT NOT NULL,
+    cost       INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dotadraft_players_cost ON dotadraft_players (cost DESC, id);
+
+CREATE TABLE IF NOT EXISTS dotadraft_heroes (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    name_en    TEXT NOT NULL DEFAULT '',
+    position   INTEGER NOT NULL DEFAULT 1,
+    rating     INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_dotadraft_heroes_pos ON dotadraft_heroes (position, rating DESC);

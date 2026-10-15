@@ -146,6 +146,22 @@ try:  # запуск как модуль: python -m backend.server
         CsdraftError,
     )
     from .draft_games import GAME_KEYS, game_block, games_block, seed_rows_for
+    from .dotadraft import (
+        DIFFICULTIES as DOTA_DIFFICULTIES,
+        DIFFICULTY_BUDGETS as DOTA_BUDGETS,
+        DIFFICULTY_LABELS as DOTA_DIFFICULTY_LABELS,
+        DotaDraft,
+        DotaDraftError,
+    )
+    from .dotadraft_data import (
+        BUDGET as DOTA_BUDGET,
+        DIFFICULTY_OPPONENT_SHIFT as DOTA_OPPONENT_SHIFT,
+        POSITION_HINTS as DOTA_POSITION_HINTS,
+        POSITION_LABELS as DOTA_POSITION_LABELS,
+        SQUAD_SIZE as DOTA_SQUAD_SIZE,
+        hero_rows as dotadraft_hero_rows,
+        player_rows as dotadraft_player_rows,
+    )
     from .narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError
     from .narutodle_data import attribute_list, seed_rows
     from .raporder import (
@@ -189,6 +205,22 @@ except ImportError:  # запуск как файл: python backend/server.py
         CsdraftError,
     )
     from draft_games import GAME_KEYS, game_block, games_block, seed_rows_for  # type: ignore
+    from dotadraft import (  # type: ignore
+        DIFFICULTIES as DOTA_DIFFICULTIES,
+        DIFFICULTY_BUDGETS as DOTA_BUDGETS,
+        DIFFICULTY_LABELS as DOTA_DIFFICULTY_LABELS,
+        DotaDraft,
+        DotaDraftError,
+    )
+    from dotadraft_data import (  # type: ignore
+        BUDGET as DOTA_BUDGET,
+        DIFFICULTY_OPPONENT_SHIFT as DOTA_OPPONENT_SHIFT,
+        POSITION_HINTS as DOTA_POSITION_HINTS,
+        POSITION_LABELS as DOTA_POSITION_LABELS,
+        SQUAD_SIZE as DOTA_SQUAD_SIZE,
+        hero_rows as dotadraft_hero_rows,
+        player_rows as dotadraft_player_rows,
+    )
     from narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError  # type: ignore
     from narutodle_data import attribute_list, seed_rows  # type: ignore
     from raporder import (  # type: ignore
@@ -292,6 +324,15 @@ class Application:
         }
         # Короткий путь для игры по умолчанию: им пользуется страница «87-0».
         self.csdraft = self.drafts["cs"]
+        # «322-0»: движок свой (бюджет, герои по позициям), а журнал общий с
+        # драфт-рогаликами — та же таблица csdraft_runs с game = 'dota322'.
+        self.dotadraft = DotaDraft(
+            players=self._dotadraft_players(),
+            heroes=self._dotadraft_heroes(),
+            players_provider=self.db.dotadraft_players,
+            heroes_provider=self.db.dotadraft_heroes,
+            on_finish=self._log_dota_run,
+        )
 
     # ------------------------------------------------------------------- доступ
     def authorized(self, headers: Any, query: Dict[str, str]) -> bool:
@@ -461,6 +502,40 @@ class Application:
             f"вылет на стадии «{entry['stage']}»"
         self.db.add_log(
             f"{self._game_title(game)}: прогон #{entry['id']} у {entry['username']} — {result} "
+            f"({entry['wins']}:{entry['losses']}, состав {entry['squad']})",
+            "info",
+        )
+
+    # --------------------------------------------------- «322-0» (драфт Dota 2)
+    def _dotadraft_players(self) -> List[Dict[str, Any]]:
+        """Пул игроков «322-0» из базы; на пустой таблице заливает набор из кода.
+
+        Дальше источник правды — база: стоимости и ники можно править прямо в
+        ней (backend/seed_dotadraft.py умеет и то, и другое).
+        """
+        if not self.db.dotadraft_player_count():
+            seeded = self.db.dotadraft_save_players(dotadraft_player_rows())
+            self.db.add_log(f"322-0: пул игроков залит в базу ({seeded})", "info")
+        return self.db.dotadraft_players()
+
+    def _dotadraft_heroes(self) -> List[Dict[str, Any]]:
+        """Пул героев «322-0» из базы; на пустой таблице заливает набор из кода."""
+        if not self.db.dotadraft_hero_count():
+            seeded = self.db.dotadraft_save_heroes(dotadraft_hero_rows())
+            self.db.add_log(f"322-0: пул героев залит в базу ({seeded})", "info")
+        return self.db.dotadraft_heroes()
+
+    def reload_dotadraft_pool(self) -> int:
+        """Перечитывает пул «322-0» из базы (на случай правок на ходу)."""
+        return self.dotadraft.refresh()
+
+    def _log_dota_run(self, record: Dict[str, Any]) -> None:
+        """Пишет итог прогона «322-0» в журнал прогонов и в общий журнал событий."""
+        entry = self.db.csdraft_add_run(record)
+        result = "титул Streamers Battle 13" if entry.get("champion") else \
+            f"вылет на стадии «{entry['stage']}»"
+        self.db.add_log(
+            f"322-0: прогон #{entry['id']} у {entry['username']} — {result} "
             f"({entry['wins']}:{entry['losses']}, состав {entry['squad']})",
             "info",
         )
@@ -1135,6 +1210,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/games/csdraft"):
             return self._handle_csdraft_api(method, path)
 
+        if path.startswith("/api/games/dota322"):
+            return self._handle_dota322_api(method, path)
+
         if re.fullmatch(r"/api/games/draft/[a-z0-9]+", path):
             game = path.rsplit("/", 1)[-1]
             if game == "games":
@@ -1402,6 +1480,119 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_csdraft_api(self, method: str, path: str) -> None:
         """«87-0»: старый адрес игры по CS (страница пользуется именно им)."""
         return self._handle_draft_api(method, path, "cs", "/api/games/csdraft")
+
+    def _handle_dota322_api(self, method: str, path: str) -> None:
+        """«322-0»: драфт по Dota 2 на Streamers Battle 13 с бюджетом на состав.
+
+        Вход — по аккаунту панели (Bearer): прогон принадлежит игроку, чужой его
+        продолжить не может. Сначала игрок собирает состав в бюджет (пять игроков
+        из пула), затем выдаёт каждому героя — пять героев обязаны закрыть все
+        позиции 1–5, — и только потом играет стадии. Прогоны живут в памяти
+        процесса, поэтому перезапуск сервера их теряет; итог каждого уходит в
+        журнал, он и переживает перезапуск.
+        """
+        app = self.app
+        prefix = "/api/games/dota322"
+        client = self.client_address[0] if self.client_address else "?"
+        query = self._query()
+
+        try:
+            engine = app.dotadraft
+            user = app.user_by_token(self._bearer_token())
+
+            # Состояние пула открыто до входа: страница сразу объясняет, что
+            # играть можно, и сколько героев на каждую позицию.
+            if method == "GET" and path == f"{prefix}/status":
+                engine.refresh()
+                return self._json({
+                    "title": "322-0",
+                    "event": "Streamers Battle 13",
+                    "players": engine.player_count(),
+                    "heroes": engine.hero_count(),
+                    "positions": [{"position": position, "label": DOTA_POSITION_LABELS[position],
+                                   "hint": DOTA_POSITION_HINTS.get(position, ""),
+                                   "heroes": engine.position_counts().get(position, 0)}
+                                  for position, _ in DOTA_POSITION_LABELS.items()],
+                    "budget": DOTA_BUDGET,
+                    "squad_size": DOTA_SQUAD_SIZE,
+                    "difficulties": [
+                        {"key": key, "label": DOTA_DIFFICULTY_LABELS[key],
+                         "budget": DOTA_BUDGETS[key],
+                         "opponent_shift": DOTA_OPPONENT_SHIFT.get(key, 0)}
+                        for key in DOTA_DIFFICULTIES],
+                    "stages": [{"key": stage["key"], "title": stage["title"],
+                                "best_of": stage["best_of"],
+                                "opponent_cost": stage.get("opponent_cost", 0)}
+                               for stage in engine.stages],
+                    "ready": engine.ready(),
+                    "problems": engine.problems()[:10],
+                })
+
+            if method == "GET" and path == f"{prefix}/pool":
+                engine.refresh()
+                return self._json(engine.pool())
+
+            if not user:
+                return self._error("Требуется вход в аккаунт", 401)
+
+            if method == "POST" and path == f"{prefix}/runs":
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много прогонов за минуту — подождите немного", 429)
+                data = self._body()
+                return self._json({"state": engine.start(
+                    user, difficulty=str(data.get("difficulty") or "hard"))}, 201)
+
+            if method == "GET" and path == f"{prefix}/matches":
+                scope = str(query.get("scope") or "mine").lower()
+                limit = self._limit_arg(query)
+                if scope == "all":
+                    if not self._require_admin(user):
+                        return self._error("Журнал всех прогонов доступен только администратору", 403)
+                    return self._json({"matches": app.db.csdraft_runs(None, limit, "dota322")})
+                return self._json({"matches": app.db.csdraft_runs(user["id"], limit, "dota322")})
+
+            run_pattern = rf"{prefix}/runs/(d[0-9a-f]{{7}})"
+            match = re.fullmatch(run_pattern, path)
+            if method == "GET" and match:
+                return self._json({"state": engine.state(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/take", path)
+            if method == "POST" and match:
+                return self._json({"state": engine.take(
+                    match.group(1), user, str(self._body().get("player") or ""))})
+
+            match = re.fullmatch(rf"{run_pattern}/drop", path)
+            if method == "POST" and match:
+                return self._json({"state": engine.drop(
+                    match.group(1), user, str(self._body().get("player") or ""))})
+
+            match = re.fullmatch(rf"{run_pattern}/hero", path)
+            if method == "POST" and match:
+                data = self._body()
+                return self._json({"state": engine.hero(
+                    match.group(1), user, str(data.get("player") or ""),
+                    data.get("hero") if data.get("hero") else None)})
+
+            match = re.fullmatch(rf"{run_pattern}/auto", path)
+            if method == "POST" and match:
+                return self._json({"state": engine.auto_heroes(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/play", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много матчей за минуту — подождите немного", 429)
+                return self._json({"state": engine.play(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/boost", path)
+            if method == "POST" and match:
+                return self._json({"state": engine.boost(
+                    match.group(1), user, self._body().get("index"))})
+
+            return self._error(f"Не найдено: {method} {path}", 404)
+        except DotaDraftError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Внутренняя ошибка: {exc}", 500)
 
     def _handle_draft_games_api(self, method: str, path: str) -> None:
         """Список драфт-игр и их правил: этим страница выбирает игру."""

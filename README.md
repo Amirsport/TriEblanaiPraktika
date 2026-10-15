@@ -110,6 +110,9 @@ backend/
   raporder.py              движок «Рэп-хронологии»: раунды, комнаты, подсчёт очков
   raporder_data.py         набор треков русского рэпа (исполнитель, название, год)
   seed_raporder.py         наполнение базы треками, правка годов и проверка набора
+  dotadraft.py             движок «322-0»: бюджет состава, герои по позициям, стадии
+  dotadraft_data.py        пул игроков Streamers Battle 13 и герои Dota 2
+  seed_dotadraft.py        наполнение базы пулом 322-0, правка цен и проверка набора
 ```
 
 Таблицы: `zones` (12 участков), `readings` (история показаний),
@@ -124,6 +127,8 @@ backend/
 `csdraft_runs` (журнал прогонов драфтов: кто играл, каким составом и чем кончилось),
 `raporder_tracks` (треки «Рэп-хронологии»: исполнитель, название, год),
 `raporder_matches` (журнал партий «Рэп-хронологии»: режим, счёт, победитель),
+`dotadraft_players` (пул «322-0»: ник и стоимость в очках),
+`dotadraft_heroes` (герои «322-0»: имя, позиция 1–5 и игровая оценка),
 `device_commands` (очередь команд домашнему агенту, когда сервер стоит на VPS).
 
 Колонки, появившиеся после первых версий, сервер добавляет сам при запуске
@@ -594,10 +599,10 @@ python backend/seed_csdraft.py --dsn "postgresql://greenhouse:пароль@local
 
 ##### Четвёртая и пятая игры: 13-0 (Valorant) и 4-0 (Rocket League)
 
-`front/games/draft/index.html` — те же драфт-рогалики, что «87-0», но по другим
-играм. Движок у них **один** ([`backend/csdraft.py`](backend/csdraft.py)), а
-отличия (роли, арены, стадии, усиления, правила розыгрыша площадки) собраны в
-реестре [`backend/draft_games.py`](backend/draft_games.py), поэтому новая игра
+Две отдельные игры (`front/games/valorant/index.html` и `front/games/rl/index.html`),
+движок у них **один** ([`backend/csdraft.py`](backend/csdraft.py)), а отличия
+(роли, арены, стадии, усиления, правила розыгрыша площадки) собраны в реестре
+[`backend/draft_games.py`](backend/draft_games.py), поэтому новая игра
 добавляется конфигурацией, а не новым кодом.
 
 - **13-0 (Valorant)**: состав из реальных команд VCT — дуэлист, инициатор,
@@ -610,13 +615,20 @@ python backend/seed_csdraft.py --dsn "postgresql://greenhouse:пароль@local
   Force, Dignitas, Cloud9, Vitality, NRG (2017–2019) и BDS, G2, Moist,
   Vitality (2021–2024).
 
+Разметка, стили и скрипт страниц общие: они лежат в `front/games/draft/`
+(`index.html` — разметка, `draft.css` и `draft.js` — оформление и логика).
+Страница `/games/draft/` — хаб: игра выбирается внутри, выбор запоминается.
+Страницы отдельных игр той же разметкой задают свою игру до подключения
+скрипта (`window.DRAFT_GAME = 'valorant' | 'rl'`), поэтому поле выбора игры на
+них скрыто, а в `localStorage` выбор не пишется. **При правке разметки нужно
+поправить все три файла** — это отмечено комментарием в самих страницах.
+
 Страница сама берёт подписи из ответа сервера (`GET /api/games/draft/games`),
 поэтому терминология у каждой игры своя: где-то «карты маппула», где-то «арены
-пула». Выбранная игра запоминается и подставляется при следующем заходе. Правила
-прогона, журнал, рероллы и усиления — как у «87-0»; адреса отличаются ключом
-игры: `/api/games/draft/valorant/*` и `/api/games/draft/rl/*` (у CS остался
-старый короткий адрес `/api/games/csdraft/*`). В базе паки всех игр лежат в
-одной таблице `csdraft_packs`, а разделяет их колонка `game`.
+пула». Правила прогона, журнал, рероллы и усиления — как у «87-0»; адреса
+отличаются ключом игры: `/api/games/draft/valorant/*` и `/api/games/draft/rl/*`
+(у CS остался старый короткий адрес `/api/games/csdraft/*`). В базе паки всех
+игр лежат в одной таблице `csdraft_packs`, а разделяет их колонка `game`.
 
 ##### Шестая игра: Рэп-хронология
 
@@ -657,6 +669,56 @@ python backend/seed_raporder.py --dsn "postgresql://greenhouse:пароль@loca
 
 Исполнитель, название и год — факты из открытых источников и принадлежат их
 авторам и правообладателям; игра некоммерческая.
+
+##### Седьмая игра: 322-0 (драфт по Dota 2)
+
+`front/games/dota322/` — фэнтези-драфт по Streamers Battle 13 в духе 322-0.app:
+сначала собирается состав из пяти игроков в бюджет, потом каждому выдаётся герой,
+и только затем играются стадии турнира.
+
+- **Состав и бюджет.** Пул — 140 игроков Streamers Battle 13 со стоимостями
+  из таблицы владельца сайта (10–95 очков). Состав — пять игроков, и сумма
+  стоимостей не должна выйти за бюджет: в хардкоре это 300 очков (обычная игра —
+  320, смёрф — 340). Игрока можно убрать из состава, и его стоимость вернётся.
+- **Герои по позициям.** Каждому игроку выбирается герой, а позиция героя (1–5:
+  Керри, Мидер, Офлейнер, Четвёрка, Пятёрка) становится позицией игрока: пять
+  героев обязаны закрыть все пять позиций, повтор позиции или героя запрещён.
+  Кнопка «Расставить героев» делает это автоматически: по одному лучшему герою
+  на позицию, дорогому игроку — герой посильнее.
+- **Сила состава.** `0,62 × стоимость игрока + 0,38 × оценка героя` в среднем по
+  пятёрке, плюс надбавки: звёздный игрок (≥85) на сильном герое (≥88) даёт +4,
+  дорогой игрок на слабом герое (≤80) — минус 3. Между стадиями предлагается
+  усиление: по позиции (+4), тренер (+5), свежая мета (по +4 к каждому герою,
+  то есть +1,52 к силе) и заготовки драфта.
+- **Стадии.** Групповой этап (Bo1), четвертьфинал (Bo3), полуфинал (Bo3) и финал
+  (Bo5); поражение заканчивает прогон. Соперник — случайный «микс» из того же
+  пула, собранный под бюджет стадии (288/308/328/348 очков с поправкой на
+  сложность), с героями из верхней половины позиции: сила растёт от стадии к
+  стадии, поэтому слабый или недоукомплектованный состав вылетает сразу.
+- **Журнал.** Итог каждого прогона уходит в общую таблицу `csdraft_runs`
+  с `game = 'dota322'`: аккаунт, сложность, состав (`ник (Позиция, Герой)`),
+  соперники по стадиям, счёт и стадия вылета.
+
+Пул лежит в базе (`dotadraft_players`, `dotadraft_heroes`), исходник —
+в [`backend/dotadraft_data.py`](backend/dotadraft_data.py); при пустых таблицах
+сервер заливает набор сам. Стоимости правятся в файле данных или на месте:
+
+```powershell
+# что в базе: игроки по стоимости и герои по позициям
+python backend/seed_dotadraft.py --dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse" --list
+
+# проверить набор (уникальные id, заполненные поля, герои на все позиции, бюджет)
+python backend/seed_dotadraft.py --db data/greenhouse.sqlite3 --check
+
+# обновить набор из файла данных, поправить стоимость или убрать игрока
+python backend/seed_dotadraft.py --dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse"
+python backend/seed_dotadraft.py --dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse" --cost dm=90
+python backend/seed_dotadraft.py --db data/greenhouse.sqlite3 --remove-hero magnus
+```
+
+Стоимости игроков — из таблицы владельца сайта, оценки героев — игровые (они
+влияют только на силу состава). Ники участников, Dota 2 и её герои —
+исторические названия и товарные знаки их владельцев; игра некоммерческая.
 
 #### REST API
 
@@ -740,6 +802,17 @@ python backend/seed_raporder.py --dsn "postgresql://greenhouse:пароль@loca
 | GET | `/api/games/raporder/rooms/<код>` | состояние партии (Bearer) |
 | POST | `/api/games/raporder/rooms/<код>/answer` | `{"order":[...]}` — расстановка треков (Bearer) |
 | POST | `/api/games/raporder/rooms/<код>/rematch` | новая партия (Bearer) |
+| GET | `/api/games/dota322/status` | состояние пула «322-0»: игроки, герои по позициям, бюджет, стадии, сложности |
+| GET | `/api/games/dota322/pool` | весь пул: игроки со стоимостью и герои с позицией и оценкой |
+| POST | `/api/games/dota322/runs` | `{"difficulty":"hard"}` — начать прогон (Bearer) |
+| GET | `/api/games/dota322/runs/<id>` | состояние прогона (Bearer) |
+| POST | `/api/games/dota322/runs/<id>/take` | `{"player":"id"}` — купить игрока в состав (Bearer) |
+| POST | `/api/games/dota322/runs/<id>/drop` | `{"player":"id"}` — убрать игрока из состава (Bearer) |
+| POST | `/api/games/dota322/runs/<id>/hero` | `{"player":"id","hero":"id"\|null}` — выдать или снять героя (Bearer) |
+| POST | `/api/games/dota322/runs/<id>/auto` | расставить героев по позициям автоматически (Bearer) |
+| POST | `/api/games/dota322/runs/<id>/play` | играть текущую стадию турнира (Bearer) |
+| POST | `/api/games/dota322/runs/<id>/boost` | `{"index":0}` — выбрать усиление после стадии (Bearer) |
+| GET | `/api/games/dota322/matches?limit=&scope=` | журнал прогонов «322-0»: свои; `scope=all` — только `admin` (Bearer) |
 | POST | `/api/device/sync` | показания домашнего агента → в ответ очередь команд (только устройство-токен) |
 | POST | `/api/device/ack` | `{"applied":[1,2],"errors":{"3":"текст"}}` — агент подтверждает команды (только устройство-токен) |
 | GET | `/api/device/status` | состояние канала «сервер ↔ дом» (только устройство-токен) |
@@ -1124,9 +1197,16 @@ Apache. Поэтому заголовки задаёт файл [`front/.htacces
 [`front/games/narutodle/index.html`](front/games/narutodle/index.html),
 [`front/games/animesongless/index.html`](front/games/animesongless/index.html),
 [`front/games/csdraft/index.html`](front/games/csdraft/index.html),
-[`front/games/draft/index.html`](front/games/draft/index.html) и
-[`front/games/raporder/index.html`](front/games/raporder/index.html),
-а также в `ASSET_VERSION` в [`front/js/app.js`](front/js/app.js) и в `VERSION`
+[`front/games/draft/index.html`](front/games/draft/index.html),
+[`front/games/valorant/index.html`](front/games/valorant/index.html),
+[`front/games/rl/index.html`](front/games/rl/index.html),
+[`front/games/raporder/index.html`](front/games/raporder/index.html) и
+[`front/games/dota322/index.html`](front/games/dota322/index.html),
+а также в ссылках на общие для драфт-игр `draft.css` и `draft.js`
+в [`front/games/draft/index.html`](front/games/draft/index.html),
+[`front/games/valorant/index.html`](front/games/valorant/index.html) и
+[`front/games/rl/index.html`](front/games/rl/index.html),
+в `ASSET_VERSION` в [`front/js/app.js`](front/js/app.js) и в `VERSION`
 в [`front/service-worker.js`](front/service-worker.js). При выпуске новой версии
 поднимите `N` во всех этих файлах и загрузите файлы заново — обновление дойдёт
 и до тех, у кого панель уже установлена.
