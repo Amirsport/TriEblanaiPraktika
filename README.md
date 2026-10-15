@@ -149,6 +149,12 @@ py backend/server.py --host 0.0.0.0 --token "длинный-секрет"   # д
 Сервер сам закрывает **все** запросы панели: и API, и статику, поэтому
 фронтенд открывается по адресу сервера.
 
+Нужен **Python 3.11 или новее** — поддерживаются 3.11, 3.12 и 3.13; на 3.9 и
+3.10 проект больше не рассчитан. Сервер и игры работают на стандартной
+библиотеке, поэтому для запуска ничего устанавливать не нужно; сторонние пакеты
+есть только для режима PostgreSQL, связи с реальной платой и служебных скриптов
+выгрузки (см. [`backend/requirements.txt`](backend/requirements.txt)).
+
 #### API-ключ
 
 Если сервер доступен по сети (`--host 0.0.0.0`) или опубликован в интернет,
@@ -1311,7 +1317,7 @@ Python, служба `systemd`, nginx, сертификат Let's Encrypt и п�
 * **Поддомен для API,** например `api.ai-parnik.ru`: A-запись на IP сервера.
   Он нужен для HTTPS, а HTTPS здесь обязателен — панель отправляет API-ключ и
   токены входа, агент — свой устройство-токен.
-* **Дома:** ПК или мини-ПК с Arduino и Python 3.9+ (там уже лежит репозиторий).
+* **Дома:** ПК или мини-ПК с Arduino и Python 3.11+ (там уже лежит репозиторий).
 
 #### Порядок
 
@@ -1319,9 +1325,14 @@ Python, служба `systemd`, nginx, сертификат Let's Encrypt и п�
 
 ```bash
 sudo apt update && sudo apt install -y python3 python3-venv postgresql nginx
+python3 --version    # нужен 3.11 или новее: Ubuntu 24.04 даёт 3.12, Debian 13 — 3.13
 sudo -u postgres psql -c "CREATE ROLE greenhouse LOGIN PASSWORD 'пароль';"
 sudo -u postgres psql -c "CREATE DATABASE greenhouse OWNER greenhouse;"
 ```
+
+Если в системе только 3.10 или старее (например, Ubuntu 22.04), поставьте
+отдельный интерпретатор и создавайте окружение им:
+`sudo apt install -y python3.12 python3.12-venv`, а дальше `python3.12 -m venv .venv`.
 
 2. Разместить код и зависимости:
 

@@ -179,8 +179,33 @@ run systemctl enable --now postgresql
 
 # ------------------------------------------------------------------- 5. проект
 say "== Зависимости проекта =="
-if [ ! -x "$ROOT_DIR/.venv/bin/python" ]; then
-    run python3 -m venv "$ROOT_DIR/.venv"
+# Проекту нужен Python 3.11 и новее (см. README): ищем подходящий
+# интерпретатор, а на старом останавливаемся с понятным текстом — иначе
+# окружение соберётся, но сервер на нём не запустится.
+PYTHON_BIN=""
+for candidate in python3 python3.13 python3.12 python3.11; do
+    if command -v "$candidate" >/dev/null 2>&1 && \
+       "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+    say "   нужен Python 3.11 или новее, а в системе $(python3 --version 2>&1)"
+    say "   поставьте его отдельно: apt-get install -y python3.12 python3.12-venv"
+    exit 3
+fi
+say "   интерпретатор: $PYTHON_BIN ($("$PYTHON_BIN" --version 2>&1))"
+if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+    # Окружение прошлых версий могло собраться на Python 3.9 или 3.10: такие
+    # больше не поддерживаются, поэтому просим пересобрать его вручную.
+    if ! "$ROOT_DIR/.venv/bin/python" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+        say "   в $ROOT_DIR/.venv старый Python: $("$ROOT_DIR/.venv/bin/python" --version 2>&1)"
+        say "   пересоберите окружение: rm -rf $ROOT_DIR/.venv && $PYTHON_BIN -m venv $ROOT_DIR/.venv"
+        exit 3
+    fi
+else
+    run "$PYTHON_BIN" -m venv "$ROOT_DIR/.venv"
 fi
 run "$ROOT_DIR/.venv/bin/pip" install --upgrade pip
 run "$ROOT_DIR/.venv/bin/pip" install -r "$ROOT_DIR/backend/requirements.txt"
