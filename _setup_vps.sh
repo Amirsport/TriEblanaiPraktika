@@ -7,6 +7,12 @@
 #   bash _setup_vps.sh --domain ai-parnik.ru --email me@example.com
 #   bash _setup_vps.sh --domain ai-parnik.ru --domain api.ai-parnik.ru --email me@example.com
 #   bash _setup_vps.sh --domain ai-parnik.ru --email me@example.com --db data/greenhouse.sqlite3
+#   bash _setup_vps.sh --domain ai-parnik.ru --email me@example.com --dump data/greenhouse-dump.sql
+#
+# --dump принимает дамп PostgreSQL (pg_dump --clean --if-exists), снятый с рабочей
+# базы: так переносятся аккаунты, журналы матчей, персонажи с портретами и всё
+# остальное. Если переданы и --db, и --dump, восстанавливается дамп, а SQLite
+# пропускается: иначе одни и те же записи попали бы в базу дважды.
 #
 # Скрипт можно запускать повторно: секреты и данные не пересоздаются, а служба
 # и конфиг nginx просто обновляются. Посмотреть, что будет сделано, без изменений:
@@ -27,6 +33,7 @@ DB_NAME="greenhouse"
 DB_USER="greenhouse"
 EMAIL=""
 DB_FILE=""
+DUMP_FILE=""
 DOMAINS=()
 SKIP_APT=0
 NO_NGINX=0
@@ -40,6 +47,7 @@ usage() {
   --domain <имя>     домен сайта; можно несколько раз (например, основной и api.)
   --email <адрес>    почта для Let's Encrypt (без неё сертификат не выпускается)
   --db <файл>        SQLite-база для переноса данных (по умолчанию не переносится)
+  --dump <файл>      дамп PostgreSQL (pg_dump --clean --if-exists) для переноса данных
   --root <каталог>   где лежит проект (по умолчанию /opt/greenhouse)
   --port <номер>     локальный порт сервера (по умолчанию 8000)
   --skip-apt         не ставить пакеты (если уже установлены)
@@ -78,6 +86,7 @@ while [ $# -gt 0 ]; do
         --domain) DOMAINS+=("$2"); shift 2 ;;
         --email) EMAIL="$2"; shift 2 ;;
         --db) DB_FILE="$2"; shift 2 ;;
+        --dump) DUMP_FILE="$2"; shift 2 ;;
         --root) ROOT_DIR="$2"; shift 2 ;;
         --port) PORT="$2"; shift 2 ;;
         --skip-apt) SKIP_APT=1; shift ;;
@@ -178,6 +187,29 @@ run "$ROOT_DIR/.venv/bin/pip" install -r "$ROOT_DIR/backend/requirements.txt"
 run chown -R "$SERVICE_USER:$SERVICE_USER" "$ROOT_DIR"
 
 # ------------------------------------------------------------- 6. перенос данных
+# Дамп PG важнее SQLite: он снят с рабочей базы, и повторный прогон не должен
+# накладывать одни и те же записи дважды.
+if [ -n "$DUMP_FILE" ] && [ -n "$DB_FILE" ]; then
+    say "== Перенос данных =="
+    say "   передан и --dump, и --db: восстанавливаю дамп, SQLite пропускаю"
+    DB_FILE=""
+fi
+
+if [ -n "$DUMP_FILE" ]; then
+    say "== Перенос данных из дампа PostgreSQL =="
+    if [ ! -f "$DUMP_FILE" ]; then
+        say "   файла $DUMP_FILE нет — перенос пропущен"
+    else
+        run_shell "sudo -u postgres psql -v ON_ERROR_STOP=1 -q -d '$DB_NAME' -f '$DUMP_FILE'"
+        # Дамп снят с рабочей базы тем же пользователем, поэтому владелец таблиц
+        # совпадает, а на всякий случай выдаём права схемы приложению.
+        run_shell "sudo -u postgres psql -q -d '$DB_NAME' -c \
+            \"GRANT ALL ON SCHEMA public TO $DB_USER\""
+        run_shell "sudo -u postgres psql -tAc \"SELECT 'users=' || (SELECT count(*) FROM users) \
+            || ' characters=' || (SELECT count(*) FROM narutodle_characters)\" -d '$DB_NAME'" || true
+    fi
+fi
+
 if [ -n "$DB_FILE" ]; then
     say "== Перенос данных из SQLite =="
     if [ ! -f "$DB_FILE" ]; then

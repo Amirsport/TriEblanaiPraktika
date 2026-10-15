@@ -4,12 +4,17 @@
 #   1) собирает архив проекта (без .git, .venv, базы и прочего лишнего);
 #   2) копирует его на сервер по scp и распаковывает в /opt/greenhouse;
 #   3) запускает там _setup_vps.sh: PostgreSQL, служба сервера, nginx, сертификат;
-#   4) по ключу -Sqlite дополнительно переносит базу SQLite (историю теплицы,
-#      аккаунты, игры) в PostgreSQL на сервере.
+#   4) переносит данные: по ключу -Sqlite — из базы SQLite, по ключу -PgDump —
+#      дампом PostgreSQL. Живая база проекта уже PostgreSQL (аккаунты, журналы
+#      матчей, персонажи с портретами), поэтому для неё нужен -PgDump.
 #
 # Примеры:
 #   powershell -ExecutionPolicy Bypass -File _upload_to_vps.ps1 -Server 203.0.113.10 `
 #       -Domain ai-parnik.ru -Email me@example.com -Sqlite data\greenhouse.sqlite3
+#
+#   # живая база PostgreSQL: дамп снимается на этой машине и восстанавливается на сервере
+#   powershell -ExecutionPolicy Bypass -File _upload_to_vps.ps1 -Server 203.0.113.10 `
+#       -Domain ai-parnik.ru -Email me@example.com -PgDump -Dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse"
 #
 #   # несколько доменов на одном сервере (панель и отдельный api.)
 #   ... -Domain ai-parnik.ru,api.ai-parnik.ru -Email me@example.com
@@ -30,6 +35,9 @@ param(
     [string[]]$Domain = @(),
     [string]$Email = '',
     [string]$Sqlite = '',
+    [switch]$PgDump,
+    [string]$Dsn = '',
+    [string]$PgDumpPath = '',
     [string]$RemoteRoot = '/opt/greenhouse',
     [switch]$SkipApt,
     [switch]$NoNginx,
@@ -41,12 +49,28 @@ $repo = Split-Path -Parent $MyInvocation.MyCommand.Path
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $archive = Join-Path $env:TEMP "greenhouse-$stamp.tar.gz"
 $remoteArchive = "/tmp/greenhouse-$stamp.tar.gz"
+$dumpFile = Join-Path $env:TEMP "greenhouse-dump-$stamp.sql"
+$remoteDump = "/tmp/greenhouse-dump-$stamp.sql"
 $target = "$User@$Server"
 
 function Require-Tool([string]$name) {
     $command = Get-Command $name -ErrorAction SilentlyContinue
     if (-not $command) { throw "Не найдена программа $name" }
     return $command.Source
+}
+
+# pg_dump в PATH есть не всегда (у PostgreSQL свой каталог bin), поэтому ищем и там.
+function Find-PgDump([string]$explicit) {
+    if ($explicit) {
+        if (-not (Test-Path $explicit)) { throw "Не найден pg_dump по пути $explicit" }
+        return $explicit
+    }
+    $command = Get-Command 'pg_dump.exe' -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+    $found = Get-ChildItem "$env:ProgramFiles\PostgreSQL" -Filter 'pg_dump.exe' -Recurse `
+        -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1
+    if ($found) { return $found.FullName }
+    throw 'Не найден pg_dump.exe: укажите -PgDumpPath (например, C:\Program Files\PostgreSQL\17\bin\pg_dump.exe)'
 }
 
 $tar = Require-Tool 'tar.exe'
@@ -79,22 +103,59 @@ foreach ($name in $domains) { $setupArgs += "--domain $name" }
 if ($Email) { $setupArgs += "--email $Email" }
 if ($SkipApt) { $setupArgs += '--skip-apt' }
 if ($NoNginx) { $setupArgs += '--no-nginx' }
-if ($Sqlite) { $setupArgs += "--db $RemoteRoot/data/greenhouse.sqlite3" }
+if ($Sqlite -and -not $PgDump) { $setupArgs += "--db $RemoteRoot/data/greenhouse.sqlite3" }
+if ($PgDump) { $setupArgs += "--dump $remoteDump" }
 
 $remoteSetup = "$RemoteRoot/_setup_vps.sh"
+
+# Источник данных проверяем до установки: ошибка в пути к базе или в строке
+# подключения должна всплывать сразу, а не после установки пакетов.
+$sqlitePath = ''
+if ($Sqlite -and -not $PgDump) {
+    $sqlitePath = (Resolve-Path $Sqlite).Path
+    if (-not (Test-Path $sqlitePath)) { throw "Не найдена база $sqlitePath" }
+}
+# Дамп снимаем и в -DryRun: так видно, что источник отвечает, и сколько он весит.
+if ($PgDump) {
+    # Источник: -Dsn, иначе переменная окружения, иначе файл data\dsn.txt
+    # (каталог data\ в репозиторий не попадает, поэтому пароль там и лежит).
+    $source = $Dsn
+    if (-not $source) { $source = $env:GREENHOUSE_DSN }
+    if (-not $source) {
+        $dsnFile = Join-Path $repo 'data\dsn.txt'
+        if (Test-Path $dsnFile) { $source = (Get-Content $dsnFile -Raw).Trim() }
+    }
+    if (-not $source) {
+        throw 'Не указан источник данных: -Dsn, GREENHOUSE_DSN или файл data\dsn.txt'
+    }
+    $pgDumpExe = Find-PgDump $PgDumpPath
+    Write-Output 'Снимаю дамп PostgreSQL...'
+    # --clean --if-exists: повторный прогон перезаливает таблицы, а не спотыкается
+    # о существующие. Владельцев сохраняем: роль greenhouse создаётся установщиком
+    # с тем же именем, поэтому таблицы сразу принадлежат приложению.
+    & $pgDumpExe --clean --if-exists --format=plain --file $dumpFile $source
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $dumpFile)) {
+        throw 'pg_dump не смог снять дамп: проверьте строку подключения -Dsn'
+    }
+    Write-Output ("Дамп: {0:N1} МБ ({1})" -f ((Get-Item $dumpFile).Length / 1MB), $source)
+}
 
 Write-Output ''
 Write-Output 'Будет выполнено на сервере:'
 Write-Output ("  1) mkdir -p {0} && tar -xzf {1} -C {0}" -f $RemoteRoot, $remoteArchive)
-if ($Sqlite) {
-    Write-Output ("  2) копирование {0} в {1}/data/greenhouse.sqlite3" -f $Sqlite, $RemoteRoot)
+if ($sqlitePath) {
+    Write-Output ("  2) копирование {0} в {1}/data/greenhouse.sqlite3" -f $sqlitePath, $RemoteRoot)
+}
+if ($PgDump) {
+    Write-Output ("  2) копирование дампа в {0}" -f $remoteDump)
 }
 Write-Output ("  3) bash {0} {1}" -f $remoteSetup, ($setupArgs -join ' '))
 
 if ($DryRun) {
     Write-Output ''
     Write-Output 'Режим -DryRun: на сервер ничего не отправлено.'
-    Remove-Item $archive -Force
+    Remove-Item $archive -Force -ErrorAction SilentlyContinue
+    Remove-Item $dumpFile -Force -ErrorAction SilentlyContinue
     exit 0
 }
 
@@ -110,12 +171,16 @@ Write-Output 'Готовлю проект на сервере...'
 # на Windows, bash отказался бы работать с «\r» в конце строк.
 & $ssh @sshArgs $target "mkdir -p '$RemoteRoot' && tar -xzf '$remoteArchive' -C '$RemoteRoot' && sed -i 's/\r$//' '$remoteSetup' && chmod +x '$remoteSetup'"
 
-if ($Sqlite) {
-    $dbPath = (Resolve-Path $Sqlite).Path
-    if (-not (Test-Path $dbPath)) { throw "Не найдена база $dbPath" }
+if ($sqlitePath) {
     Write-Output 'Копирую базу SQLite для переноса...'
     & $ssh @sshArgs $target "mkdir -p '$RemoteRoot/data'"
-    & $scp @sshArgs $dbPath "${target}:$RemoteRoot/data/greenhouse.sqlite3"
+    & $scp @sshArgs $sqlitePath "${target}:$RemoteRoot/data/greenhouse.sqlite3"
+}
+
+if ($PgDump) {
+    Write-Output 'Копирую дамп базы...'
+    & $ssh @sshArgs $target "rm -f '$remoteDump'"
+    & $scp @sshArgs $dumpFile "${target}:$remoteDump"
 }
 
 # ------------------------------------------------------------------ 3. установка
@@ -125,8 +190,9 @@ Write-Output ''
 $code = $LASTEXITCODE
 
 Write-Output ''
-& $ssh @sshArgs $target "rm -f '$remoteArchive'"
+& $ssh @sshArgs $target "rm -f '$remoteArchive' '$remoteDump'"
 Remove-Item $archive -Force -ErrorAction SilentlyContinue
+Remove-Item $dumpFile -Force -ErrorAction SilentlyContinue
 
 if ($code -ne 0) {
     Write-Output "Установка завершилась с кодом $code."
