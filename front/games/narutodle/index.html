@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
   <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=16">
+  <link rel="stylesheet" href="../../css/main.css?v=17">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -61,21 +61,25 @@
     .guess-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     .guess-form label { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; }
 
-    /* Выпадающий список персонажей: аватар и имя, отбор по введённым буквам. */
+    /* Выпадающий список персонажей: узкая панель по центру под полем ввода,
+       крупные карточки с портретом и именем, отбор по введённым буквам. */
     .combo { position: relative; display: block; }
     .combo-list {
-      position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px);
-      max-height: 268px; overflow-y: auto; padding: 6px;
-      border-radius: var(--radius-sm); border: 1px solid var(--accent);
+      position: absolute; z-index: 30; top: calc(100% + 6px);
+      left: 50%; transform: translateX(-50%);
+      width: min(560px, 100%); max-height: 336px; overflow-y: auto; padding: 8px;
+      border-radius: 14px; border: 1px solid var(--accent);
       background: var(--surface-solid); box-shadow: var(--shadow);
     }
     .combo-item {
-      display: flex; align-items: center; gap: 10px; width: 100%;
-      padding: 7px 9px; border: 0; border-radius: 9px; background: transparent;
-      color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+      display: flex; align-items: center; gap: 12px; width: 100%;
+      padding: 10px 12px; border: 0; border-radius: 12px; background: transparent;
+      color: var(--text); font: inherit; font-size: 15.5px; text-align: left; cursor: pointer;
     }
     .combo-item:hover, .combo-item.active { background: var(--accent-soft); }
-    .combo-empty { padding: 8px 10px; font-size: 13px; color: var(--text-dim); }
+    /* Портрет в карточке крупнее, чем в таблице: по нему выбирают персонажа. */
+    .combo-item .avatar { width: 42px; height: 42px; border-radius: 12px; font-size: 15px; }
+    .combo-empty { padding: 10px; font-size: 13.5px; color: var(--text-dim); text-align: center; }
 
     /* Стихии показываем знаком стихии на её цвете: 火 風 水 土 雷. Слово
        остаётся в подсказке, поэтому графа читается и без знания знаков. */
@@ -98,6 +102,12 @@
       border: 1px solid var(--border); background: var(--surface-solid); white-space: nowrap;
     }
     .board td.who { font-weight: 600; }
+    /* Стрелка-подсказка у «первой арки»: куда смотреть — раньше или позже. */
+    .board td .hint-arrow {
+      margin-left: 7px; font-size: 14px; font-weight: 700; line-height: 1;
+      color: var(--text);
+    }
+    .board td .cell-value { vertical-align: middle; }
     .board td.match { background: rgba(46, 160, 67, 0.20); border-color: rgba(46, 160, 67, 0.45); }
     .board td.near  { background: rgba(229, 167, 44, 0.22); border-color: rgba(229, 167, 44, 0.50); }
     .board td.miss  { background: rgba(130, 130, 140, 0.14); color: var(--text-dim); }
@@ -144,8 +154,23 @@
     .result.lose { border-left-color: var(--danger); }
     .result h2 { font-family: 'Playfair Display', Georgia, serif; font-size: 21px; }
     .answer-name { font-size: 17px; font-weight: 600; }
-    .answer-attrs { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); }
-    .answer-attrs span { padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); }
+
+    /* Графы ответа — ровной сеткой: карточки одной ширины, подпись сверху,
+       значение снизу. «Таблетки» разной длины делали строку рваной. На широком
+       экране четыре колонки (семь граф ложатся как 4 + 3), на узком — две. */
+    .answer-attrs { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    @media (min-width: 720px) {
+      .answer-attrs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    .answer-attrs .attr-card {
+      display: flex; flex-direction: column; gap: 3px; min-width: 0;
+      padding: 9px 12px; border-radius: 12px; background: var(--accent-soft);
+    }
+    .answer-attrs .attr-card i {
+      font-style: normal; font-size: 11px; letter-spacing: 0.3px;
+      text-transform: uppercase; color: var(--text-dim);
+    }
+    .answer-attrs .attr-card b { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
 
     .waiting { display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 13.5px; }
     .spinner {
@@ -873,6 +898,27 @@
       return escapeHtml(Array.isArray(value) ? value.join(', ') : value);
     }
 
+    /* Разбор ответа: ровная сетка «графа — значение». Раньше это были
+       «таблетки» разной ширины, и строка выглядела рваной. */
+    function answerAttrsHtml(answer) {
+      if (!answer) return '';
+      return catalog.attributes.map((attribute) => {
+        const value = answer[attribute.key];
+        return '<span class="attr-card"><i>' + escapeHtml(attribute.label) + '</i><b>'
+          + attributeValueHtml(attribute, value) + '</b></span>';
+      }).join('');
+    }
+
+    /* Стрелка после первой арки: подсказка, в какую сторону искать загадку.
+       Пусто, когда арка угадана или подсказку дать нельзя. */
+    function hintHtml(hint) {
+      if (hint !== 'earlier' && hint !== 'later') return '';
+      const earlier = hint === 'earlier';
+      const title = earlier ? 'Загаданная арка раньше этой' : 'Загаданная арка позже этой';
+      return '<span class="hint-arrow" title="' + title + '" aria-label="' + title + '">'
+        + (earlier ? '↑' : '↓') + '</span>';
+    }
+
     function renderAttempts(table, attempts) {
       if (!attempts || !attempts.length || !catalog.attributes.length) {
         table.innerHTML = '';
@@ -884,7 +930,8 @@
         const cells = attempt.result.map((row) => {
           const value = Array.isArray(row.value) ? row.value.join(', ') : row.value;
           const shown = row.key === 'nature' ? natureHtml(row.value) : escapeHtml(value);
-          return '<td class="' + row.state + '">' + shown + '</td>';
+          return '<td class="' + row.state + '"><span class="cell-value">' + shown
+            + '</span>' + hintHtml(row.hint) + '</td>';
         }).join('');
         return '<tr class="' + (attempt.correct ? 'correct' : '') + '">'
           + '<td class="who"><span class="who-line">' + avatarHtml(attempt.name)
@@ -950,13 +997,7 @@
         : (winner === 'rival' ? 'Раунд за соперником' : 'Ничья');
       $('#result-name').textContent = state.answer ? state.answer.name : '—';
       $('#result-avatar').innerHTML = state.answer ? avatarHtml(state.answer.name, 'avatar-lg') : '';
-      $('#result-attrs').innerHTML = state.answer
-        ? catalog.attributes.map((attribute) => {
-            const value = state.answer[attribute.key];
-            return '<span>' + escapeHtml(attribute.label) + ': '
-              + attributeValueHtml(attribute, value) + '</span>';
-          }).join('')
-        : '';
+      $('#result-attrs').innerHTML = answerAttrsHtml(state.answer);
       $('#result-text').textContent = state.finish_reason === 'gave_up'
         ? 'Раунд закончился сдачей одного из игроков.'
         : 'Попыток: у вас ' + state.you.guess_count + ', у соперника '
@@ -1180,13 +1221,7 @@
         $('#watch-result-name').textContent = data.answer ? data.answer.name : '—';
         $('#watch-result-avatar').innerHTML = data.answer
           ? avatarHtml(data.answer.name, 'avatar-lg') : '';
-        $('#watch-result-attrs').innerHTML = data.answer
-          ? catalog.attributes.map((attribute) => {
-              const value = data.answer[attribute.key];
-              return '<span>' + escapeHtml(attribute.label) + ': '
-                + attributeValueHtml(attribute, value) + '</span>';
-            }).join('')
-          : '';
+        $('#watch-result-attrs').innerHTML = answerAttrsHtml(data.answer);
         $('#watch-result-text').textContent = data.finish_reason === 'gave_up'
           ? 'Один из игроков сдался, не дожидаясь разгадки.'
           : 'Оба искали одного и того же персонажа.';

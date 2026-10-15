@@ -25,9 +25,17 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 try:  # запуск как модуль: python -m backend.server
-    from .narutodle_data import CHARACTERS, UNKNOWN, attribute_list, portrait_ref, public_character
+    from .narutodle_data import (
+        ARCS,
+        CHARACTERS,
+        UNKNOWN,
+        attribute_list,
+        portrait_ref,
+        public_character,
+    )
 except ImportError:  # запуск как файл: python backend/server.py
     from narutodle_data import (  # type: ignore
+        ARCS,
         CHARACTERS,
         UNKNOWN,
         attribute_list,
@@ -83,6 +91,25 @@ def compare_attribute(key: str, guess: Any, target: Any, multi: bool = False) ->
     if key in ("kekkei", "jinchuriki") and _has_value(guess) and _has_value(target):
         return "near"
     return "miss"
+
+
+def compare_order(key: str, guess: Any, target: Any) -> str:
+    """Куда смотреть по упорядоченной графе: раньше или позже загадка.
+
+    Арки идут по сюжету, поэтому у «первой арки» есть направление: игрок видит
+    стрелку, а не просто «не совпало». Пусто — когда графа не упорядочена,
+    значения неизвестны или совпали.
+    """
+    if key != "debut":
+        return ""
+    try:
+        guess_index = ARCS.index(guess)
+        target_index = ARCS.index(target)
+    except ValueError:
+        return ""
+    if guess_index == target_index:
+        return ""
+    return "earlier" if target_index < guess_index else "later"
 
 
 class Narutodle:
@@ -463,6 +490,11 @@ class Narutodle:
                                                character[attribute["key"]],
                                                target[attribute["key"]],
                                                bool(attribute.get("multi"))),
+                    # Стрелка «нужная арка раньше/позже» — пустая строка, когда
+                    # подсказка не нужна (графа не упорядочена или совпала).
+                    "hint": compare_order(attribute["key"],
+                                          character[attribute["key"]],
+                                          target[attribute["key"]]),
                 }
                 for attribute in attribute_list()
             ]

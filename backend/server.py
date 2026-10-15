@@ -690,6 +690,13 @@ class Application:
 class Handler(BaseHTTPRequestHandler):
     server_version = "GreenhouseServer/2.0"
     protocol_version = "HTTP/1.1"
+    # Тело запроса читается один раз (см. _read_body) и сбрасывается на каждом
+    # запросе: соединение остаётся живым и обслуживает следующий запрос.
+    _raw_body: Optional[bytes] = None
+
+    def handle_one_request(self) -> None:
+        self._raw_body = None
+        super().handle_one_request()
 
     @property
     def app(self) -> Application:
@@ -749,11 +756,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._error("Портрет повреждён", 500)
         return self._image(body, mime, 86400)
 
+    def _read_body(self) -> bytes:
+        """Читает тело запроса один раз и держит его до конца обработки.
+
+        Тело нельзя оставлять непрочитанным: Windows при закрытии сокета с
+        непрочитанными данными отвечает RST, и клиент теряет уже отправленный
+        ответ — например, POST на создание комнаты приходит с телом `{}`, а этот
+        обработчик тело не читает. Запрос отвечал 201, но клиент видел обрыв.
+        """
+        if self._raw_body is None:
+            length = int(self.headers.get("Content-Length") or 0)
+            self._raw_body = self.rfile.read(length) if length else b""
+        return self._raw_body
+
     def _body(self) -> Dict[str, Any]:
-        length = int(self.headers.get("Content-Length") or 0)
-        if not length:
+        raw = self._read_body()
+        if not raw:
             return {}
-        raw = self.rfile.read(length)
         try:
             data = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -782,6 +801,7 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
+        self._read_body()
         path = urlparse(self.path).path
         if path.startswith("/api/"):
             self._handle_api("POST", path)
@@ -789,6 +809,7 @@ class Handler(BaseHTTPRequestHandler):
             self._error("Только API принимает POST", 405)
 
     def do_DELETE(self) -> None:  # noqa: N802
+        self._read_body()
         path = urlparse(self.path).path
         if path.startswith("/api/"):
             self._handle_api("DELETE", path)
