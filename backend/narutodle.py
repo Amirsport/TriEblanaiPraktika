@@ -233,6 +233,9 @@ class Narutodle:
             player["attempts"] = []
             player["solved_in"] = None
             player["gave_up"] = False
+            player["ready"] = False
+        # Отметки готовности относятся к прошлому раунду: новый начинается с нуля.
+        room["ready"] = set()
         room["updated"] = now
 
     def _finish_round(self, room: Dict[str, Any], now: float,
@@ -329,6 +332,7 @@ class Narutodle:
                 "guess_count": len(player["attempts"]),
                 "solved_in": player["solved_in"],
                 "gave_up": player["gave_up"],
+                "ready": bool(finished and player["id"] in room["ready"]),
                 "attempts": player["attempts"],
             })
 
@@ -381,10 +385,16 @@ class Narutodle:
             else:
                 winner = "you" if round_["winner"] == user["id"] else "rival"
 
+        # Готовность к новому раунду: свой флаг и соперника — по ним страница
+        # показывает «ждём соперника» вместо кнопки «Ещё раунд».
+        ready = {"you": user["id"] in room["ready"] and finished,
+                 "rival": bool(rival) and rival["id"] in room["ready"] and finished}
+
         return {
             "code": room["code"],
             "status": status,
             "round": round_["number"],
+            "ready": ready,
             "you": {
                 "name": viewer["name"],
                 "attempts": viewer["attempts"],
@@ -432,10 +442,11 @@ class Narutodle:
                 "updated": now,
                 "players": {user["id"]: {
                     "id": user["id"], "name": user["username"],
-                    "attempts": [], "solved_in": None, "gave_up": False,
+                    "attempts": [], "solved_in": None, "gave_up": False, "ready": False,
                 }},
                 "history": [],
                 "round": None,
+                "ready": set(),
             }
             self._start_round(room, now)
             self._rooms[code] = room
@@ -454,7 +465,7 @@ class Narutodle:
                     raise NarutodleError("Дуэль в этой комнате уже началась")
                 room["players"][user["id"]] = {
                     "id": user["id"], "name": user["username"],
-                    "attempts": [], "solved_in": None, "gave_up": False,
+                    "attempts": [], "solved_in": None, "gave_up": False, "ready": False,
                 }
             room["updated"] = now
             return self._payload(room, user)
@@ -532,16 +543,27 @@ class Narutodle:
             return self._payload(room, user)
 
     def rematch(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
-        """Начинает новый раунд после итога (игрок может нажать в любой момент)."""
+        """Игрок готов к новому раунду; раунд начинается, когда готовы оба.
+
+        Иначе выходило так: один нажал «Ещё раунд» и уже угадывает, пока второй
+        дочитывает итог прошлого. Теперь нажатие — это только «готов», а загадка
+        выдаётся, когда отметились оба участника.
+        """
         now = time.time()
         with self._lock:
             self._cleanup(now)
             room = self._room(code)
-            self._player(room, user)
+            player = self._player(room, user)
             if not room["round"]["finished"]:
                 raise NarutodleError("Раунд ещё идёт")
-            self.refresh()
-            self._start_round(room, now, exclude=room["round"]["target"]["name"])
+            room["ready"].add(user["id"])
+            player["ready"] = True
+            present = set(room["players"])
+            # Раунд на двоих: ждём всех, кто сидит в комнате, и только вдвоём.
+            if len(present) >= MAX_PLAYERS and present <= room["ready"]:
+                self.refresh()
+                self._start_round(room, now, exclude=room["round"]["target"]["name"])
+            room["updated"] = now
             return self._payload(room, user)
 
     def stats(self) -> Dict[str, int]:

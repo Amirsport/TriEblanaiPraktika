@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
   <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=17">
+  <link rel="stylesheet" href="../../css/main.css?v=18">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -910,13 +910,14 @@
     }
 
     /* Стрелка после первой арки: подсказка, в какую сторону искать загадку.
-       Пусто, когда арка угадана или подсказку дать нельзя. */
+       Раньше — вниз, позже — вверх (стрелка показывает, где искать, а не куда
+       двигаться по списку). Пусто, когда арка угадана или подсказку дать нельзя. */
     function hintHtml(hint) {
       if (hint !== 'earlier' && hint !== 'later') return '';
       const earlier = hint === 'earlier';
       const title = earlier ? 'Загаданная арка раньше этой' : 'Загаданная арка позже этой';
       return '<span class="hint-arrow" title="' + title + '" aria-label="' + title + '">'
-        + (earlier ? '↑' : '↓') + '</span>';
+        + (earlier ? '↓' : '↑') + '</span>';
     }
 
     function renderAttempts(table, attempts) {
@@ -1028,8 +1029,17 @@
       show('#give-up', !finished);
       show('#rematch', finished);
       $('#guess-submit').disabled = finished;
+
+      /* Новый раунд начинается, когда готовы оба игрока: нажавший видит
+         ожидание, а не поле для догадки, иначе он угадывал бы один. */
+      const ready = state.ready || { you: false, rival: false };
+      renderRematch(ready);
       $('#guess-hint').textContent = finished
-        ? 'Раунд закончен — можно начать новый.'
+        ? (ready.you
+            ? 'Ждём соперника: раунд начнётся, когда он тоже нажмёт «Ещё раунд».'
+            : (ready.rival
+                ? 'Соперник уже готов — нажмите «Ещё раунд», и раунд начнётся.'
+                : 'Раунд закончен — можно начать новый.'))
         : ('В наборе ' + catalog.characters.length + ' персонажей: подсказка появится при вводе.');
 
       if (finished) {
@@ -1042,6 +1052,20 @@
       } else {
         show('#result-card', false);
       }
+    }
+
+    /* Кнопки «Ещё раунд»: пока игрок ждёт соперника, они выключены, а на
+       большой кнопке видно, чего именно ждём. */
+    function renderRematch(ready) {
+      const waiting = Boolean(ready.you) && !ready.rival;
+      const text = !ready.you ? 'Ещё раунд'
+        : (ready.rival ? 'Начать раунд' : 'Ждём соперника…');
+      ['#rematch', '#rematch-2'].forEach((selector) => {
+        const button = $(selector);
+        if (!button) return;
+        button.disabled = waiting;
+        button.textContent = text;
+      });
     }
 
     function renderScreen() {
@@ -1177,7 +1201,7 @@
 
     function watchHint(status) {
       if (status === 'waiting') return 'Соперник ещё не подключился — ссылку можно отправить друзьям.';
-      if (status === 'finished') return 'Раунд закончен. Новый начнут игроки — вы увидите его здесь.';
+      if (status === 'finished') return 'Раунд закончен. Новый начнётся, когда оба игрока нажмут «Ещё раунд» — вы увидите его здесь.';
       return 'Загадка откроется после раунда: до этого её не видит никто, даже зрители.';
     }
 
@@ -1208,6 +1232,7 @@
         const bits = ['попыток: ' + player.guess_count];
         if (player.solved_in) bits.push('угадал с ' + player.solved_in + '-й попытки');
         if (player.gave_up) bits.push('сдался');
+        if (player.ready) bits.push('готов к новому раунду');
         if (data.rounds) bits.push('побед: ' + player.wins);
         $('#watch-badge-' + place).textContent = bits.join(' · ');
         renderAttempts($('#watch-board-' + place), player.attempts);
@@ -1393,8 +1418,14 @@
         const data = await api(GAME + '/rooms/' + state.code + '/rematch', { method: 'POST' });
         state = data.state;
         renderScreen();
+        /* Опрашиваем часто в обоих случаях: если отметка ушла и ждём второго
+           игрока, новый раунд должен начаться сразу, как он нажмёт. */
         schedulePoll(POLL_PLAYING_MS);
-        $('#guess-input').focus();
+        if (state.status === 'finished') {
+          toast('Ждём соперника — раунд начнётся, когда он тоже будет готов');
+        } else {
+          $('#guess-input').focus();
+        }
       } catch (error) {
         if (error.status === 401) sessionExpired();
         else toast(error.message, 'warn');
