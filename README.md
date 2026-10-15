@@ -881,8 +881,28 @@ backend  →  домашний ПК: PostgreSQL + Arduino, наружу чере
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -KeepAlive   # с автоподключением
-   powershell -ExecutionPolicy Bypass -File _tunnel_stop.ps1             # остановить туннель
+   powershell -ExecutionPolicy Bypass -File _tunnel_stop.ps1             # остановить туннель и сервер
    ```
+
+   **Сервер теплицы скрипт держит сам.** Туннель без сервера ведёт в пустоту:
+   запросы снаружи получают 502, а сайт «не открывается». Поэтому перед
+   подключением и во время работы скрипт проверяет порт и, если сервера нет,
+   поднимает `backend/server.py` заново — параметры подключения берутся из
+   `-Dsn`/`-Token`, переменных окружения `GREENHOUSE_DSN`/`GREENHOUSE_TOKEN`
+   или файлов `data/dsn.txt` и `data/api-key.txt`:
+
+   ```powershell
+   Set-Content data\dsn.txt 'postgresql://greenhouse:пароль@localhost:5432/greenhouse' -Encoding UTF8
+   Set-Content data\api-key.txt 'ключ-панели' -Encoding UTF8
+   ```
+
+   Свой сервер, запущенный вручную, скрипт не трогает: процесс поднимается,
+   только когда порт молчит. Запущенные им PID-ы лежат в `data/server.pid`, и
+   `_tunnel_stop.ps1` останавливает их вместе с туннелем (`-KeepServer` —
+   оставить сервер, `-NoServer` — не следить за ним вовсе).
+   Важно: скрипт живёт, пока открыт его процесс. Перезагрузка компьютера или
+   закрытие окна останавливает и туннель, и сервер — тогда сайт недоступен, пока
+   всё не запустят снова (см. «Свой сервер вместо домашнего компьютера» ниже).
 
    В анонимном режиме localhost.run выдаёт случайный адрес вида `<hex>.lhr.life`
    и обрывает сессию каждые несколько минут, поэтому при каждом переподключении

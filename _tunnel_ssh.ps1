@@ -25,6 +25,14 @@
 #       (нужно, когда панель должна оставаться на связи долго).
 # Окно ssh.exe всегда скрыто, чтобы ничего не всплывало поверх других программ.
 #
+# Сервер теплицы: скрипт следит и за ним. Перед поднятием туннеля и во время
+# работы он проверяет порт и, если сервера нет, поднимает backend/server.py
+# (параметры подключения — -Dsn и -Token, переменные GREENHOUSE_DSN и
+# GREENHOUSE_TOKEN, а если их нет, файлы data/dsn.txt и data/api-key.txt).
+# Без сервера туннель ведёт в пустоту и сайт не открывается. Отключить слежение:
+# -NoServer. Свой сервер скрипт не трогает: он поднимает процесс, только когда
+# порт молчит.
+#
 # Запуск:
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1
 #   powershell -ExecutionPolicy Bypass -File _tunnel_ssh.ps1 -KeepAlive
@@ -38,6 +46,10 @@ param(
     [string]$RemoteUserHost = 'localhost.run',
     [string]$SshPath = "$env:SystemRoot\System32\OpenSSH\ssh.exe",
     [string]$UrlPattern = 'https://[a-z0-9-]+\.lhr\.(?:life|rocks)',
+    [string]$Dsn = $env:GREENHOUSE_DSN,
+    [string]$Token = $env:GREENHOUSE_TOKEN,
+    [string]$AdminPassword = $env:GREENHOUSE_ADMIN_PASSWORD,
+    [switch]$NoServer,
     [switch]$KeepAlive,
     [switch]$ShowWindow
 )
@@ -46,6 +58,9 @@ $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $urlFile = Join-Path $root 'data\tunnel-url.txt'
 $pidFile = Join-Path $root 'data\tunnel.pid'
+$serverPidFile = Join-Path $root 'data\server.pid'
+$dsnFile = Join-Path $root 'data\dsn.txt'
+$keyFile = Join-Path $root 'data\api-key.txt'
 $logFile = Join-Path $env:TEMP 'ssh-tunnel.log'
 $attemptLog = Join-Path $env:TEMP 'tunnel-ssh-attempts.log'
 $deadline = (Get-Date).AddHours($MaxHours)
@@ -69,8 +84,69 @@ function Get-TunnelUrl([string]$logFile) {
     return $null
 }
 
+# Значение из параметра, переменной окружения или файла с секретом в data/.
+function Read-Setting([string]$value, [string]$file) {
+    if ($value) { return $value }
+    if (Test-Path $file) { return (Get-Content $file -Raw).Trim() }
+    return ''
+}
+
 # Проверяем не журнал, а реальный ответ: 200 с ключом или 401 без него значат,
 # что запрос дошёл до сервера теплицы.
+function Test-ServerUp([int]$serverPort) {
+    $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
+    if (-not (Test-Path $curl)) {
+        try {
+            $client = New-Object System.Net.Sockets.TcpClient
+            $client.Connect('127.0.0.1', $serverPort)
+            $client.Close()
+            return $true
+        } catch {
+            return $false
+        }
+    }
+    $code = & $curl -sS -m 10 -o NUL -w '%{http_code}' "http://127.0.0.1:$serverPort/api/health" 2>$null
+    return ($code -eq '200' -or $code -eq '401')
+}
+
+function Start-GreenhouseServer([int]$serverPort) {
+    $python = Join-Path $root '.venv\Scripts\python.exe'
+    if (-not (Test-Path $python)) { $python = 'python' }
+    $serverArgs = @('backend/server.py', '--host', '127.0.0.1', '--port', $serverPort)
+    if ($Dsn) { $serverArgs += @('--dsn', $Dsn) }
+    if ($Token) { $serverArgs += @('--token', $Token) }
+    if ($AdminPassword) { $serverArgs += @('--admin-password', $AdminPassword) }
+    $process = Start-Process -FilePath $python -ArgumentList $serverArgs -WorkingDirectory $root `
+        -PassThru -WindowStyle Hidden
+    # python.exe из .venv — это трамплин: рядом поднимается настоящий
+    # интерпретатор. Запоминаем оба, иначе при остановке останется висеть
+    # процесс, который держит порт.
+    Start-Sleep -Seconds 2
+    $ids = @([int]$process.Id)
+    Get-CimInstance Win32_Process -Filter "ParentProcessId=$($process.Id)" -ErrorAction SilentlyContinue |
+        ForEach-Object { $ids += [int]$_.ProcessId }
+    @{ server = $ids; started = (Get-Date).ToString('s') } |
+        ConvertTo-Json -Compress | Set-Content -Path $serverPidFile -Encoding UTF8
+    Write-Attempt "сервер теплицы запущен: PID $($ids -join ', ')"
+}
+
+# Сервер нужен живому туннелю: без него запросы доходят до 502, а панель
+# на сайте просто не открывается. Возвращает $true, когда порт отвечает.
+function Ensure-Server([int]$serverPort) {
+    if (Test-ServerUp $serverPort) { return $true }
+    Start-GreenhouseServer $serverPort
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Milliseconds 1000
+        if (Test-ServerUp $serverPort) {
+            Write-Attempt "сервер теплицы отвечает: http://127.0.0.1:$serverPort/"
+            return $true
+        }
+    }
+    Write-Attempt 'сервер теплицы не поднялся: проверьте базу, ключ и порт'
+    return $false
+}
+
+# Туннель считается рабочим, только если запрос доходит до сервера теплицы.
 function Test-TunnelServes([string]$tunnelUrl) {
     if (-not $tunnelUrl) { return $false }
     $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
@@ -97,6 +173,18 @@ function Publish-Address([string]$Address) {
 }
 
 Write-Attempt "старт: режим $mode, порт $Port, предел $MaxHours ч, журнал $attemptLog"
+
+# Параметры сервера: параметры скрипта, переменные окружения, файлы в data/.
+$Dsn = Read-Setting $Dsn $dsnFile
+$Token = Read-Setting $Token $keyFile
+if ($NoServer) {
+    Write-Attempt 'за сервером теплицы не слежу (-NoServer)'
+} elseif (Ensure-Server $Port) {
+    Write-Attempt 'сервер теплицы на связи'
+} else {
+    Write-Attempt 'туннель подниму всё равно: сервер можно запустить отдельно'
+}
+
 @{ script = $PID; started = (Get-Date).ToString('s'); mode = $mode } |
     ConvertTo-Json -Compress | Set-Content -Path $pidFile -Encoding UTF8
 
@@ -149,14 +237,20 @@ while ((Get-Date) -lt $deadline) {
                 break
             }
             $probe++
-            if ($probe % 2 -eq 0 -and -not (Test-TunnelServes $url)) {
-                if ($KeepAlive) {
-                    Write-Attempt 'ответы через туннель перестали проходить, переподключаюсь'
-                } else {
-                    Write-Attempt 'ответы через туннель перестали проходить (одиночный режим: перезапуска нет)'
+            if ($probe % 2 -eq 0) {
+                if (-not $NoServer -and -not (Test-ServerUp $Port)) {
+                    Write-Attempt 'сервер теплицы перестал отвечать, поднимаю заново'
+                    Ensure-Server $Port | Out-Null
+                }
+                if (-not (Test-TunnelServes $url)) {
+                    if ($KeepAlive) {
+                        Write-Attempt 'ответы через туннель перестали проходить, переподключаюсь'
+                    } else {
+                        Write-Attempt 'ответы через туннель перестали проходить (одиночный режим: перезапуска нет)'
+                        break
+                    }
                     break
                 }
-                break
             }
         }
         if (-not $KeepAlive) { break }
