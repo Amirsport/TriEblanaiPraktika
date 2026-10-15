@@ -217,11 +217,13 @@ CREATE TABLE IF NOT EXISTS device_commands (
 );
 CREATE INDEX IF NOT EXISTS idx_device_commands_open ON device_commands (applied_at, id);
 
--- «87-0»: составы прошлых турниров (паки) и журнал прогонов драфт-рогалика.
--- Паки правятся владельцем сайта: карты и игроки лежат JSON-строками, чтобы
--- не заводить по таблице на каждую сущность.
+-- Драфт-рогалики («87-0» по CS, «13-0» по Valorant, «4-0» по Rocket League):
+-- составы прошлых турниров (паки) и журнал прогонов. Паки правятся владельцем
+-- сайта: карты и игроки лежат JSON-строками, чтобы не заводить по таблице на
+-- каждую сущность. Колонка game отделяет наборы паков друг от друга.
 CREATE TABLE IF NOT EXISTS csdraft_packs (
     id         TEXT    PRIMARY KEY,
+    game       TEXT    NOT NULL DEFAULT 'cs',
     team       TEXT    NOT NULL,
     event      TEXT    NOT NULL,
     year       INTEGER NOT NULL DEFAULT 0,
@@ -235,6 +237,7 @@ CREATE TABLE IF NOT EXISTS csdraft_packs (
 );
 CREATE TABLE IF NOT EXISTS csdraft_runs (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    game       TEXT    NOT NULL DEFAULT 'cs',
     username   TEXT    NOT NULL DEFAULT '',
     user_id    INTEGER,
     difficulty TEXT    NOT NULL DEFAULT 'hard',
@@ -250,7 +253,47 @@ CREATE TABLE IF NOT EXISTS csdraft_runs (
     played_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_csdraft_runs_user ON csdraft_runs (user_id, id DESC);
+
+-- «Рэп-хронология»: треки (исполнитель, название, год) и журнал партий.
+-- Год — единственное, что важно игре: по нему треки и расставляются.
+CREATE TABLE IF NOT EXISTS raporder_tracks (
+    id         TEXT    PRIMARY KEY,
+    artist     TEXT    NOT NULL DEFAULT '',
+    title      TEXT    NOT NULL DEFAULT '',
+    year       INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS raporder_matches (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode         TEXT    NOT NULL DEFAULT 'solo',
+    room         TEXT    NOT NULL DEFAULT '',
+    rounds       INTEGER NOT NULL DEFAULT 0,
+    player1_id   INTEGER,
+    player1_name TEXT    NOT NULL DEFAULT '',
+    player1_score INTEGER NOT NULL DEFAULT 0,
+    player2_id   INTEGER,
+    player2_name TEXT    NOT NULL DEFAULT '',
+    player2_score INTEGER NOT NULL DEFAULT 0,
+    winner_id    INTEGER,
+    winner_name  TEXT    NOT NULL DEFAULT '',
+    detail       TEXT    NOT NULL DEFAULT '',
+    played_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_raporder_matches_player ON raporder_matches (player1_id, id DESC);
 """
+
+# Колонки, появившиеся после первых версий базы: на старых базах их догоняет
+# ALTER TABLE (см. Database._migrate и PostgresDatabase._migrate).
+LATE_COLUMNS: Tuple[Tuple[str, str, str], ...] = (
+    ("csdraft_packs", "game", "TEXT NOT NULL DEFAULT 'cs'"),
+    ("csdraft_runs", "game", "TEXT NOT NULL DEFAULT 'cs'"),
+)
+
+# Индексы, которые зависят от поздних колонок: создаются после миграции, иначе
+# на старой базе индекс по ещё не существующей колонке оборвал бы инициализацию.
+LATE_INDEXES: Tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS idx_csdraft_packs_game ON csdraft_packs (game, era, year)",
+)
 
 
 def _iso(value: datetime) -> str:
@@ -340,6 +383,28 @@ def _run_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _rap_track(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Трек «Рэп-хронологии»: идентификатор, исполнитель, название, год."""
+    data = dict(row)
+    data["id"] = str(data.get("id") or "")
+    data["artist"] = str(data.get("artist") or "")
+    data["title"] = str(data.get("title") or "")
+    data["year"] = int(data.get("year") or 0)
+    return data
+
+
+def _rap_match(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Строка журнала партий «Рэп-хронологии»."""
+    data = dict(row)
+    data["id"] = int(data.get("id") or 0)
+    data["rounds"] = int(data.get("rounds") or 0)
+    for key in ("player1_score", "player2_score"):
+        data[key] = int(data.get(key) or 0)
+    for key in ("player1_id", "player2_id", "winner_id"):
+        data[key] = int(data[key]) if data.get(key) is not None else None
+    return data
+
+
 def _command(row: Dict[str, Any]) -> Dict[str, Any]:
     """Строка очереди команд в том виде, в каком её ждёт домашний агент."""
     data = dict(row)
@@ -372,6 +437,7 @@ class Database:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript(SCHEMA)
+            self._migrate(db)
             db.executemany(
                 "INSERT OR IGNORE INTO zones (id, name, position) VALUES (?, ?, ?)",
                 [(i, name, i) for i, name in enumerate(ZONE_NAMES, start=1)],
@@ -387,6 +453,16 @@ class Database:
                 "INSERT OR IGNORE INTO zone_devices (zone_id, name, enabled) VALUES (?, ?, 0)",
                 [(z, d) for z in range(1, ZONE_COUNT + 1) for d in DEVICES],
             )
+
+    @staticmethod
+    def _migrate(db: sqlite3.Connection) -> None:
+        """Догоняет схему на базах, созданных прошлыми версиями сервера."""
+        for table, column, definition in LATE_COLUMNS:
+            known = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+            if column not in known:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        for statement in LATE_INDEXES:
+            db.execute(statement)
 
     # ------------------------------------------------------------------ zones
     def zones(self) -> List[Dict[str, Any]]:
@@ -957,16 +1033,25 @@ class Database:
             cursor = db.execute("DELETE FROM songless_tracks WHERE anime = ?", (anime,))
             return cursor.rowcount > 0
 
-    # --------------------------------------------------------------- 87-0 (CS)
-    def csdraft_pack_count(self) -> int:
+    # ------------------------------------------------- драфт-рогалики (игры)
+    def csdraft_pack_count(self, game: Optional[str] = None) -> int:
         with self.connect() as db:
-            row = db.execute("SELECT COUNT(*) AS n FROM csdraft_packs").fetchone()
+            if game:
+                row = db.execute("SELECT COUNT(*) AS n FROM csdraft_packs WHERE game = ?",
+                                 (str(game),)).fetchone()
+            else:
+                row = db.execute("SELECT COUNT(*) AS n FROM csdraft_packs").fetchone()
         return int(row["n"])
 
-    def csdraft_packs(self) -> List[Dict[str, Any]]:
-        """Паки «87-0»: источник правды для движка игры."""
+    def csdraft_packs(self, game: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Паки одной игры (или всех): источник правды для движка драфта."""
         with self.connect() as db:
-            rows = db.execute("SELECT * FROM csdraft_packs ORDER BY era, year, id").fetchall()
+            if game:
+                rows = db.execute(
+                    "SELECT * FROM csdraft_packs WHERE game = ? ORDER BY era, year, id",
+                    (str(game),)).fetchall()
+            else:
+                rows = db.execute("SELECT * FROM csdraft_packs ORDER BY game, era, year, id").fetchall()
         return [_pack_row(dict(row)) for row in rows]
 
     def csdraft_save_packs(self, rows: Iterable[Dict[str, Any]]) -> int:
@@ -975,14 +1060,16 @@ class Database:
         with self.connect() as db:
             for row in rows:
                 db.execute(
-                    "INSERT INTO csdraft_packs (id, team, event, year, place, major, region, era, "
-                    "maps, players, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(id) DO UPDATE SET team = excluded.team, event = excluded.event, "
-                    "year = excluded.year, place = excluded.place, major = excluded.major, "
-                    "region = excluded.region, era = excluded.era, maps = excluded.maps, "
-                    "players = excluded.players, updated_at = excluded.updated_at",
+                    "INSERT INTO csdraft_packs (id, game, team, event, year, place, major, region, "
+                    "era, maps, players, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET game = excluded.game, team = excluded.team, "
+                    "event = excluded.event, year = excluded.year, place = excluded.place, "
+                    "major = excluded.major, region = excluded.region, era = excluded.era, "
+                    "maps = excluded.maps, players = excluded.players, "
+                    "updated_at = excluded.updated_at",
                     (
                         str(row.get("id") or ""),
+                        str(row.get("game") or "cs"),
                         str(row.get("team") or ""),
                         str(row.get("event") or ""),
                         int(row.get("year") or 0),
@@ -1007,10 +1094,11 @@ class Database:
         """Пишет прогон в журнал: кто играл, каким составом и чем закончилось."""
         with self.connect() as db:
             entry_id = db.execute(
-                "INSERT INTO csdraft_runs (username, user_id, difficulty, era, champion, wins, "
-                "losses, stage, rating, squad, packs, score, played_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO csdraft_runs (game, username, user_id, difficulty, era, champion, "
+                "wins, losses, stage, rating, squad, packs, score, played_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
+                    str(record.get("game") or "cs"),
                     str(record.get("username") or ""),
                     record.get("user_id"),
                     str(record.get("difficulty") or "hard"),
@@ -1029,24 +1117,125 @@ class Database:
             row = db.execute("SELECT * FROM csdraft_runs WHERE id = ?", (entry_id,)).fetchone()
         return _run_row(dict(row))
 
-    def csdraft_runs(self, user_id: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
-        """Журнал прогонов: свои или все подряд (для администратора)."""
+    def csdraft_runs(self, user_id: Optional[int] = None, limit: int = 50,
+                     game: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Журнал прогонов: свои или все подряд (для администратора), по игре или всем."""
         size = max(1, min(int(limit), 500))
+        where: List[str] = []
+        values: List[Any] = []
+        if game:
+            where.append("game = ?")
+            values.append(str(game))
+        if user_id is not None:
+            where.append("user_id = ?")
+            values.append(int(user_id))
+        condition = f" WHERE {' AND '.join(where)}" if where else ""
         with self.connect() as db:
-            if user_id is None:
-                rows = db.execute(
-                    "SELECT * FROM csdraft_runs ORDER BY id DESC LIMIT ?", (size,)
-                ).fetchall()
-            else:
-                rows = db.execute(
-                    "SELECT * FROM csdraft_runs WHERE user_id = ? ORDER BY id DESC LIMIT ?",
-                    (int(user_id), size),
-                ).fetchall()
+            rows = db.execute(
+                f"SELECT * FROM csdraft_runs{condition} ORDER BY id DESC LIMIT ?",
+                (*values, size),
+            ).fetchall()
         return [_run_row(dict(row)) for row in rows]
 
-    def csdraft_run_count(self) -> int:
+    def csdraft_run_count(self, game: Optional[str] = None) -> int:
         with self.connect() as db:
-            row = db.execute("SELECT COUNT(*) AS n FROM csdraft_runs").fetchone()
+            if game:
+                row = db.execute("SELECT COUNT(*) AS n FROM csdraft_runs WHERE game = ?",
+                                 (str(game),)).fetchone()
+            else:
+                row = db.execute("SELECT COUNT(*) AS n FROM csdraft_runs").fetchone()
+        return int(row["n"])
+
+    # ------------------------------------------- «Рэп-хронология» (порядок лет)
+    def raporder_track_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM raporder_tracks").fetchone()
+        return int(row["n"])
+
+    def raporder_tracks(self) -> List[Dict[str, Any]]:
+        """Треки: источник правды для движка игры."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id, artist, title, year FROM raporder_tracks ORDER BY year, id"
+            ).fetchall()
+        return [_rap_track(dict(row)) for row in rows]
+
+    def raporder_save_tracks(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет и обновляет треки (по идентификатору): ими правит владелец сайта."""
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                db.execute(
+                    "INSERT INTO raporder_tracks (id, artist, title, year, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET artist = excluded.artist, "
+                    "title = excluded.title, year = excluded.year, updated_at = excluded.updated_at",
+                    (
+                        str(row.get("id") or ""),
+                        str(row.get("artist") or ""),
+                        str(row.get("title") or ""),
+                        int(row.get("year") or 0),
+                        _now(),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def raporder_delete_track(self, track_id: str) -> bool:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM raporder_tracks WHERE id = ?", (str(track_id),))
+            return cursor.rowcount > 0
+
+    def raporder_add_match(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Пишет партию в журнал: кто играл, в каком режиме и чем закончилось."""
+        with self.connect() as db:
+            entry_id = db.execute(
+                "INSERT INTO raporder_matches (mode, room, rounds, player1_id, player1_name, "
+                "player1_score, player2_id, player2_name, player2_score, winner_id, winner_name, "
+                "detail, played_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(record.get("mode") or "solo"),
+                    str(record.get("room") or ""),
+                    int(record.get("rounds") or 0),
+                    record.get("player1_id"),
+                    str(record.get("player1_name") or ""),
+                    int(record.get("player1_score") or 0),
+                    record.get("player2_id"),
+                    str(record.get("player2_name") or ""),
+                    int(record.get("player2_score") or 0),
+                    record.get("winner_id"),
+                    str(record.get("winner_name") or ""),
+                    str(record.get("detail") or ""),
+                    _now(),
+                ),
+            ).lastrowid
+            row = db.execute("SELECT * FROM raporder_matches WHERE id = ?",
+                             (entry_id,)).fetchone()
+        return _rap_match(dict(row))
+
+    def raporder_matches(self, user_id: Optional[int] = None, limit: int = 50,
+                         mode: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Журнал партий: свои (как игрок или соперник) или все подряд для админа."""
+        size = max(1, min(int(limit), 500))
+        where: List[str] = []
+        values: List[Any] = []
+        if user_id is not None:
+            where.append("(player1_id = ? OR player2_id = ?)")
+            values.extend([int(user_id), int(user_id)])
+        if mode:
+            where.append("mode = ?")
+            values.append(str(mode))
+        condition = f" WHERE {' AND '.join(where)}" if where else ""
+        with self.connect() as db:
+            rows = db.execute(
+                f"SELECT * FROM raporder_matches{condition} ORDER BY id DESC LIMIT ?",
+                (*values, size),
+            ).fetchall()
+        return [_rap_match(dict(row)) for row in rows]
+
+    def raporder_match_count(self) -> int:
+        with self.connect() as db:
+            row = db.execute("SELECT COUNT(*) AS n FROM raporder_matches").fetchone()
         return int(row["n"])
 
 

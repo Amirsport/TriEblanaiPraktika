@@ -1,0 +1,1154 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light" data-palette="red">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Рэп-хронология · расставь треки по годам · Умная AI-Теплица</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#c5342b">
+  <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
+  <link rel="stylesheet" href="../../css/main.css?v=19">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* «Рэп-хронология»: расставить пять треков от старого к новому.
+       Тема та же, что у панели, в красной палитре (data-palette="red").
+
+       Как играть:
+         * в раунде пять треков разных годов; их ставят по порядку — кликом
+           по треку (в конец очереди) или стрелками в самой очереди;
+         * очки за раунд — сколько треков встало на своё место, от 0 до 5;
+         * соло — пять раундов подряд, онлайн — комната по коду на три раунда,
+           где у всех один и тот же раунд и раунд забирает лучший.
+
+       Текстов песен и аудио здесь нет: игра про хронологию, а не про слова. */
+
+    [hidden] { display: none !important; }
+
+    .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+    button.status-pill { font-family: inherit; cursor: pointer; }
+    a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
+
+    .stack { display: flex; flex-direction: column; gap: 20px; }
+    .auth-card { width: min(420px, 100%); margin: 0 auto; }
+    .auth-card h2 { text-align: center; }
+
+    /* Треки раунда: сверху те, что ещё не расставлены, снизу — очередь. */
+    .tray { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+    .track {
+      display: grid; grid-template-columns: 34px 1fr auto; gap: 10px; align-items: center;
+      padding: 10px 12px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--surface-solid);
+      font-family: inherit; color: var(--text); text-align: left; cursor: pointer;
+    }
+    .track:hover { border-color: var(--accent); }
+    .track .num {
+      width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%;
+      background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: 600;
+    }
+    .track .who { font-weight: 600; font-size: 14.5px; }
+    .track .title { font-size: 13px; color: var(--text-dim); }
+    .track .hint { font-size: 11.5px; color: var(--text-dim); }
+    .track.placed { cursor: default; border-color: var(--accent); }
+    .track .moves { display: flex; gap: 6px; }
+    .track .moves button {
+      width: 28px; height: 28px; border-radius: var(--radius-sm); cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface-solid);
+      color: var(--text); font-family: inherit; font-size: 13px;
+    }
+    .track .moves button:hover { border-color: var(--accent); }
+    .track.correct { border-color: var(--accent); background: var(--accent-soft); }
+    .track.wrong { border-color: var(--danger); }
+
+    .year-tag {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent);
+      font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+    }
+
+    .stat-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
+    .stat-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+    .stat-row .timer { color: var(--accent); font-weight: 600; }
+    .stat-row .timer.low { color: var(--danger); }
+
+    .players { display: flex; flex-direction: column; gap: 8px; }
+    .player-row {
+      display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: center;
+      padding: 10px 12px; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--surface-solid);
+    }
+    .player-row.me { border-color: var(--accent); }
+    .player-row .who { font-weight: 600; }
+    .player-row .done { font-size: 12px; color: var(--accent); }
+    .player-row .wait { font-size: 12px; color: var(--text-dim); }
+    .player-row .won { font-size: 12.5px; color: var(--accent); font-weight: 600; }
+
+    .matches { display: flex; flex-direction: column; gap: 10px; }
+    .match { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid); }
+    .match .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+    .match .mode { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+    .match .score { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .match .score.win { color: var(--accent); }
+    .match .score.lose { color: var(--danger); }
+    .match .rounds { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; font-size: 12.5px; }
+    .match .rounds div { display: flex; gap: 8px; justify-content: space-between; font-variant-numeric: tabular-nums; }
+
+    .code-box {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+      padding: 12px; margin-bottom: 12px;
+      border-radius: var(--radius-sm); border: 1px dashed var(--accent); background: var(--accent-soft);
+    }
+    .code-box .code { font-size: 26px; font-weight: 700; letter-spacing: 6px; color: var(--accent); }
+    .link-line { font-size: 12.5px; color: var(--text-dim); word-break: break-all; }
+
+    @media (max-width: 640px) {
+      .track { grid-template-columns: 30px 1fr; }
+      .track .moves { grid-column: 1 / -1; }
+      .player-row { grid-template-columns: 1fr auto; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="app">
+
+    <!-- ===== Шапка ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
+        <div class="brand-text">
+          <h1>Рэп-хронология</h1>
+          <p>Расставь треки русского рэпа от самого старого к самому новому</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="status-pill" type="button" id="conn-pill" title="Состояние подключения к серверу">
+          <span class="dot"></span>
+          <span id="conn-text">подключаемся…</span>
+        </button>
+        <div class="user-pill" id="user-pill" hidden>
+          <span aria-hidden="true">👤</span>
+          <span id="user-name">—</span>
+        </div>
+        <button class="icon-btn" type="button" id="logout" title="Выйти из аккаунта" hidden>⎋</button>
+        <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
+        <a class="icon-btn" href="../" title="Вернуться в игровую комнату">←</a>
+      </div>
+    </header>
+
+    <!-- ===== Адрес сервера ===== -->
+    <section class="card" id="server-card" hidden>
+      <header class="card-head">
+        <h2>Сервер игры</h2>
+        <span class="badge" id="server-badge">не подключён</span>
+      </header>
+      <p class="muted">
+        Игру считает сервер теплицы. Если адрес не подставился сам, впишите его руками.
+      </p>
+      <label class="field">
+        <span>Адрес API</span>
+        <input type="text" id="srv-input" placeholder="https://ваш-адрес-сервера" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" type="button" id="srv-save">Подключиться</button>
+      </div>
+      <p class="muted">Пустой адрес — обращения к тому же домену, с которого открыта страница.</p>
+    </section>
+
+    <!-- ===== Вход и регистрация ===== -->
+    <section class="card auth-card" id="auth-card" hidden>
+      <h2 id="auth-title">Регистрация</h2>
+      <p class="muted" id="auth-hint">
+        Аккаунт нужен, чтобы партии сохранялись за вами. Он же открывает панель теплицы.
+      </p>
+      <label class="field">
+        <span>Логин</span>
+        <input type="text" id="auth-user" autocomplete="username" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Пароль</span>
+        <input type="password" id="auth-pass" autocomplete="current-password">
+      </label>
+      <label class="field" id="auth-confirm-field">
+        <span>Повторите пароль</span>
+        <input type="password" id="auth-confirm" autocomplete="new-password">
+      </label>
+      <p class="login-error" id="auth-error" hidden></p>
+      <button class="btn btn-primary btn-wide" type="button" id="auth-submit">Зарегистрироваться</button>
+      <button class="link-btn" type="button" id="auth-toggle">У меня уже есть аккаунт</button>
+    </section>
+
+    <!-- ===== Лобби ===== -->
+    <section class="stack" id="lobby" hidden>
+      <section class="card" id="solo-card">
+        <header class="card-head">
+          <h2>Соло-заход</h2>
+          <span class="badge" id="solo-badge">—</span>
+        </header>
+        <p class="muted" id="solo-rules">
+          В каждом раунде пять треков разных годов — расставьте их от старого к новому.
+          Очко за каждый трек, вставший на своё место. Пять раундов подряд, игра на сумму очков.
+        </p>
+        <button class="btn btn-primary btn-wide" type="button" id="solo-start">Начать соло</button>
+        <p class="muted" id="solo-hint"></p>
+      </section>
+
+      <section class="card" id="room-card">
+        <header class="card-head">
+          <h2>Онлайн-партия</h2>
+          <span class="badge" id="room-badge">комната по коду</span>
+        </header>
+        <p class="muted">
+          В комнате у всех один и тот же раунд: кто расставил лучше — забирает раунд.
+          Три раунда, победитель — по выигранным раундам. Ссылку с кодом перешлите сопернику.
+        </p>
+        <div class="row" style="margin-bottom: 12px;">
+          <button class="btn btn-primary" type="button" id="room-create">Создать комнату</button>
+        </div>
+        <label class="field">
+          <span>Код комнаты</span>
+          <input type="text" id="room-code" maxlength="4" placeholder="например, K7QM"
+                 autocomplete="off" spellcheck="false" style="text-transform: uppercase;">
+        </label>
+        <div class="row">
+          <button class="btn btn-ghost" type="button" id="room-join">Войти по коду</button>
+        </div>
+      </section>
+
+      <section class="card" id="journal-card">
+        <header class="card-head">
+          <h2>Мои партии</h2>
+          <span class="badge" id="journal-badge">—</span>
+        </header>
+        <div class="matches" id="journal"></div>
+      </section>
+    </section>
+
+    <!-- ===== Партия ===== -->
+    <section class="stack" id="game" hidden>
+      <section class="card">
+        <header class="card-head">
+          <h2 id="game-title">Раунд 1</h2>
+          <span class="badge" id="game-badge">соло</span>
+        </header>
+        <div class="stat-row" id="game-stats"></div>
+
+        <div class="code-box" id="invite-box" hidden>
+          <span class="code" id="invite-code">—</span>
+          <div>
+            <div class="link-line" id="invite-link"></div>
+            <div class="link-line">Перешлите ссылку сопернику — он попадёт сразу в эту комнату.</div>
+          </div>
+        </div>
+
+        <div class="field" style="margin-bottom: 10px;">
+          <span id="tray-label">Треки раунда <b>— нажмите, чтобы поставить в очередь</b></span>
+          <div class="tray" id="tray"></div>
+        </div>
+
+        <div class="field" style="margin-bottom: 14px;">
+          <span>Ваш порядок <b>— от старого к новому</b></span>
+          <div class="tray" id="order"></div>
+        </div>
+
+        <div class="row">
+          <button class="btn btn-primary" type="button" id="submit" disabled>Проверить порядок</button>
+          <button class="btn btn-ghost" type="button" id="room-start" hidden>Начать партию</button>
+          <button class="btn btn-ghost" type="button" id="room-rematch" hidden>Ещё партия</button>
+          <button class="btn btn-ghost" type="button" id="to-lobby">Выйти в лобби</button>
+        </div>
+        <p class="muted" id="game-hint"></p>
+      </section>
+
+      <section class="card" id="players-card" hidden>
+        <header class="card-head">
+          <h2>Игроки</h2>
+          <span class="badge">кто ответил</span>
+        </header>
+        <div class="players" id="players"></div>
+      </section>
+
+      <section class="card" id="reveal-card" hidden>
+        <header class="card-head">
+          <h2>Разбор раунда</h2>
+          <span class="badge" id="reveal-badge">—</span>
+        </header>
+        <p class="muted" id="reveal-text"></p>
+        <div class="tray" id="reveal"></div>
+      </section>
+
+      <section class="card" id="rounds-card" hidden>
+        <header class="card-head">
+          <h2>Сыгранные раунды</h2>
+          <span class="badge" id="rounds-badge">—</span>
+        </header>
+        <div class="matches" id="rounds"></div>
+      </section>
+
+      <section class="card" id="finish-card" hidden>
+        <header class="card-head">
+          <h2 id="finish-title">Партия закончена</h2>
+          <span class="badge" id="finish-badge">—</span>
+        </header>
+        <p class="muted" id="finish-text"></p>
+        <div class="players" id="standings"></div>
+        <div class="row" style="margin-top: 14px;">
+          <button class="btn btn-primary" type="button" id="again">Ещё партия</button>
+        </div>
+      </section>
+    </section>
+
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    const PANEL_STATE_KEY = 'greenhouse.state.v1';
+    const CONN_KEY = 'greenhouse.games.conn.v1';
+    const AUTH_KEY = 'greenhouse.auth.v1';
+    const THEME_KEY = 'greenhouse.games.theme';
+    const RAP_KEY = 'greenhouse.games.rap.v1';
+    const GAME = '/api/games/raporder';
+
+    const REQUEST_TIMEOUT_MS = 10000;
+    const POLL_MS = 1200;
+
+    const $ = (selector) => document.querySelector(selector);
+
+    let apiBase = '';
+    let auth = { token: '', user: null };
+    let info = null;                 // /status: набор, раунды, таймеры
+    let mode = 'solo';               // 'solo' или 'online'
+    let run = null;                  // состояние соло-захода
+    let room = null;                 // состояние комнаты
+    let picked = [];                 // расставленные треки: список идентификаторов
+    let pickedRound = '';            // для какого раунда собрана очередь
+    let busy = false;
+    let poll = 0;
+    let joinedRoom = new URLSearchParams(location.search).get('room') || '';
+
+    /* ------------------------------- утилиты -------------------------------- */
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function toast(message, kind) {
+      const box = $('#toasts');
+      const node = document.createElement('div');
+      node.className = 'toast' + (kind ? ' ' + kind : '');
+      node.textContent = message;
+      box.appendChild(node);
+      setTimeout(() => {
+        node.classList.add('out');
+        setTimeout(() => node.remove(), 320);
+      }, 4200);
+    }
+
+    function readJson(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' ? value : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeJson(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function show(selector, visible) {
+      const node = $(selector);
+      if (node) node.hidden = !visible;
+    }
+
+    /* ------------------------------ сеть ------------------------------------ */
+
+    const root = () => (apiBase || '').replace(/\/+$/, '');
+
+    async function api(path, options = {}) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      const headers = { 'Content-Type': 'application/json' };
+      if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+      try {
+        const response = await fetch(root() + path, {
+          method: options.method || 'GET',
+          headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(data.error || ('Сервер ответил HTTP ' + response.status));
+          error.status = response.status;
+          throw error;
+        }
+        return data;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function setConnection(kind, text) {
+      const pill = $('#conn-pill');
+      pill.classList.toggle('online', kind === 'online');
+      pill.classList.toggle('err', kind === 'err');
+      $('#conn-text').textContent = text;
+    }
+
+    /* Адрес сервера: свой сохранённый, иначе из настроек панели теплицы. */
+    function storedConnection() {
+      const own = readJson(CONN_KEY) || {};
+      return {
+        apiBase: String(own.apiBase || '').trim(),
+        apiToken: String(own.apiToken || '').trim()
+      };
+    }
+
+    function panelConnection() {
+      const panel = readJson(PANEL_STATE_KEY) || {};
+      return {
+        apiBase: String(panel.apiBase || '').trim(),
+        apiToken: String(panel.apiToken || '').trim()
+      };
+    }
+
+    const trimBase = (value) => String(value || '').trim().replace(/\/+$/, '');
+
+    function apiCandidates() {
+      const fromLink = trimBase(new URLSearchParams(location.search).get('srv'));
+      if (fromLink) return { fixed: true, list: [fromLink] };
+      const list = [];
+      [storedConnection().apiBase, panelConnection().apiBase].forEach((value) => {
+        const item = trimBase(value);
+        if (item && !list.includes(item)) list.push(item);
+      });
+      return { fixed: false, list };
+    }
+
+    async function pingServer(base) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await fetch(base + '/api/health', {
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        return response.ok || response.status === 401;
+      } catch (error) {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    /* Адрес и ключ, опубликованные на сайте при выгрузке: у туннеля меняется
+       поддомен, а этот файл обновляет серверная сторона. */
+    let publishedKey = '';
+    async function publishedApiBase() {
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
+      try {
+        const response = await fetch('../api-address.json', { cache: 'no-store' });
+        if (!response.ok) return '';
+        const data = await response.json();
+        publishedKey = String((data && data.apiKey) || '').trim();
+        return trimBase(data && data.apiBase);
+      } catch (error) {
+        return '';
+      }
+    }
+
+    async function resolveApiBase() {
+      const { fixed, list } = apiCandidates();
+      if (fixed) {
+        apiBase = list[0];
+        rememberServer(apiBase);
+        return apiBase;
+      }
+      const stored = storedConnection().apiBase;
+      const published = publishedApiBase();
+      for (const candidate of list) {
+        if (await pingServer(candidate)) {
+          apiBase = candidate;
+          if (candidate !== stored) toast('Адрес сервера взят из настроек панели теплицы');
+          return apiBase;
+        }
+      }
+      const fresh = await published;
+      if (fresh && fresh !== (list[0] || '')) {
+        if (list.length) toast('Адрес сервера обновлён: туннель перезапускался');
+        apiBase = fresh;
+        return apiBase;
+      }
+      apiBase = list[0] || fresh || '';
+      return apiBase;
+    }
+
+    function rememberServer(value) {
+      const own = storedConnection();
+      const panel = panelConnection();
+      writeJson(CONN_KEY, {
+        apiBase: value,
+        apiToken: own.apiToken || panel.apiToken || publishedKey || ''
+      });
+    }
+
+    /* --------------------------- вход в аккаунт ----------------------------- */
+
+    function loadAuth() {
+      const saved = readJson(AUTH_KEY);
+      auth = saved && saved.token
+        ? { token: saved.token, user: saved.user || null }
+        : { token: '', user: null };
+      renderUser();
+    }
+
+    function saveAuth() {
+      if (auth.token) {
+        writeJson(AUTH_KEY, { token: auth.token, user: auth.user });
+      } else {
+        try {
+          localStorage.removeItem(AUTH_KEY);
+        } catch (error) {
+          /* приватный режим: просто не запомним */
+        }
+      }
+      renderUser();
+    }
+
+    function renderUser() {
+      const name = auth.user ? auth.user.username : '';
+      $('#user-name').textContent = name || '—';
+      show('#user-pill', Boolean(name));
+      show('#logout', Boolean(auth.token));
+    }
+
+    function setAuthMode(form) {
+      const register = form !== 'login';
+      $('#auth-title').textContent = register ? 'Регистрация' : 'Вход в игру';
+      $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
+      $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
+      $('#auth-hint').textContent = register
+        ? 'Аккаунт нужен, чтобы партии сохранялись за вами. Он же открывает панель теплицы.'
+        : 'Войдите тем же логином, что и в панели теплицы.';
+      show('#auth-confirm-field', register);
+      show('#auth-error', false);
+      $('#auth-submit').dataset.mode = register ? 'register' : 'login';
+    }
+
+    async function submitAuth() {
+      const name = $('#auth-user').value.trim();
+      const password = $('#auth-pass').value;
+      const confirm = $('#auth-confirm').value;
+      const register = $('#auth-submit').dataset.mode !== 'login';
+      const fail = (text) => {
+        const box = $('#auth-error');
+        box.textContent = text;
+        box.hidden = false;
+      };
+      show('#auth-error', false);
+      if (!name || !password) return fail('Заполните логин и пароль');
+      if (register && password !== confirm) return fail('Пароли не совпадают');
+      try {
+        const data = await api(register ? '/api/auth/register' : '/api/auth/login', {
+          method: 'POST',
+          body: { username: name, password: password }
+        });
+        auth = { token: data.token, user: data.user };
+        saveAuth();
+        $('#auth-pass').value = '';
+        $('#auth-confirm').value = '';
+        await boot();
+      } catch (error) {
+        fail(error.message);
+      }
+    }
+
+    /* ------------------------------- экраны --------------------------------- */
+
+    function render() {
+      const state = mode === 'solo' ? run : room;
+      show('#server-card', !auth.token && !apiBase);
+      show('#auth-card', !auth.token);
+      show('#lobby', Boolean(auth.token) && !state);
+      show('#game', Boolean(auth.token) && Boolean(state));
+      if (!auth.token || !state) return;
+      renderGame(state);
+    }
+
+    function renderLobby() {
+      if (!info) return;
+      $('#solo-badge').textContent = info.ready
+        ? ('треков ' + info.tracks + ', годов ' + info.years)
+        : 'набор пуст';
+      $('#solo-hint').textContent = info.ready
+        ? ('В раунде ' + info.tracks_per_round + ' треков, раундов ' + info.solo_rounds
+           + ', на раунд ' + Math.round(info.answer_seconds) + ' секунд.')
+        : 'В наборе пока мало треков с годами — играть нечего.';
+      $('#solo-start').disabled = !info.ready;
+      if (info.problems && info.problems.length) {
+        $('#solo-hint').textContent += ' Замечания к набору: ' + info.problems.join('; ');
+      }
+    }
+
+    function trackBody(track) {
+      return '<span><span class="who">' + escapeHtml(track.artist) + '</span><br>' +
+        '<span class="title">' + escapeHtml(track.title) + '</span></span>';
+    }
+
+    function renderTray(state) {
+      const tray = $('#tray');
+      const orderBox = $('#order');
+      const revealed = state.phase !== 'round';
+      const tracks = state.tracks || [];
+      const byId = {};
+      tracks.forEach((track) => { byId[track.id] = track; });
+      picked = picked.filter((id) => byId[id]);
+
+      if (revealed) {
+        $('#tray-label').innerHTML = 'Треки раунда <b>— порядок уже проверен</b>';
+        tray.innerHTML = '<p class="muted">Разбор ниже: там видно, какой трек какого года.</p>';
+        orderBox.innerHTML = '';
+        show('#submit', false);
+        return;
+      }
+
+      const free = tracks.filter((track) => picked.indexOf(track.id) < 0);
+      tray.innerHTML = free.length
+        ? free.map((track) =>
+            '<button class="track" type="button" data-pick="' + escapeHtml(track.id) + '">' +
+              '<span class="num">+</span>' +
+              trackBody(track) +
+              '<span class="hint">поставить в очередь</span>' +
+            '</button>').join('')
+        : '<p class="muted">Все треки расставлены — проверяйте порядок.</p>';
+
+      orderBox.innerHTML = picked.length
+        ? picked.map((id, index) => {
+            const track = byId[id];
+            return '<div class="track placed">' +
+              '<span class="num">' + (index + 1) + '</span>' +
+              trackBody(track) +
+              '<span class="moves">' +
+                '<button type="button" data-up="' + escapeHtml(id) + '" title="выше">↑</button>' +
+                '<button type="button" data-down="' + escapeHtml(id) + '" title="ниже">↓</button>' +
+                '<button type="button" data-drop="' + escapeHtml(id) + '" title="убрать">✕</button>' +
+              '</span>' +
+            '</div>';
+          }).join('')
+        : '<p class="muted">Пока пусто: нажимайте на треки выше, чтобы собрать очередность.</p>';
+      show('#submit', state.phase === 'round');
+      $('#submit').disabled = picked.length !== tracks.length || busy;
+    }
+
+    function renderReveal(state) {
+      const revealed = state.phase !== 'round' && state.phase !== 'waiting';
+      show('#reveal-card', Boolean(revealed && (state.answer || []).length));
+      if (!revealed || !(state.answer || []).length) return;
+      const mine = picked.length ? picked.slice() : ((state.you && state.you.order) || []);
+      $('#reveal-badge').textContent = 'очков: ' + (state.points || 0) + ' из ' + (state.best || 0);
+      $('#reveal-text').textContent = state.missed
+        ? 'Время вышло: раунд засчитан без очков. Ниже — как треки стоят на самом деле.'
+        : 'Ниже — правильный порядок по годам. Совпавшие места подсвечены.';
+      $('#reveal').innerHTML = state.answer.map((track, index) => {
+        const same = mine[index] === track.id;
+        return '<div class="track ' + (same ? 'correct' : 'wrong') + '">' +
+          '<span class="num">' + (index + 1) + '</span>' +
+          trackBody(track) +
+          '<span class="year-tag">' + escapeHtml(track.year) + '</span>' +
+          '<span class="hint">' + (same ? 'на своём месте' : 'мимо') + '</span>' +
+        '</div>';
+      }).join('');
+    }
+
+    function renderStats(state) {
+      const online = state.mode === 'online';
+      const parts = [];
+      parts.push('<span>Раунд <b>' + state.round + '</b> из <b>' + state.rounds_planned + '</b></span>');
+      if (online) {
+        parts.push('<span>Очков: <b>' + state.you.score + '</b></span>');
+        parts.push('<span>Выиграно раундов: <b>' + state.you.rounds_won + '</b></span>');
+      } else {
+        parts.push('<span>Очков: <b>' + state.total + '</b> из <b>' + state.best_possible + '</b></span>');
+        parts.push('<span>Идеальных раундов: <b>' + state.perfect + '</b></span>');
+      }
+      if (state.seconds_left !== null && state.seconds_left !== undefined) {
+        const low = state.seconds_left <= 20;
+        parts.push('<span class="timer' + (low ? ' low' : '') + '">Осталось '
+          + Math.max(0, Math.round(state.seconds_left)) + ' с</span>');
+      }
+      if (state.reveal_in !== null && state.reveal_in !== undefined) {
+        parts.push('<span>Дальше через <b>' + Math.ceil(state.reveal_in) + ' с</b></span>');
+      }
+      $('#game-stats').innerHTML = parts.join('');
+    }
+
+    function renderPlayers(state) {
+      const online = state.mode === 'online';
+      show('#players-card', online);
+      if (!online) return;
+      $('#players').innerHTML = (state.players || []).map((player) => {
+        const mine = state.you && player.id === state.you.id;
+        const done = player.submitted
+          ? '<span class="done">ответил</span>'
+          : '<span class="wait">думает…</span>';
+        const won = player.rounds_won
+          ? '<span class="won">раундов: ' + player.rounds_won + '</span>' : '<span></span>';
+        return '<div class="player-row' + (mine ? ' me' : '') + '">' +
+          '<span class="who">' + escapeHtml(player.name) + (mine ? ' (вы)' : '') + '</span>' +
+          '<span class="score">' + player.score + '</span>' +
+          won + done +
+        '</div>';
+      }).join('');
+    }
+
+    function renderRounds(state) {
+      const history = state.history || [];
+      show('#rounds-card', history.length > 0 && state.phase !== 'finished');
+      if (!history.length || state.phase === 'finished') return;
+      $('#rounds-badge').textContent = history.length + ' шт.';
+      $('#rounds').innerHTML = history.slice().reverse().map((item) => {
+        const rows = (item.tracks || []).map((track) =>
+          '<div><span>' + escapeHtml(track.artist) + ' — ' + escapeHtml(track.title) +
+          '</span><span>' + escapeHtml(track.year) + '</span></div>').join('');
+        const head = state.mode === 'online'
+          ? ('раунд за ' + escapeHtml(item.won || '—') + (item.drawn ? ' (ничья)' : ''))
+          : (item.points + ' из ' + item.best + ' очков');
+        return '<div class="match">' +
+          '<div class="head"><span class="mode">раунд ' + item.round + '</span>' +
+          '<span class="score">' + head + '</span></div>' +
+          '<div class="rounds">' + rows + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function renderFinish(state) {
+      const finished = state.phase === 'finished';
+      show('#finish-card', finished);
+      if (!finished) return;
+      const online = state.mode === 'online';
+      if (online) {
+        $('#finish-title').textContent = 'Партия закончена';
+        $('#finish-badge').textContent = state.rounds_planned + ' раунда';
+        $('#standings').innerHTML = (state.standings || []).map((item) =>
+          '<div class="player-row' + (item.winner ? ' me' : '') + '">' +
+            '<span class="who">' + item.place + '. ' + escapeHtml(item.name) + '</span>' +
+            '<span class="score">' + item.score + '</span>' +
+            '<span class="won">' + (item.winner ? 'победитель' : ('раундов ' + item.rounds_won)) + '</span>' +
+            '<span></span>' +
+          '</div>').join('');
+        $('#finish-text').textContent = 'Победитель — тот, кто забрал больше раундов. '
+          + 'В ничейном раунде очко не достаётся никому.';
+      } else {
+        const best = state.best_possible || 0;
+        $('#finish-title').textContent = state.total === best ? 'Идеально!' : 'Заход закончен';
+        $('#finish-badge').textContent = state.total + ' из ' + best;
+        $('#standings').innerHTML = '';
+        $('#finish-text').textContent = state.total === best
+          ? 'Все треки легли по годам — это максимум.'
+          : 'Сыграно раундов: ' + state.rounds_planned + ', сумма очков: ' + state.total
+            + ' из ' + best + '. Все годы видны в разборе раундов.';
+      }
+      $('#again').textContent = online ? 'Ещё партия' : 'Ещё заход';
+    }
+
+    function renderGame(state) {
+      mode = state.mode === 'online' ? 'online' : 'solo';
+      const online = mode === 'online';
+      $('#game-title').textContent = online ? ('Комната ' + state.code) : ('Раунд ' + state.round);
+      $('#game-badge').textContent = online ? 'онлайн' : 'соло';
+      const waiting = online && state.phase === 'waiting';
+      show('#room-start', waiting);
+      show('#room-rematch', online && state.phase === 'finished');
+      show('#again', state.phase === 'finished');
+      $('#room-start').disabled = !(state.host
+        && (state.players || []).length >= (state.min_players || 2));
+      show('#submit', state.phase === 'round');
+
+      $('#game-hint').textContent = waiting
+        ? (state.host
+            ? 'Ждём соперника: как только он войдёт, начинайте партию.'
+            : 'Ждём, когда хозяин комнаты начнёт партию.')
+        : (state.phase === 'round'
+            ? 'Нажимайте треки в том порядке, как они выходили: сверху — самый старый.'
+            : '');
+
+      if (online) {
+        $('#invite-box').hidden = false;
+        $('#invite-code').textContent = state.code;
+        $('#invite-link').textContent = location.origin + location.pathname + '?room=' + state.code
+          + (apiBase ? '&srv=' + encodeURIComponent(apiBase) : '');
+      } else {
+        $('#invite-box').hidden = true;
+      }
+
+      renderStats(state);
+      renderPlayers(state);
+      renderTray(state);
+      renderReveal(state);
+      renderRounds(state);
+      renderFinish(state);
+    }
+
+    function rememberRound(state) {
+      const key = mode + ':' + (state.code || state.id || '') + ':' + state.round;
+      if (pickedRound !== key) {
+        pickedRound = key;
+        const own = (state.you && state.you.order) || [];
+        picked = state.phase === 'round' ? own.slice() : [];
+      }
+    }
+
+    async function applyState(state) {
+      rememberRound(state);
+      if (state.mode === 'online') room = state; else run = state;
+      render();
+      if (state.phase === 'finished') {
+        stopPolling();
+        loadJournal();
+      } else {
+        startPolling();
+      }
+    }
+
+    /* ------------------------------ опрос ----------------------------------- */
+
+    function stopPolling() {
+      if (poll) {
+        clearInterval(poll);
+        poll = 0;
+      }
+    }
+
+    function startPolling() {
+      if (poll) return;
+      poll = setInterval(() => {
+        pollOnce().catch(() => {});
+      }, POLL_MS);
+    }
+
+    async function pollOnce() {
+      if (busy) return;
+      try {
+        if (mode === 'solo' && run && run.phase !== 'finished') {
+          const data = await api(GAME + '/solo/' + run.id);
+          await applyState(data.state);
+          return;
+        }
+        if (mode === 'online' && room && room.phase !== 'finished') {
+          const data = await api(GAME + '/rooms/' + room.code);
+          await applyState(data.state);
+        }
+      } catch (error) {
+        setConnection('err', error.status === 401 ? 'нужен вход' : 'нет связи');
+      }
+    }
+
+    /* ------------------------------ действия -------------------------------- */
+
+    async function guard(action, note) {
+      if (busy) return null;
+      busy = true;
+      $('#submit').disabled = true;
+      try {
+        return await action();
+      } catch (error) {
+        if (error.status === 401) {
+          auth = { token: '', user: null };
+          stopPolling();
+          run = null;
+          room = null;
+          saveAuth();
+          render();
+          toast('Нужен вход в аккаунт', 'err');
+          return null;
+        }
+        if (error.status === 429) {
+          toast('Слишком много действий — подождите минуту', 'err');
+          return null;
+        }
+        toast(error.message || (note || 'Не получилось'), 'err');
+        return null;
+      } finally {
+        busy = false;
+        const state = mode === 'solo' ? run : room;
+        if (state) renderGame(state);
+      }
+    }
+
+    async function startSolo() {
+      const data = await guard(() => api(GAME + '/solo', { method: 'POST', body: {} }),
+                               'Соло не началось');
+      if (!data) return;
+      mode = 'solo';
+      run = data.state;
+      room = null;
+      picked = [];
+      pickedRound = '';
+      rememberRound(run);
+      render();
+      startPolling();
+    }
+
+    async function submitOrder() {
+      const state = mode === 'solo' ? run : room;
+      if (!state) return;
+      const endpoint = mode === 'solo'
+        ? (GAME + '/solo/' + state.id + '/answer')
+        : (GAME + '/rooms/' + state.code + '/answer');
+      const data = await guard(
+        () => api(endpoint, { method: 'POST', body: { order: picked } }),
+        'Ответ не принят'
+      );
+      if (!data) return;
+      await applyState(data.state);
+    }
+
+    async function createRoom() {
+      const data = await guard(() => api(GAME + '/rooms', { method: 'POST', body: {} }),
+                               'Комната не создалась');
+      if (!data) return;
+      mode = 'online';
+      room = data.state;
+      run = null;
+      picked = [];
+      pickedRound = '';
+      rememberRound(room);
+      render();
+      startPolling();
+    }
+
+    async function joinRoom(code) {
+      const clean = String(code || '').trim().toUpperCase();
+      if (!/^[A-Z0-9]{4}$/.test(clean)) {
+        toast('Код комнаты — четыре символа, например K7QM', 'err');
+        return;
+      }
+      const data = await guard(
+        () => api(GAME + '/rooms/' + clean + '/join', { method: 'POST', body: {} }),
+        'Войти не удалось'
+      );
+      if (!data) return;
+      mode = 'online';
+      room = data.state;
+      run = null;
+      picked = [];
+      pickedRound = '';
+      rememberRound(room);
+      render();
+      startPolling();
+    }
+
+    async function startRoom() {
+      if (!room) return;
+      const data = await guard(
+        () => api(GAME + '/rooms/' + room.code + '/start', { method: 'POST', body: {} }),
+        'Партия не началась'
+      );
+      if (!data) return;
+      await applyState(data.state);
+    }
+
+    async function rematch() {
+      if (mode === 'solo') return startSolo();
+      const data = await guard(
+        () => api(GAME + '/rooms/' + room.code + '/rematch', { method: 'POST', body: {} }),
+        'Новая партия не началась'
+      );
+      if (!data) return;
+      picked = [];
+      pickedRound = '';
+      await applyState(data.state);
+    }
+
+    function toLobby() {
+      stopPolling();
+      run = null;
+      room = null;
+      picked = [];
+      pickedRound = '';
+      location.hash = '';
+      render();
+      loadJournal();
+    }
+
+    async function loadJournal() {
+      if (!auth.token) return;
+      try {
+        const data = await api(GAME + '/matches?limit=20');
+        const list = data.matches || [];
+        $('#journal-badge').textContent = list.length + ' шт.';
+        $('#journal').innerHTML = list.length ? list.map((item) => {
+          const online = item.mode === 'online';
+          const win = auth.user && item.winner_id === auth.user.id;
+          const head = online
+            ? ('против ' + escapeHtml(item.player2_name || '—'))
+            : 'соло-заход';
+          const score = online
+            ? (item.player1_score + ' : ' + item.player2_score)
+            : (item.player1_score + ' очков');
+          return '<div class="match">' +
+            '<div class="head">' +
+              '<span class="mode">' + head
+                + (item.room ? (' · комната ' + escapeHtml(item.room)) : '') + '</span>' +
+              '<span class="score ' + (win ? 'win' : 'lose') + '">' + escapeHtml(score) + '</span>' +
+            '</div>' +
+            '<div class="rounds"><div><span>' + escapeHtml(item.detail || '') + '</span>' +
+            '<span>' + escapeHtml(item.played_at || '') + '</span></div></div>' +
+          '</div>';
+        }).join('') : '<p class="muted">Партий пока нет — начните заход или комнату.</p>';
+      } catch (error) {
+        $('#journal-badge').textContent = 'нет связи';
+      }
+    }
+
+    /* ------------------------------ события --------------------------------- */
+
+    function bind() {
+      $('#auth-submit').addEventListener('click', submitAuth);
+      $('#auth-toggle').addEventListener('click', () => {
+        setAuthMode($('#auth-submit').dataset.mode === 'login' ? 'register' : 'login');
+      });
+      $('#auth-pass').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') submitAuth();
+      });
+      $('#logout').addEventListener('click', () => {
+        auth = { token: '', user: null };
+        stopPolling();
+        saveAuth();
+        run = null;
+        room = null;
+        render();
+      });
+
+      $('#srv-save').addEventListener('click', async () => {
+        apiBase = trimBase($('#srv-input').value);
+        rememberServer(apiBase);
+        toast('Адрес сервера сохранён');
+        await boot();
+      });
+
+      $('#solo-start').addEventListener('click', startSolo);
+      $('#room-create').addEventListener('click', createRoom);
+      $('#room-join').addEventListener('click', () => joinRoom($('#room-code').value));
+      $('#room-code').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') joinRoom($('#room-code').value);
+      });
+      $('#room-start').addEventListener('click', startRoom);
+      $('#room-rematch').addEventListener('click', rematch);
+      $('#again').addEventListener('click', rematch);
+      $('#submit').addEventListener('click', submitOrder);
+      $('#to-lobby').addEventListener('click', toLobby);
+
+      $('#tray').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-pick]');
+        if (!button) return;
+        picked.push(button.dataset.pick);
+        renderGame(mode === 'solo' ? run : room);
+      });
+      $('#order').addEventListener('click', (event) => {
+        const up = event.target.closest('[data-up]');
+        const down = event.target.closest('[data-down]');
+        const drop = event.target.closest('[data-drop]');
+        if (!up && !down && !drop) return;
+        const id = up ? up.dataset.up : (down ? down.dataset.down : drop.dataset.drop);
+        const index = picked.indexOf(id);
+        if (index < 0) return;
+        if (up && index > 0) {
+          picked.splice(index, 1);
+          picked.splice(index - 1, 0, id);
+        } else if (down && index < picked.length - 1) {
+          picked.splice(index, 1);
+          picked.splice(index + 1, 0, id);
+        } else if (drop) {
+          picked.splice(index, 1);
+        }
+        renderGame(mode === 'solo' ? run : room);
+      });
+
+      $('#toggle-theme').addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        writeJson(THEME_KEY, { theme: next });
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && (run || room)) pollOnce().catch(() => {});
+      });
+    }
+
+    /* ------------------------------- запуск --------------------------------- */
+
+    async function loadStatus() {
+      try {
+        info = await api(GAME + '/status');
+      } catch (error) {
+        setConnection('err', error.status === 401 ? 'нужен ключ' : 'нет связи');
+        show('#server-card', true);
+        return false;
+      }
+      setConnection('online', 'сервер на связи');
+      renderLobby();
+      return true;
+    }
+
+    async function boot() {
+      const saved = readJson(THEME_KEY);
+      if (saved && saved.theme) document.documentElement.dataset.theme = saved.theme;
+      loadAuth();
+      if (!apiBase) {
+        apiBase = await resolveApiBase();
+        if (!apiBase) {
+          setConnection('err', 'адрес не найден');
+          show('#server-card', true);
+          $('#srv-input').value = storedConnection().apiBase;
+          render();
+          return;
+        }
+      }
+      $('#srv-input').value = apiBase;
+      if (!(await loadStatus())) {
+        render();
+        return;
+      }
+      if (auth.token && joinedRoom) {
+        const code = joinedRoom;
+        joinedRoom = '';
+        await joinRoom(code);
+        return;
+      }
+      render();
+      loadJournal();
+      if (info && info.ready) writeJson(RAP_KEY, { ready: true, round: info.tracks_per_round });
+    }
+
+    bind();
+    setAuthMode('register');
+    boot().catch(() => {
+      setConnection('err', 'нет связи');
+      show('#server-card', true);
+    });
+  </script>
+</body>
+</html>

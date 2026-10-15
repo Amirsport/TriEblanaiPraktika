@@ -1,22 +1,23 @@
 # -*- coding: utf-8 -*-
-"""«87-0» — драфт-рогалик по Counter-Strike.
+"""Движок драфт-рогаликов: «87-0» (CS), «13-0» (Valorant), «4-0» (Rocket League).
 
 Замысел тот же, что у 322-0.app для Dota 2: собираешь «состав Франкенштейна» из
-реальных команд прошлых турниров и пытаешься пройти фейковый мейджор без
-поражений. Отличие в деталях, привычных для CS:
+реальных команд прошлых турниров и пытаешься пройти фейковый турнир без
+поражений:
 
-    * пак — это реальный состав на конкретном турнире: пять игроков с ролями
-      (AWP, IGL, энтри, сапорт, луркер) и карты его маппула;
+    * пак — это реальный состав на конкретном турнире: игроки с ролями и карты
+      (арены) его пула;
     * состав оценивается по базовому рейтингу игроков, попаданию в свою роль,
-      сыгранности (кто играл вместе) и своему маппулу;
-    * прогон — четыре стадии (групповой Bo1, четвертьфинал и полуфинал Bo3,
-      финал Bo5): матчи симулируются по картам и раундам, а между стадиями
-      даётся усиление на выбор;
+      сыгранности (кто играл вместе) и своему пулу;
+    * прогон — четыре стадии: матчи симулируются по картам и раундам, а между
+      стадиями даётся усиление на выбор;
     * поражение заканчивает прогон: это рогалик, результат уходит в журнал.
 
-Данные о составах и ролях — реальные исторические, а оценки AIM/CLUTCH/IMP —
-игровые: они расставлены для баланса, это не официальная статистика
-(см. backend/csdraft_data.py).
+Движок один на все игры: чем одна игра отличается от другой (роли, стадии,
+усиления, правила розыгрыша карты), описано в реестре backend/draft_games.py.
+Константы ниже — значения игры по умолчанию (CS) для совместимости. Данные о
+составах — реальные исторические, а оценки AIM/CLUTCH/IMP — игровые: они
+расставлены для баланса, это не официальная статистика.
 """
 from __future__ import annotations
 
@@ -30,54 +31,24 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 try:  # запуск как модуль: python -m backend.server
-    from .csdraft_data import (
-        BOOSTS,
-        DUOS,
-        ERA_LABELS,
-        ROLE_LABELS,
-        ROLES,
-        normalize_pack,
-        overall,
-        seed_rows,
-    )
+    from .csdraft_data import normalize_pack, overall
+    from .draft_games import game_config, seed_rows_for
 except ImportError:  # запуск как файл: python backend/server.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from csdraft_data import (  # type: ignore
-        BOOSTS,
-        DUOS,
-        ERA_LABELS,
-        ROLE_LABELS,
-        ROLES,
-        normalize_pack,
-        overall,
-        seed_rows,
-    )
+    from csdraft_data import normalize_pack, overall  # type: ignore
+    from draft_games import game_config, seed_rows_for  # type: ignore
 
 # Заброшенный прогон: держим сутки, потому что матчи идут не подряд.
 RUN_TTL_SECONDS = 24 * 60 * 60
 MAX_RUNS = 300
-
-SQUAD_SIZE = 5
-POOL_SIZE = 3
 
 # Сложность — это только количество рероллов, как в 322-0 (Hard/Easy/Smurfing).
 DIFFICULTIES: Tuple[str, ...] = ("hard", "easy", "smurf")
 DIFFICULTY_REROLLS = {"hard": 0, "easy": 1, "smurf": 2}
 DIFFICULTY_LABELS = {"hard": "Хардкор", "easy": "Обычная", "smurf": "Смёрф"}
 
-# Эпохи: легендарные составы против современной сцены.
-ERAS = ("legacy", "modern")
-
 # Кто как расставляет игроков по слотам.
 ASSIGN_MODES = ("auto", "manual")
-
-# Стадии прогона: сколько карт играется (до победы, как в реальном CS).
-STAGES: Tuple[Dict[str, Any], ...] = (
-    {"key": "opening", "title": "Групповой этап", "best_of": 1},
-    {"key": "quarters", "title": "Четвертьфинал", "best_of": 3},
-    {"key": "semis", "title": "Полуфинал", "best_of": 3},
-    {"key": "final", "title": "Финал мейджора", "best_of": 5},
-)
 
 # Оценка состава: база — средний рейтинг, дальше надбавки и штрафы.
 FIT_NATURAL = 4.0          # игрок в своей роли
@@ -86,30 +57,55 @@ FIT_WRONG = -5.0           # совсем не его роль
 CHEM_SAME_PACK = 2.5       # играли вместе в этом составе на этом турнире
 CHEM_SAME_REGION = 1.0     # из одного региона
 CHEM_DUO = 1.5             # известная связка (device + dupreeh и подобные)
-MAP_EDGE = 3.0             # на своей карте играется легче
 
-# Розыгрыш карты: до 16 побед, при 15:15 — овертаймы.
-ROUNDS_TO_WIN = 16
-MAX_ROUNDS = 30
-OVERTIME_ROUNDS = 6
-OVERTIME_TO_WIN = 4
-MAX_OVERTIMES = 3
+# Сколько усилений предлагать после стадии.
+PACK_OFFERS = 3
 
-# Чем больше «шкала», тем меньше одна и та же разница в рейтинге значит.
-STRENGTH_SCALE = 12.0
-PACK_OFFERS = 3            # сколько бустов предлагать после стадии
+# Значения игры по умолчанию (CS): движок берёт их из конфигурации, а эти имена
+# остаются для внешних модулей и проверок.
+_CS = game_config("cs")
+
+ROLES: Tuple[str, ...] = tuple(_CS["roles"])
+ROLE_LABELS: Dict[str, str] = dict(_CS["role_labels"])
+ERAS: Tuple[str, ...] = tuple(_CS["era_labels"].keys())
+ERA_LABELS: Dict[str, str] = dict(_CS["era_labels"])
+STAGES: Tuple[Dict[str, Any], ...] = tuple(dict(stage) for stage in _CS["stages"])
+BOOSTS: Tuple[Dict[str, Any], ...] = tuple(dict(boost) for boost in _CS["boosts"])
+DUOS: Tuple[Tuple[str, str], ...] = tuple(tuple(pair) for pair in _CS["duos"])
+POOL_SIZE = int(_CS["pool_size"])
+MAP_EDGE = float(_CS["match"]["map_edge"])
+ROUNDS_TO_WIN = int(_CS["match"]["rounds_to_win"])
+MAX_ROUNDS = int(_CS["match"]["max_rounds"])
+OVERTIME_ROUNDS = int(_CS["match"]["overtime_rounds"])
+OVERTIME_TO_WIN = int(_CS["match"]["overtime_to_win"])
+MAX_OVERTIMES = int(_CS["match"]["max_overtimes"])
+STRENGTH_SCALE = float(_CS["match"]["strength_scale"])
+SQUAD_SIZE = len(ROLES)
 
 
 class CsdraftError(ValueError):
     """Ошибка правил игры: превращается в ответ 400 с понятным текстом."""
 
 
+# Запасные формулировки: если игра не задала свои, берутся эти.
+_FALLBACK_TEXTS: Dict[str, str] = {
+    "no_map": "Такой карты нет в пуле этого состава",
+    "pool_taken": "{name} уже в вашем пуле",
+    "pool_full": "Пул заполнен: расширить его можно только усилением",
+    "pool_added": "В пул добавлена карта {name}",
+    "started": "Турнир начался: четыре стадии до титула",
+    "champion": "Титул взят без поражений — идеальный прогон!",
+}
+
+
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def public_pack(pack: Dict[str, Any]) -> Dict[str, Any]:
+def public_pack(pack: Dict[str, Any],
+                role_labels: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Пак в том виде, в каком его видит страница."""
+    labels = role_labels or ROLE_LABELS
     return {
         "id": pack["id"],
         "team": pack["team"],
@@ -124,7 +120,7 @@ def public_pack(pack: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "name": player["name"],
                 "role": player["role"],
-                "role_label": ROLE_LABELS.get(player["role"], player["role"]),
+                "role_label": labels.get(player["role"], player["role"]),
                 "aim": float(player["aim"]),
                 "clutch": float(player["clutch"]),
                 "impact": float(player["impact"]),
@@ -136,19 +132,59 @@ def public_pack(pack: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class Csdraft:
-    """Прогоны «87-0»: драфт состава и симуляция мейджора."""
+    """Прогоны драфт-рогалика: драфт состава и симуляция турнира.
 
-    def __init__(self, packs: Optional[Sequence[Dict[str, Any]]] = None,
+    Один экземпляр обслуживает одну игру: конфигурацию (роли, стадии, усиления,
+    правила карты) он читает из реестра backend/draft_games.py.
+    """
+
+    def __init__(self, game: str = "cs",
+                 packs: Optional[Sequence[Dict[str, Any]]] = None,
                  rng: Optional[random.Random] = None,
                  provider: Optional[Callable[[], List[Dict[str, Any]]]] = None,
                  on_finish: Optional[Callable[[Dict[str, Any]], None]] = None) -> None:
+        try:
+            cfg = game_config(game)
+        except KeyError as exc:
+            raise CsdraftError(str(exc)) from None
         self._lock = threading.Lock()
         self._runs: Dict[str, Dict[str, Any]] = {}
         self._rng = rng or random.Random()
         self._provider = provider
         self._on_finish = on_finish
         self._packs: List[Dict[str, Any]] = []
+
+        self.cfg = cfg
+        self.game = str(cfg["key"])
+        self.title = str(cfg["title"])
+        self.roles: Tuple[str, ...] = tuple(cfg["roles"])
+        self.role_labels: Dict[str, str] = dict(cfg["role_labels"])
+        self.adjacency: Dict[str, set] = {
+            str(role): {str(neighbour) for neighbour in neighbours}
+            for role, neighbours in dict(cfg.get("adjacency") or {}).items()
+        }
+        self.stages: Tuple[Dict[str, Any], ...] = tuple(dict(stage) for stage in cfg["stages"])
+        self.boosts: Tuple[Dict[str, Any], ...] = tuple(dict(boost) for boost in cfg["boosts"])
+        self.duos: Tuple[Tuple[str, str], ...] = tuple(tuple(pair) for pair in cfg["duos"])
+        self.era_labels: Dict[str, str] = dict(cfg["era_labels"])
+        self.eras: Tuple[str, ...] = tuple(self.era_labels)
+        self.pool_size = int(cfg["pool_size"])
+        self.match: Dict[str, Any] = dict(cfg["match"])
+        self.pack_offers = int(cfg.get("pack_offers", PACK_OFFERS))
+        # Арен в матче не может быть больше, чем самый длинный формат серии.
+        self.maps_per_match = max(int(stage["best_of"]) for stage in self.stages)
+        self.arena = str(self.match.get("arena") or "карта")
+        self.pool_label = str(cfg.get("pool_label") or "Свой пул")
+        self.tournament = str(cfg.get("tournament") or "турнир")
+        self.tournament_cap = str(cfg.get("tournament_cap") or self.tournament.capitalize())
+        self.texts: Dict[str, str] = {str(key): str(value)
+                                     for key, value in dict(cfg.get("texts") or {}).items()}
         self.reload_packs(packs)
+
+    def _phrase(self, key: str, **kwargs: Any) -> str:
+        """Готовая фраза для игрока: формулировки игр живут в их конфигурации."""
+        template = self.texts.get(key) or _FALLBACK_TEXTS[key]
+        return template.format(**kwargs) if kwargs else template
 
     # ------------------------------------------------------------------ данные
     def reload_packs(self, packs: Optional[Sequence[Dict[str, Any]]] = None) -> int:
@@ -159,7 +195,7 @@ class Csdraft:
             except Exception:  # noqa: BLE001
                 packs = None
         if packs is None:
-            packs = seed_rows()
+            packs = seed_rows_for(self.game)
         self._packs = [normalize_pack(pack) for pack in packs if pack.get("players")]
         return len(self._packs)
 
@@ -171,14 +207,14 @@ class Csdraft:
         return len(self._packs)
 
     def era_counts(self) -> Dict[str, int]:
-        counts = {era: 0 for era in ERAS}
+        counts = {era: 0 for era in self.eras}
         for pack in self._packs:
             counts[str(pack.get("era", "legacy"))] = counts.get(str(pack.get("era", "legacy")), 0) + 1
         return counts
 
     def ready(self, era: Optional[str] = None) -> bool:
         """Играть можно, если паков хватает: минимум четыре на эпоху прогона."""
-        if era and era not in ERAS:
+        if era and era not in self.eras:
             return False
         if era:
             return len(self._eligible(era)) >= 4
@@ -250,29 +286,21 @@ class Csdraft:
         squad = run["squad"]
         if not squad.get(player["role"]):
             return player["role"]
-        free = [slot for slot in ROLES if not squad.get(slot)]
+        free = [slot for slot in self.roles if not squad.get(slot)]
         if not free:
-            raise CsdraftError("В составе уже заняты все пять ролей")
+            raise CsdraftError(f"В составе уже заняты все роли ({len(self.roles)})")
         return min(free, key=lambda slot: (-self._fit(player["role"], slot), slot))
 
-    @staticmethod
-    def _fit(natural: str, slot: str) -> float:
+    def _fit(self, natural: str, slot: str) -> float:
         """Насколько игрок подходит слоту: своя роль, родственная или чужая."""
         if natural == slot:
             return FIT_NATURAL
-        neighbours = {
-            "awp": {"lurker"},
-            "lurker": {"awp", "entry"},
-            "entry": {"lurker", "support"},
-            "support": {"entry", "igl"},
-            "igl": {"support"},
-        }
-        return FIT_ADJACENT if slot in neighbours.get(natural, set()) else FIT_WRONG
+        return FIT_ADJACENT if slot in self.adjacency.get(natural, ()) else FIT_WRONG
 
     def _duo_bonus(self, names: Sequence[str]) -> float:
         bonus = 0.0
         lowered = {name.lower() for name in names}
-        for first, second in DUOS:
+        for first, second in self.duos:
             if first.lower() in lowered and second.lower() in lowered:
                 bonus += CHEM_DUO
         return bonus
@@ -323,7 +351,7 @@ class Csdraft:
     def _strength(self, run: Dict[str, Any], map_name: Optional[str] = None) -> float:
         value = self.rating(run)["total"]
         if map_name and map_name in run.get("pool", ()):
-            value += MAP_EDGE
+            value += float(self.match.get("map_edge") or 0.0)
         return value
 
     # ------------------------------------------------------------------- старт
@@ -331,7 +359,7 @@ class Csdraft:
               era: str = "legacy", assign: str = "auto") -> Dict[str, Any]:
         if difficulty not in DIFFICULTY_REROLLS:
             raise CsdraftError("Неизвестная сложность")
-        if era not in ERAS:
+        if era not in self.eras:
             raise CsdraftError("Неизвестная эпоха")
         if assign not in ASSIGN_MODES:
             raise CsdraftError("Неизвестный способ расстановки")
@@ -347,6 +375,7 @@ class Csdraft:
                 self._runs.pop(oldest, None)
             run: Dict[str, Any] = {
                 "id": self._new_run_id(),
+                "game": self.game,
                 "user_id": int(user.get("id") or 0),
                 "username": user.get("username") or "",
                 "created_at": now,
@@ -355,7 +384,7 @@ class Csdraft:
                 "era": era,
                 "assign": assign,
                 "rerolls": DIFFICULTY_REROLLS[difficulty],
-                "squad": {role: None for role in ROLES},
+                "squad": {role: None for role in self.roles},
                 "pool": [],
                 "boosts": [],
                 "seen_packs": [],
@@ -372,7 +401,7 @@ class Csdraft:
             run["pack"] = self._draw_pack(run)
             self._runs[run["id"]] = run
             self._say(run, f"Старт прогона: {DIFFICULTY_LABELS[difficulty]}, "
-                           f"{ERA_LABELS.get(era, era)}, рероллов {run['rerolls']}")
+                           f"{self.era_labels.get(era, era)}, рероллов {run['rerolls']}")
             return self._payload(run, user, now)
 
     # -------------------------------------------------------------------- драфт
@@ -393,10 +422,10 @@ class Csdraft:
                 raise CsdraftError(f"{packet['name']} уже в составе")
 
             slot = self._assigned_role(run, packet, role)
-            if slot not in ROLES:
+            if slot not in self.roles:
                 raise CsdraftError("Неизвестная роль")
             if run["squad"].get(slot):
-                raise CsdraftError(f"Роль {ROLE_LABELS[slot]} уже занята")
+                raise CsdraftError(f"Роль {self.role_labels[slot]} уже занята")
 
             run["squad"][slot] = {
                 "name": packet["name"],
@@ -406,12 +435,12 @@ class Csdraft:
                 "region": pack.get("region", ""),
                 "era": pack.get("era", "legacy"),
             }
-            place = f" на {ROLE_LABELS[slot]}" if packet["role"] != slot else ""
+            place = f" на {self.role_labels[slot]}" if packet["role"] != slot else ""
             self._say(run, f"В состав взят {packet['name']}{place} ({pack['team']}, {pack['event']})")
             run["updated_at"] = time.time()
             if all(run["squad"].values()):
                 run["status"] = "ready"
-                self._say(run, "Состав собран — можно начинать мейджор")
+                self._say(run, f"Состав собран — можно начинать {self.tournament}")
             return self._payload(run, user, run["updated_at"])
 
     def take_map(self, run_id: str, user: Dict[str, Any], map_name: str) -> Dict[str, Any]:
@@ -422,14 +451,14 @@ class Csdraft:
                 raise CsdraftError("Прогон уже закончен")
             name = str(map_name or "").strip()
             if name not in run["pack"].get("maps", ()):
-                raise CsdraftError("Такой карты нет в маппуле этого состава")
+                raise CsdraftError(self._phrase("no_map"))
             if name in run["pool"]:
-                raise CsdraftError(f"{name} уже в вашем маппуле")
-            limit = POOL_SIZE + sum(1 for boost in run["boosts"] if boost.get("extra_map"))
+                raise CsdraftError(self._phrase("pool_taken", name=name))
+            limit = self.pool_size + sum(1 for boost in run["boosts"] if boost.get("extra_map"))
             if len(run["pool"]) >= limit:
-                raise CsdraftError("Маппул заполнен: карты можно менять только бустами")
+                raise CsdraftError(self._phrase("pool_full"))
             run["pool"].append(name)
-            self._say(run, f"В маппул добавлена карта {name}")
+            self._say(run, self._phrase("pool_added", name=name))
             run["updated_at"] = time.time()
             return self._payload(run, user, run["updated_at"])
 
@@ -486,13 +515,13 @@ class Csdraft:
             best: Optional[Tuple[float, List[Any]]] = None
             # Перебираем все способы разложить игроков по свободным слотам
             # (для пяти игроков это 120 вариантов) и берём лучший по попаданию.
-            for slots in itertools.permutations(ROLES, len(players)):
+            for slots in itertools.permutations(self.roles, len(players)):
                 score = sum(self._fit(player["role"], slot) for player, slot in zip(players, slots))
                 if best is None or score > best[0]:
                     best = (score, list(slots))
             assert best is not None
             placed = dict(zip([player["name"] for player in players], best[1]))
-            run["squad"] = {role: None for role in ROLES}
+            run["squad"] = {role: None for role in self.roles}
             for player in players:
                 run["squad"][placed[player["name"]]] = player
             self._say(run, "Роли расставлены автоматически")
@@ -506,16 +535,16 @@ class Csdraft:
             run = self._run(run_id)
             self._owner_check(run, user)
             if not all(run["squad"].values()):
-                raise CsdraftError("Сначала соберите состав: нужны все пять ролей")
+                raise CsdraftError(f"Сначала соберите состав: нужны все роли ({len(self.roles)})")
             if run.get("reward"):
                 raise CsdraftError("Сначала выберите усиление")
             if run["status"] in ("dead", "champion"):
                 raise CsdraftError("Прогон закончен — начните новый")
             if run["status"] == "ready":
                 run["status"] = "running"
-                self._say(run, "Мейджор начался: четыре стадии до титула")
-            run["stage"] = min(run["stage"], len(STAGES) - 1)
-            stage = STAGES[run["stage"]]
+                self._say(run, self._phrase("started"))
+            run["stage"] = min(run["stage"], len(self.stages) - 1)
+            stage = self.stages[run["stage"]]
             opponent = self._draw_pack({**run, "pack": None})
             match = self._simulate(run, opponent, stage)
             match["stage"] = stage["key"]
@@ -532,9 +561,9 @@ class Csdraft:
                 self._say(run, f"{stage['title']}: поражение от {opponent['team']} "
                                f"{match['score']} ({match['maps']}) — прогон закончен")
 
-            if match["won"] and run["stage"] == len(STAGES) - 1:
+            if match["won"] and run["stage"] == len(self.stages) - 1:
                 run["status"] = "champion"
-                self._say(run, "Титул мейджора взят без поражений — идеальный прогон!")
+                self._say(run, self._phrase("champion"))
             elif match["won"]:
                 run["reward"] = self._offer_boosts(run)
                 self._say(run, "Усиление на выбор: три карты бустов")
@@ -559,16 +588,18 @@ class Csdraft:
             run["reward"] = []
             run["stage"] += 1
             self._say(run, f"Усиление: {chosen['title']}. "
-                           f"Дальше — {STAGES[min(run['stage'], len(STAGES) - 1)]['title']}")
+                           f"Дальше — {self.stages[min(run['stage'], len(self.stages) - 1)]['title']}")
             run["updated_at"] = time.time()
             return self._payload(run, user, run["updated_at"])
 
     def _offer_boosts(self, run: Dict[str, Any]) -> List[Dict[str, Any]]:
         taken = {boost["id"] for boost in run.get("boosts", ())}
-        available = [boost for boost in BOOSTS if boost["id"] not in taken or boost.get("repeatable")]
+        available = [boost for boost in self.boosts
+                     if boost["id"] not in taken or boost.get("repeatable")]
         if not available:
-            available = list(BOOSTS)
-        return [dict(boost) for boost in self._rng.sample(available, min(PACK_OFFERS, len(available)))]
+            available = list(self.boosts)
+        return [dict(boost) for boost in self._rng.sample(
+            available, min(self.pack_offers, len(available)))]
 
     def _simulate(self, run: Dict[str, Any], opponent: Dict[str, Any],
                   stage: Dict[str, Any]) -> Dict[str, Any]:
@@ -587,8 +618,8 @@ class Csdraft:
             theirs = _pack_strength(opponent)
             their_maps = set(opponent.get("maps", ()))
             if map_name in their_maps:
-                theirs += MAP_EDGE
-            us, them, overtime = _simulate_map(ours, theirs, rng)
+                theirs += float(self.match.get("map_edge") or 0.0)
+            us, them, overtime = _simulate_map(ours, theirs, rng, self.match)
             won = us > them
             team_score += 1 if won else 0
             opp_score += 0 if won else 1
@@ -634,10 +665,10 @@ class Csdraft:
                 if name not in chosen and name not in rest:
                     rest.append(name)
         rng.shuffle(rest)
-        while len(chosen) < 5 and rest:
+        while len(chosen) < self.maps_per_match and rest:
             chosen.append(rest.pop())
         rng.shuffle(chosen)
-        return chosen[:5]
+        return chosen[:self.maps_per_match]
 
     # ------------------------------------------------------------------ журнал
     def _say(self, run: Dict[str, Any], message: str) -> None:
@@ -650,6 +681,7 @@ class Csdraft:
             return
         rating = self.rating(run)
         record = {
+            "game": self.game,
             "username": run["username"],
             "user_id": run["user_id"],
             "difficulty": run["difficulty"],
@@ -657,10 +689,10 @@ class Csdraft:
             "champion": run["status"] == "champion",
             "wins": run["wins"],
             "losses": run["losses"],
-            "stage": STAGES[run["stage"]]["key"],
+            "stage": self.stages[run["stage"]]["key"],
             "rating": float(rating["total"]) if rating["filled"] else 0.0,
             "squad": "; ".join(
-                f"{player['name']} ({ROLE_LABELS[slot]})"
+                f"{player['name']} ({self.role_labels[slot]})"
                 for slot, player in run["squad"].items() if player) or "—",
             "packs": "; ".join(dict.fromkeys(
                 player["pack"] for player in run["squad"].values() if player)) or "—",
@@ -681,23 +713,25 @@ class Csdraft:
 
     def _payload(self, run: Dict[str, Any], user: Dict[str, Any], now: float) -> Dict[str, Any]:
         rating = self.rating(run)
-        stage = STAGES[min(run["stage"], len(STAGES) - 1)]
+        stage = self.stages[min(run["stage"], len(self.stages) - 1)]
         return {
             "id": run["id"],
+            "game": self.game,
+            "title": self.title,
             "status": run["status"],
             "difficulty": run["difficulty"],
             "difficulty_label": DIFFICULTY_LABELS[run["difficulty"]],
             "era": run["era"],
-            "era_label": ERA_LABELS.get(run["era"], run["era"]),
+            "era_label": self.era_labels.get(run["era"], run["era"]),
             "assign": run["assign"],
             "rerolls": run["rerolls"],
-            "pack": public_pack(run["pack"]) if run.get("pack") else None,
+            "pack": public_pack(run["pack"], self.role_labels) if run.get("pack") else None,
             "squad": {
                 slot: ({
                     "name": player["name"],
                     "role": player["role"],
-                    "role_label": ROLE_LABELS.get(player["role"], player["role"]),
-                    "slot_label": ROLE_LABELS[slot],
+                    "role_label": self.role_labels.get(player["role"], player["role"]),
+                    "slot_label": self.role_labels[slot],
                     "ovr": player["ovr"],
                     "pack": player["pack"],
                     "fit": self._fit(player["role"], slot),
@@ -705,21 +739,24 @@ class Csdraft:
                 for slot, player in run["squad"].items()
             },
             "pool": list(run["pool"]),
-            "pool_limit": POOL_SIZE + sum(1 for boost in run["boosts"] if boost.get("extra_map")),
+            "pool_limit": self.pool_size + sum(1 for boost in run["boosts"] if boost.get("extra_map")),
             "boosts": [{"id": boost["id"], "title": boost["title"]} for boost in run["boosts"]],
             "rating": rating,
+            "arena": self.arena,
+            "pool_label": self.pool_label,
+            "tournament": self.tournament,
             "stage": {
-                "index": min(run["stage"], len(STAGES) - 1),
+                "index": min(run["stage"], len(self.stages) - 1),
                 "key": stage["key"],
                 "title": stage["title"],
                 "best_of": stage["best_of"],
-                "total": len(STAGES),
+                "total": len(self.stages),
             },
             "history": run["history"],
             "reward": run.get("reward", []),
             "ready": all(run["squad"].values()),
             "log": run.get("log", [])[-15:],
-            "roles": [{"key": role, "label": ROLE_LABELS[role]} for role in ROLES],
+            "roles": [{"key": role, "label": self.role_labels[role]} for role in self.roles],
         }
 
 
@@ -736,34 +773,46 @@ def _pack_strength(pack: Dict[str, Any]) -> float:
     return sum(values) / len(values)
 
 
-def _simulate_map(ours: float, theirs: float, rng: random.Random) -> Tuple[int, int, bool]:
-    """Один матч на карте: до 16 побед, при 15:15 — овертаймы.
+def _simulate_map(ours: float, theirs: float, rng: random.Random,
+                  rules: Optional[Dict[str, Any]] = None) -> Tuple[int, int, bool]:
+    """Один матч на карте: до победы в раундах, при равном счёте — овертаймы.
 
     Вероятность раунда берётся логистической функцией от разницы силы: разница
-    в 12 очков даёт примерно три четверти раундов одной стороне.
+    в 12 очков даёт примерно три четверти раундов одной стороне. Сколько раундов
+    нужно для победы и как играются овертаймы, задаёт конфигурация игры: в CS это
+    16 побед и овертаймы по 6 раундов до 4, в Valorant — 13 и 2 до 2, в Rocket
+    League — 3 гола и 2 до 2.
     """
-    chance = 1.0 / (1.0 + 10 ** ((theirs - ours) / STRENGTH_SCALE))
+    params = rules or {}
+    rounds_to_win = int(params.get("rounds_to_win") or ROUNDS_TO_WIN)
+    max_rounds = int(params.get("max_rounds") or MAX_ROUNDS)
+    overtime_rounds = int(params.get("overtime_rounds") or OVERTIME_ROUNDS)
+    overtime_to_win = int(params.get("overtime_to_win") or OVERTIME_TO_WIN)
+    max_overtimes = int(params.get("max_overtimes") or MAX_OVERTIMES)
+    scale = float(params.get("strength_scale") or STRENGTH_SCALE)
+
+    chance = 1.0 / (1.0 + 10 ** ((theirs - ours) / scale))
     us = 0
     them = 0
     rounds = 0
-    while us < ROUNDS_TO_WIN and them < ROUNDS_TO_WIN and rounds < MAX_ROUNDS:
+    while us < rounds_to_win and them < rounds_to_win and rounds < max_rounds:
         rounds += 1
         if rng.random() < chance:
             us += 1
         else:
             them += 1
-    if us == them:  # 15:15 — овертайм по шесть раундов до четырёх побед
-        for _ in range(MAX_OVERTIMES):
+    if us == them:  # равный счёт в основное время — овертаймы
+        for _ in range(max_overtimes):
             overtime_us = 0
             overtime_them = 0
-            for _ in range(OVERTIME_ROUNDS):
+            for _ in range(overtime_rounds):
                 if rng.random() < chance:
                     overtime_us += 1
                 else:
                     overtime_them += 1
             us += overtime_us
             them += overtime_them
-            if overtime_us >= OVERTIME_TO_WIN or overtime_them >= OVERTIME_TO_WIN:
+            if overtime_us >= overtime_to_win or overtime_them >= overtime_to_win:
                 break
         if us == them:  # совсем упёрлись — решает один раунд
             if rng.random() < chance:

@@ -93,6 +93,15 @@ API (JSON):
     POST /api/games/csdraft/runs/<id>/boost       {"index":0..2} выбрать усиление
     GET  /api/games/csdraft/matches?limit=&scope= журнал прогонов: свои; scope=all — все (admin)
 
+Другие драфт-игры («13-0» по Valorant, «4-0» по Rocket League) — тот же движок
+и тот же набор действий, но адрес с ключом игры; «cs» — псевдоним «87-0»:
+    GET  /api/games/draft/games                   список игр и их правила
+    GET  /api/games/draft/<игра>/status           набор паков игры и её правила
+    POST /api/games/draft/<игра>/runs             начать прогон
+    GET  /api/games/draft/<игра>/runs/<id>        состояние прогона
+    .../runs/<id>/take|map|pack|reroll|assign|auto|play|boost  — как у «87-0»
+    GET  /api/games/draft/<игра>/matches?limit=   журнал прогонов игры
+
 Домашний агент (только устройство-токен, режим --device-remote): когда сервер
 стоит на VPS, а Arduino осталась дома, COM-порт держит agent (device_agent.py):
     POST /api/device/sync                показания агента → очередь команд к плате
@@ -133,17 +142,23 @@ try:  # запуск как модуль: python -m backend.server
         DIFFICULTIES,
         DIFFICULTY_LABELS,
         DIFFICULTY_REROLLS,
-        ERAS,
-        POOL_SIZE,
-        ROLE_LABELS,
-        ROLES,
-        STAGES,
         Csdraft,
         CsdraftError,
     )
-    from .csdraft_data import seed_rows as csdraft_seed_rows
+    from .draft_games import GAME_KEYS, game_block, games_block, seed_rows_for
     from .narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError
     from .narutodle_data import attribute_list, seed_rows
+    from .raporder import (
+        ANSWER_SECONDS as RAP_ANSWER_SECONDS,
+        DUEL_ROUNDS,
+        MAX_PLAYERS as RAP_MAX_PLAYERS,
+        MIN_PLAYERS as RAP_MIN_PLAYERS,
+        ROUNDS_PER_GAME as RAP_ROUNDS,
+        RapOrder,
+        RapOrderError,
+    )
+    from .raporder_data import seed_rows as raporder_seed_rows
+    from .raporder_data import TRACKS_PER_ROUND as RAP_TRACKS_PER_ROUND
     from .songless import (
         ANSWER_SECONDS,
         MAX_PLAYERS,
@@ -170,17 +185,23 @@ except ImportError:  # запуск как файл: python backend/server.py
         DIFFICULTIES,
         DIFFICULTY_LABELS,
         DIFFICULTY_REROLLS,
-        ERAS,
-        POOL_SIZE,
-        ROLE_LABELS,
-        ROLES,
-        STAGES,
         Csdraft,
         CsdraftError,
     )
-    from csdraft_data import seed_rows as csdraft_seed_rows  # type: ignore
+    from draft_games import GAME_KEYS, game_block, games_block, seed_rows_for  # type: ignore
     from narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError  # type: ignore
     from narutodle_data import attribute_list, seed_rows  # type: ignore
+    from raporder import (  # type: ignore
+        ANSWER_SECONDS as RAP_ANSWER_SECONDS,
+        DUEL_ROUNDS,
+        MAX_PLAYERS as RAP_MAX_PLAYERS,
+        MIN_PLAYERS as RAP_MIN_PLAYERS,
+        ROUNDS_PER_GAME as RAP_ROUNDS,
+        RapOrder,
+        RapOrderError,
+    )
+    from raporder_data import seed_rows as raporder_seed_rows  # type: ignore
+    from raporder_data import TRACKS_PER_ROUND as RAP_TRACKS_PER_ROUND  # type: ignore
     from songless import (  # type: ignore
         ANSWER_SECONDS,
         MAX_PLAYERS,
@@ -255,9 +276,22 @@ class Application:
                                    provider=self.db.narutodle_characters)
         self.songless = Songless(tracks=self._songless_tracks(),
                                  provider=self.db.songless_tracks)
-        self.csdraft = Csdraft(packs=self._csdraft_packs(),
-                               provider=self.db.csdraft_packs,
-                               on_finish=self._log_csdraft_run)
+        self.raporder = RapOrder(tracks=self._raporder_tracks(),
+                                 provider=self.db.raporder_tracks,
+                                 on_finish=self._log_raporder_match)
+        # Драфт-рогалики: движок один, но у каждой игры свой набор паков и свои
+        # прогоны — поэтому экземпляр на игру («87-0», «13-0», «4-0»).
+        self.drafts: Dict[str, Csdraft] = {
+            game: Csdraft(
+                game=game,
+                packs=self._draft_packs(game),
+                provider=(lambda key=game: self.db.csdraft_packs(key)),
+                on_finish=(lambda record, key=game: self._log_draft_run(key, record)),
+            )
+            for game in GAME_KEYS
+        }
+        # Короткий путь для игры по умолчанию: им пользуется страница «87-0».
+        self.csdraft = self.drafts["cs"]
 
     # ------------------------------------------------------------------- доступ
     def authorized(self, headers: Any, query: Dict[str, str]) -> bool:
@@ -348,28 +382,85 @@ class Application:
         """Перечитывает набор треков из базы (на случай правок на ходу)."""
         return self.songless.refresh()
 
-    # ---------------------------------------------------------- игра «87-0»
-    def _csdraft_packs(self) -> List[Dict[str, Any]]:
-        """Составы из базы; на пустой таблице заливает исходный набор.
+    # ---------------------------------------------- игра «Рэп-хронология»
+    def _raporder_tracks(self) -> List[Dict[str, Any]]:
+        """Треки из базы; на пустой таблице заливает исходный набор.
+
+        Дальше источник правды — база: годы, исполнителей и названия можно
+        править прямо в ней (backend/seed_raporder.py умеет и то, и другое).
+        """
+        if not self.db.raporder_track_count():
+            seeded = self.db.raporder_save_tracks(raporder_seed_rows())
+            self.db.add_log(f"Рэп-хронология: набор треков залит в базу ({seeded})", "info")
+        return self.db.raporder_tracks()
+
+    def reload_raporder_tracks(self) -> int:
+        """Перечитывает набор треков из базы (на случай правок на ходу)."""
+        return self.raporder.refresh()
+
+    def _log_raporder_match(self, record: Dict[str, Any]) -> None:
+        """Пишет итог партии в журнал игры и в общий журнал событий."""
+        entry = self.db.raporder_add_match(record)
+        where = "соло" if entry["mode"] == "solo" else f"комната {entry['room']}"
+        winner = entry.get("winner_name") or "ничья"
+        self.db.add_log(
+            f"Рэп-хронология: партия #{entry['id']} ({where}) — {winner}, "
+            f"{entry['player1_name']} {entry['player1_score']}"
+            + (f": {entry['player2_name']} {entry['player2_score']}"
+               if entry.get("player2_name") else "")
+            + f" [{entry['detail']}]",
+            "info",
+        )
+
+    # ------------------------------------------------- драфт-рогалики (игры)
+    def _draft_packs(self, game: str) -> List[Dict[str, Any]]:
+        """Паки игры из базы; на пустом наборе заливает исходный набор из кода.
 
         Дальше источник правды — база: составы, роли и оценки можно править
         прямо в ней (backend/seed_csdraft.py умеет и то, и другое).
         """
-        if not self.db.csdraft_pack_count():
-            seeded = self.db.csdraft_save_packs(csdraft_seed_rows())
-            self.db.add_log(f"87-0: набор составов залит в базу ({seeded})", "info")
-        return self.db.csdraft_packs()
+        if not self.db.csdraft_pack_count(game):
+            seeded = self.db.csdraft_save_packs(seed_rows_for(game))
+            self.db.add_log(f"{self._game_title(game)}: набор составов залит в базу "
+                            f"({seeded})", "info")
+        return self.db.csdraft_packs(game)
+
+    @staticmethod
+    def _game_title(game: str) -> str:
+        """Название игры для журнала: у неизвестной остаётся её ключ."""
+        return game_block(game)["title"] if game in GAME_KEYS else str(game)
+
+    def _csdraft_packs(self) -> List[Dict[str, Any]]:
+        """Паки «87-0» (CS): короткий путь для игры по умолчанию."""
+        return self._draft_packs("cs")
+
+    def draft_engine(self, game: str) -> Csdraft:
+        """Движок игры: у каждой игры свои прогоны и свой набор паков."""
+        key = str(game or "").strip().lower()
+        if key not in self.drafts:
+            raise CsdraftError(f"Неизвестная игра: {game}")
+        return self.drafts[key]
+
+    def reload_draft_packs(self, game: Optional[str] = None) -> int:
+        """Сбрасывает и перечитывает составы из базы (по одной игре или по всем)."""
+        keys = [str(game).strip().lower()] if game else list(self.drafts)
+        for key in keys:
+            if key in self.drafts:
+                self.drafts[key].refresh()
+        return sum(engine.pack_count() for engine in self.drafts.values())
 
     def reload_csdraft_packs(self) -> int:
-        """Сбрасывает и перечитывает составы из базы."""
-        return self.csdraft.refresh()
+        """Сбрасывает и перечитывает составы «87-0» из базы."""
+        return self.drafts["cs"].refresh()
 
-    def _log_csdraft_run(self, record: Dict[str, Any]) -> None:
+    def _log_draft_run(self, game: str, record: Dict[str, Any]) -> None:
         """Пишет итог прогона в журнал игры и в общий журнал событий."""
-        entry = self.db.csdraft_add_run(record)
-        result = "титул мейджора" if entry.get("champion") else f"вылет на стадии «{entry['stage']}»"
+        entry = self.db.csdraft_add_run({**record, "game": game})
+        tournament = game_block(game)["tournament"] if game in GAME_KEYS else "турнир"
+        result = f"титул {tournament}" if entry.get("champion") else \
+            f"вылет на стадии «{entry['stage']}»"
         self.db.add_log(
-            f"87-0: прогон #{entry['id']} у {entry['username']} — {result} "
+            f"{self._game_title(game)}: прогон #{entry['id']} у {entry['username']} — {result} "
             f"({entry['wins']}:{entry['losses']}, состав {entry['squad']})",
             "info",
         )
@@ -1038,8 +1129,22 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/games/songless"):
             return self._handle_songless_api(method, path)
 
+        if path.startswith("/api/games/raporder"):
+            return self._handle_raporder_api(method, path)
+
         if path.startswith("/api/games/csdraft"):
             return self._handle_csdraft_api(method, path)
+
+        if re.fullmatch(r"/api/games/draft/[a-z0-9]+", path):
+            game = path.rsplit("/", 1)[-1]
+            if game == "games":
+                return self._handle_draft_games_api(method, path)
+            return self._handle_draft_api(method, path, game, path)
+
+        draft = re.fullmatch(r"/api/games/draft/([a-z0-9]+)/(.+)", path)
+        if draft:
+            prefix = f"/api/games/draft/{draft.group(1)}"
+            return self._handle_draft_api(method, path, draft.group(1), prefix)
 
         try:
             user = app.user_by_token(self._bearer_token())
@@ -1177,8 +1282,14 @@ class Handler(BaseHTTPRequestHandler):
             return default
         return max(1, min(value, 500))
 
-    def _handle_csdraft_api(self, method: str, path: str) -> None:
-        """«87-0»: драфт состава из прошлых турниров и прогон по сетке мейджора.
+    def _handle_draft_api(self, method: str, path: str, game: str = "cs",
+                          prefix: str = "/api/games/csdraft") -> None:
+        """Драфт-рогалик: драфт состава из прошлых турниров и прогон по сетке.
+
+        Один обработчик обслуживает все игры — «87-0» (CS, старый адрес
+        /api/games/csdraft), «13-0» (Valorant) и «4-0» (Rocket League), у которых
+        адрес /api/games/draft/<игра>. Отличаются они только конфигурацией из
+        backend/draft_games.py.
 
         Вход — по аккаунту панели (Bearer): прогон принадлежит игроку, и чужой
         его продолжить не может. Прогоны живут в памяти процесса, поэтому
@@ -1186,28 +1297,30 @@ class Handler(BaseHTTPRequestHandler):
         переживает перезапуск.
         """
         app = self.app
-        prefix = "/api/games/csdraft"
         client = self.client_address[0] if self.client_address else "?"
         query = self._query()
 
         try:
+            engine = app.draft_engine(game)
             user = app.user_by_token(self._bearer_token())
 
             # Состояние набора открыто до входа: страница сразу объясняет, что
             # играть можно, и какие есть эпохи, сложности и роли.
             if method == "GET" and path == f"{prefix}/status":
-                app.csdraft.refresh()
+                engine.refresh()
                 return self._json({
-                    "packs": app.csdraft.pack_count(),
-                    "eras": app.csdraft.era_counts(),
-                    "ready": {era: app.csdraft.ready(era) for era in ERAS},
+                    "game": game_block(engine.game),
+                    "packs": engine.pack_count(),
+                    "eras": engine.era_counts(),
+                    "ready": {era: engine.ready(era) for era in engine.eras},
                     "difficulties": [
                         {"key": key, "label": DIFFICULTY_LABELS[key],
                          "rerolls": DIFFICULTY_REROLLS[key]} for key in DIFFICULTIES],
                     "stages": [{"key": stage["key"], "title": stage["title"],
-                                "best_of": stage["best_of"]} for stage in STAGES],
-                    "roles": [{"key": role, "label": ROLE_LABELS[role]} for role in ROLES],
-                    "pool_size": POOL_SIZE,
+                                "best_of": stage["best_of"]} for stage in engine.stages],
+                    "roles": [{"key": role, "label": engine.role_labels[role]}
+                              for role in engine.roles],
+                    "pool_size": engine.pool_size,
                 })
 
             if not user:
@@ -1217,7 +1330,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not app.allow_game_action(client):
                     return self._error("Слишком много прогонов за минуту — подождите немного", 429)
                 data = self._body()
-                return self._json({"state": app.csdraft.start(
+                return self._json({"state": engine.start(
                     user,
                     difficulty=str(data.get("difficulty") or "hard"),
                     era=str(data.get("era") or "legacy"),
@@ -1230,13 +1343,13 @@ class Handler(BaseHTTPRequestHandler):
                 if scope == "all":
                     if not self._require_admin(user):
                         return self._error("Журнал всех прогонов доступен только администратору", 403)
-                    return self._json({"matches": app.db.csdraft_runs(None, limit)})
-                return self._json({"matches": app.db.csdraft_runs(user["id"], limit)})
+                    return self._json({"matches": app.db.csdraft_runs(None, limit, engine.game)})
+                return self._json({"matches": app.db.csdraft_runs(user["id"], limit, engine.game)})
 
             run_pattern = rf"{prefix}/runs/([0-9a-f]{{8}})"
             match = re.fullmatch(run_pattern, path)
             if method == "GET" and match:
-                return self._json({"state": app.csdraft.state(match.group(1), user)})
+                return self._json({"state": engine.state(match.group(1), user)})
 
             match = re.fullmatch(rf"{run_pattern}/take", path)
             if method == "POST" and match:
@@ -1244,44 +1357,155 @@ class Handler(BaseHTTPRequestHandler):
                     return self._error("Слишком много действий за минуту — подождите немного", 429)
                 data = self._body()
                 role = str(data.get("role") or "").strip() or None
-                return self._json({"state": app.csdraft.take(
+                return self._json({"state": engine.take(
                     match.group(1), user, str(data.get("player") or ""), role)})
 
             match = re.fullmatch(rf"{run_pattern}/map", path)
             if method == "POST" and match:
                 map_name = str(self._body().get("map") or "")
-                return self._json({"state": app.csdraft.take_map(match.group(1), user, map_name)})
+                return self._json({"state": engine.take_map(match.group(1), user, map_name)})
 
             match = re.fullmatch(rf"{run_pattern}/pack", path)
             if method == "POST" and match:
-                return self._json({"state": app.csdraft.skip_pack(match.group(1), user)})
+                return self._json({"state": engine.skip_pack(match.group(1), user)})
 
             match = re.fullmatch(rf"{run_pattern}/reroll", path)
             if method == "POST" and match:
-                return self._json({"state": app.csdraft.reroll(match.group(1), user)})
+                return self._json({"state": engine.reroll(match.group(1), user)})
 
             match = re.fullmatch(rf"{run_pattern}/assign", path)
             if method == "POST" and match:
                 mode = str(self._body().get("mode") or "")
-                return self._json({"state": app.csdraft.set_assign(match.group(1), user, mode)})
+                return self._json({"state": engine.set_assign(match.group(1), user, mode)})
 
             match = re.fullmatch(rf"{run_pattern}/auto", path)
             if method == "POST" and match:
-                return self._json({"state": app.csdraft.auto_assign(match.group(1), user)})
+                return self._json({"state": engine.auto_assign(match.group(1), user)})
 
             match = re.fullmatch(rf"{run_pattern}/play", path)
             if method == "POST" and match:
                 if not app.allow_game_action(client):
                     return self._error("Слишком много матчей за минуту — подождите немного", 429)
-                return self._json({"state": app.csdraft.play(match.group(1), user)})
+                return self._json({"state": engine.play(match.group(1), user)})
 
             match = re.fullmatch(rf"{run_pattern}/boost", path)
             if method == "POST" and match:
-                return self._json({"state": app.csdraft.boost(
+                return self._json({"state": engine.boost(
                     match.group(1), user, self._body().get("index"))})
 
             return self._error(f"Не найдено: {method} {path}", 404)
         except CsdraftError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Внутренняя ошибка: {exc}", 500)
+
+    def _handle_csdraft_api(self, method: str, path: str) -> None:
+        """«87-0»: старый адрес игры по CS (страница пользуется именно им)."""
+        return self._handle_draft_api(method, path, "cs", "/api/games/csdraft")
+
+    def _handle_draft_games_api(self, method: str, path: str) -> None:
+        """Список драфт-игр и их правил: этим страница выбирает игру."""
+        if method != "GET" or path != "/api/games/draft/games":
+            return self._error(f"Не найдено: {method} {path}", 404)
+        return self._json({"games": [game_block(key) for key in GAME_KEYS],
+                           "short": games_block()})
+
+    def _handle_raporder_api(self, method: str, path: str) -> None:
+        """«Рэп-хронология»: соло-заходы и комнаты, где треки ставят по годам.
+
+        Вход — по аккаунту панели (Bearer): ссылку с кодом комнаты пересылают
+        друзьям, и общий ключ в ней был бы утечкой. Правильного порядка и годов
+        нет в ответах сервера, пока раунд не закончился: иначе их можно было бы
+        просто прочитать.
+        """
+        app = self.app
+        prefix = "/api/games/raporder"
+        client = self.client_address[0] if self.client_address else "?"
+        query = self._query()
+
+        try:
+            user = app.user_by_token(self._bearer_token())
+
+            # Состояние набора открыто: страница должна объяснить, что играть
+            # пока нечего, ещё до входа в аккаунт.
+            if method == "GET" and path == f"{prefix}/status":
+                app.raporder.refresh()
+                problems = app.raporder.problems()
+                return self._json({
+                    "tracks": app.raporder.track_count(),
+                    "playable": app.raporder.playable_count(),
+                    "years": app.raporder.year_count(),
+                    "ready": app.raporder.ready(),
+                    "tracks_per_round": RAP_TRACKS_PER_ROUND,
+                    "solo_rounds": RAP_ROUNDS,
+                    "duel_rounds": DUEL_ROUNDS,
+                    "min_players": RAP_MIN_PLAYERS,
+                    "max_players": RAP_MAX_PLAYERS,
+                    "answer_seconds": RAP_ANSWER_SECONDS,
+                    "problems": problems[:10],
+                })
+
+            if not user:
+                return self._error("Требуется вход в аккаунт", 401)
+
+            if method == "GET" and path == f"{prefix}/matches":
+                scope = str(query.get("scope") or "mine").lower()
+                mode = str(query.get("mode") or "").strip().lower() or None
+                limit = self._limit_arg(query)
+                if scope == "all":
+                    if not self._require_admin(user):
+                        return self._error("Журнал всех партий доступен только администратору", 403)
+                    return self._json({"matches": app.db.raporder_matches(None, limit, mode)})
+                return self._json({"matches": app.db.raporder_matches(user["id"], limit, mode)})
+
+            if method == "POST" and path == f"{prefix}/solo":
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много попыток за минуту — подождите немного", 429)
+                return self._json({"state": app.raporder.solo_start(user)}, 201)
+
+            match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)", path)
+            if method == "GET" and match:
+                return self._json({"state": app.raporder.solo_state(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)/answer", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много ответов за минуту — подождите немного", 429)
+                return self._json({"state": app.raporder.solo_answer(
+                    match.group(1), user, self._body().get("order"))})
+
+            if method == "POST" and path == f"{prefix}/rooms":
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много комнат за минуту — подождите немного", 429)
+                return self._json({"state": app.raporder.create(user)}, 201)
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})", path)
+            if method == "GET" and match:
+                return self._json({"state": app.raporder.state(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/join", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много попыток войти — подождите минуту", 429)
+                return self._json({"state": app.raporder.join(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/start", path)
+            if method == "POST" and match:
+                return self._json({"state": app.raporder.start(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/answer", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много ответов за минуту — подождите немного", 429)
+                return self._json({"state": app.raporder.answer(
+                    match.group(1), user, self._body().get("order"))})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/rematch", path)
+            if method == "POST" and match:
+                return self._json({"state": app.raporder.rematch(match.group(1), user)})
+
+            return self._error(f"Не найдено: {method} {path}", 404)
+        except RapOrderError as exc:
             return self._error(str(exc), 400)
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Внутренняя ошибка: {exc}", 500)

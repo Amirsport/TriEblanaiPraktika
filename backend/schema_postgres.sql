@@ -165,11 +165,13 @@ CREATE TABLE IF NOT EXISTS device_commands (
 
 CREATE INDEX IF NOT EXISTS idx_device_commands_open ON device_commands (applied_at, id);
 
--- «87-0»: составы прошлых турниров (паки) и журнал прогонов драфт-рогалика.
--- Паки правятся владельцем сайта: карты и игроки лежат JSON-строками, чтобы
--- не заводить по таблице на каждую сущность.
+-- Драфт-рогалики («87-0» по CS, «13-0» по Valorant, «4-0» по Rocket League):
+-- составы прошлых турниров (паки) и журнал прогонов. Паки правятся владельцем
+-- сайта: карты и игроки лежат JSON-строками, чтобы не заводить по таблице на
+-- каждую сущность. Колонка game отделяет наборы паков друг от друга.
 CREATE TABLE IF NOT EXISTS csdraft_packs (
     id         TEXT PRIMARY KEY,
+    game       TEXT NOT NULL DEFAULT 'cs',
     team       TEXT NOT NULL,
     event      TEXT NOT NULL,
     year       INTEGER NOT NULL DEFAULT 0,
@@ -184,6 +186,7 @@ CREATE TABLE IF NOT EXISTS csdraft_packs (
 
 CREATE TABLE IF NOT EXISTS csdraft_runs (
     id         BIGSERIAL PRIMARY KEY,
+    game       TEXT NOT NULL DEFAULT 'cs',
     username   TEXT NOT NULL DEFAULT '',
     user_id    BIGINT,
     difficulty TEXT NOT NULL DEFAULT 'hard',
@@ -200,3 +203,32 @@ CREATE TABLE IF NOT EXISTS csdraft_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_csdraft_runs_user ON csdraft_runs (user_id, id DESC);
+
+-- «Рэп-хронология»: треки (исполнитель, название, год) и журнал партий.
+-- Год — единственное, что важно игре: по нему треки и расставляются.
+CREATE TABLE IF NOT EXISTS raporder_tracks (
+    id         TEXT PRIMARY KEY,
+    artist     TEXT NOT NULL DEFAULT '',
+    title      TEXT NOT NULL DEFAULT '',
+    year       INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS raporder_matches (
+    id            BIGSERIAL PRIMARY KEY,
+    mode          TEXT NOT NULL DEFAULT 'solo',
+    room          TEXT NOT NULL DEFAULT '',
+    rounds        INTEGER NOT NULL DEFAULT 0,
+    player1_id    BIGINT,
+    player1_name  TEXT NOT NULL DEFAULT '',
+    player1_score INTEGER NOT NULL DEFAULT 0,
+    player2_id    BIGINT,
+    player2_name  TEXT NOT NULL DEFAULT '',
+    player2_score INTEGER NOT NULL DEFAULT 0,
+    winner_id     BIGINT,
+    winner_name   TEXT NOT NULL DEFAULT '',
+    detail        TEXT NOT NULL DEFAULT '',
+    played_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_raporder_matches_player ON raporder_matches (player1_id, id DESC);

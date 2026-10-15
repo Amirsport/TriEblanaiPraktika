@@ -102,9 +102,14 @@ backend/
   songless.py              движок «Аниме-сонглесса»: соло-заходы и комнаты
   songless_data.py         набор опенингов (источник для базы)
   seed_songless.py         наполнение базы треками и привязка записей
-  csdraft.py               движок «87-0»: драфт состава и прогон по сетке мейджора
+  csdraft.py               движок драфт-рогаликов: драфт состава и прогон по сетке
   csdraft_data.py          составы прошлых турниров по CS (источник для базы)
+  draft_games.py           реестр драфт-игр: роли, арены, стадии и правила матчей
+  draft_games_data.py      составы VCT (Valorant) и RLCS (Rocket League)
   seed_csdraft.py          наполнение базы составами, просмотр и проверка набора
+  raporder.py              движок «Рэп-хронологии»: раунды, комнаты, подсчёт очков
+  raporder_data.py         набор треков русского рэпа (исполнитель, название, год)
+  seed_raporder.py         наполнение базы треками, правка годов и проверка набора
 ```
 
 Таблицы: `zones` (12 участков), `readings` (история показаний),
@@ -115,9 +120,15 @@ backend/
 `secret_data` (данные служебной страницы), `narutodle_characters` (персонажи
 дуэли: графы, цвет, картинка), `narutodle_matches` (журнал партий Narutodle),
 `songless_tracks` (треки «Аниме-сонглесса»: сведения и запись к ним),
-`csdraft_packs` (составы прошлых турниров по CS: карты и пять игроков),
-`csdraft_runs` (журнал прогонов «87-0»: кто играл, каким составом и чем кончилось),
+`csdraft_packs` (паки драфт-игр: карты, игроки и колонка `game` — какая игра),
+`csdraft_runs` (журнал прогонов драфтов: кто играл, каким составом и чем кончилось),
+`raporder_tracks` (треки «Рэп-хронологии»: исполнитель, название, год),
+`raporder_matches` (журнал партий «Рэп-хронологии»: режим, счёт, победитель),
 `device_commands` (очередь команд домашнему агенту, когда сервер стоит на VPS).
+
+Колонки, появившиеся после первых версий, сервер добавляет сам при запуске
+(`ALTER TABLE`): старые базы не нужно пересоздавать — `game` в таблицах драфтов
+и таблицы «Рэп-хронологии» появятся при первом запуске новой версии.
 
 #### Запуск
 
@@ -581,6 +592,72 @@ python backend/seed_csdraft.py --dsn "postgresql://greenhouse:пароль@local
 - состав на турнире указан по основному амплуа игрока. Двое в паке могут делить
   одну роль — в драфте из-за этого и приходится кого-то ставить не в свою роль.
 
+##### Четвёртая и пятая игры: 13-0 (Valorant) и 4-0 (Rocket League)
+
+`front/games/draft/index.html` — те же драфт-рогалики, что «87-0», но по другим
+играм. Движок у них **один** ([`backend/csdraft.py`](backend/csdraft.py)), а
+отличия (роли, арены, стадии, усиления, правила розыгрыша площадки) собраны в
+реестре [`backend/draft_games.py`](backend/draft_games.py), поэтому новая игра
+добавляется конфигурацией, а не новым кодом.
+
+- **13-0 (Valorant)**: состав из реальных команд VCT — дуэлист, инициатор,
+  контроллер, часовой и флекс; карта играется до 13 побед, при 12:12 — овертаймы
+  по два раунда до двух побед; финал Champions — Bo5. Набор составов: VCT
+  Champions и Masters 2021–2024 (Acend, Gambit, Sentinels, LOUD, OpTic, FPX,
+  Paper Rex, EG, Fnatic, EDG, Heretics, Gen.G).
+- **4-0 (Rocket League)**: тройка из истории RLCS — атакующий, полузащитник и
+  защитник; серии Bo5/Bo5/Bo7/Bo7, арена играется до трёх голов. Набор: Gale
+  Force, Dignitas, Cloud9, Vitality, NRG (2017–2019) и BDS, G2, Moist,
+  Vitality (2021–2024).
+
+Страница сама берёт подписи из ответа сервера (`GET /api/games/draft/games`),
+поэтому терминология у каждой игры своя: где-то «карты маппула», где-то «арены
+пула». Выбранная игра запоминается и подставляется при следующем заходе. Правила
+прогона, журнал, рероллы и усиления — как у «87-0»; адреса отличаются ключом
+игры: `/api/games/draft/valorant/*` и `/api/games/draft/rl/*` (у CS остался
+старый короткий адрес `/api/games/csdraft/*`). В базе паки всех игр лежат в
+одной таблице `csdraft_packs`, а разделяет их колонка `game`.
+
+##### Шестая игра: Рэп-хронология
+
+`front/games/raporder/index.html` — игра про порядок треков русского рэпа.
+В раунде пять треков **разных годов**, и их надо расставить от самого старого к
+самому новому; очко даётся за каждый трек, вставший на своё место (0–5). Соло —
+пять раундов подряд, игра на сумму очков; онлайн — комната по коду, где у всех
+один и тот же раунд, три раунда и победа по выигранным раундам (в ничейном раунде
+очко не достаётся никому).
+
+Годы в раунде обязаны отличаться: иначе «правильный порядок» был бы
+неоднозначным. Раунд кончается, когда ответили все (или вышло время); потом
+показывается разбор с годами. Правильный порядок и годы не попадают в ответы API,
+пока раунд не закончился.
+
+Набор лежит в базе (`raporder_tracks`), исходник — в
+[`backend/raporder_data.py`](backend/raporder_data.py), журнал партий —
+в `raporder_matches` (режим, комната, счёт обоих, победитель, подробность).
+Заходы и комнаты живут в памяти сервера (TTL 30 минут и 2 часа), как у остальных
+игр.
+
+**Текстов песен и аудио в игре нет и не будет**: игра про хронологию, а не про
+слова. Хранятся только исполнитель, название и год. Годы стоит перепроверять —
+часть дат проставлена по памяти (год альбома вместо года сингла или год
+переиздания), поэтому набор правится на месте:
+
+```powershell
+# что в базе и сколько разных годов
+python backend/seed_raporder.py --dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse" --list
+
+# проверить набор (пустые поля, повтор id, хватает ли разных годов)
+python backend/seed_raporder.py --db data/greenhouse.sqlite3 --check
+
+# поправить год на месте или убрать трек
+python backend/seed_raporder.py --dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse" --year krovostok-reka=2005
+python backend/seed_raporder.py --dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse" --remove старый-id
+```
+
+Исполнитель, название и год — факты из открытых источников и принадлежат их
+авторам и правообладателям; игра некоммерческая.
+
 #### REST API
 
 | Метод | Путь | Назначение |
@@ -646,6 +723,23 @@ python backend/seed_csdraft.py --dsn "postgresql://greenhouse:пароль@local
 | POST | `/api/games/csdraft/runs/<id>/play` | играть текущую стадию мейджора (Bearer) |
 | POST | `/api/games/csdraft/runs/<id>/boost` | `{"index":0}` — выбрать усиление после стадии (Bearer) |
 | GET | `/api/games/csdraft/matches?limit=&scope=` | журнал прогонов: свои; `scope=all` — только `admin` (Bearer) |
+| GET | `/api/games/draft/games` | список драфт-игр и их правила (роли, стадии, форматы, термины) |
+| GET | `/api/games/draft/<игра>/status` | состояние набора игры: сколько паков, эпохи, стадии, роли |
+| POST | `/api/games/draft/<игра>/runs` | начать прогон (Bearer) |
+| GET | `/api/games/draft/<игра>/runs/<id>` | состояние прогона (Bearer) |
+| POST | `/api/games/draft/<игра>/runs/<id>/take\|map\|pack\|reroll\|assign\|auto\|play\|boost` | шаги драфта и матчи, как у `/api/games/csdraft/runs/<id>/*` (Bearer) |
+| GET | `/api/games/draft/<игра>/matches?limit=&scope=` | журнал прогонов игры (Bearer) |
+| GET | `/api/games/raporder/status` | состояние набора «Рэп-хронологии»: треки, годы, раунды |
+| POST | `/api/games/raporder/solo` | начать соло-заход (Bearer) |
+| GET | `/api/games/raporder/solo/<id>` | состояние захода (Bearer) |
+| POST | `/api/games/raporder/solo/<id>/answer` | `{"order":["id","id",...]}` — расстановка треков (Bearer) |
+| GET | `/api/games/raporder/matches?limit=&scope=&mode=` | журнал партий: свои; `scope=all` — только `admin` (Bearer) |
+| POST | `/api/games/raporder/rooms` | создать комнату (Bearer) |
+| POST | `/api/games/raporder/rooms/<код>/join` | войти в комнату (Bearer) |
+| POST | `/api/games/raporder/rooms/<код>/start` | начать партию: хозяин комнаты (Bearer) |
+| GET | `/api/games/raporder/rooms/<код>` | состояние партии (Bearer) |
+| POST | `/api/games/raporder/rooms/<код>/answer` | `{"order":[...]}` — расстановка треков (Bearer) |
+| POST | `/api/games/raporder/rooms/<код>/rematch` | новая партия (Bearer) |
 | POST | `/api/device/sync` | показания домашнего агента → в ответ очередь команд (только устройство-токен) |
 | POST | `/api/device/ack` | `{"applied":[1,2],"errors":{"3":"текст"}}` — агент подтверждает команды (только устройство-токен) |
 | GET | `/api/device/status` | состояние канала «сервер ↔ дом» (только устройство-токен) |
@@ -788,7 +882,7 @@ front/
   .htaccess              тип содержимого манифеста и заголовки кэша для хостинга
   icons/                 иконки 192/512 + maskable
   games/                 витрина миниигр и страницы самих игр (narutodle,
-                         animesongless, csdraft)
+                         animesongless, csdraft, draft, raporder)
 ```
 
 * На Android (Chrome): меню → **«Установить приложение»** либо кнопка **⬇** в шапке.
@@ -1028,8 +1122,10 @@ Apache. Поэтому заголовки задаёт файл [`front/.htacces
 то же `N` в `css/main.css?v=N` на страницах
 [`front/games/index.html`](front/games/index.html),
 [`front/games/narutodle/index.html`](front/games/narutodle/index.html),
-[`front/games/animesongless/index.html`](front/games/animesongless/index.html) и
+[`front/games/animesongless/index.html`](front/games/animesongless/index.html),
 [`front/games/csdraft/index.html`](front/games/csdraft/index.html),
+[`front/games/draft/index.html`](front/games/draft/index.html) и
+[`front/games/raporder/index.html`](front/games/raporder/index.html),
 а также в `ASSET_VERSION` в [`front/js/app.js`](front/js/app.js) и в `VERSION`
 в [`front/service-worker.js`](front/service-worker.js). При выпуске новой версии
 поднимите `N` во всех этих файлах и загрузите файлы заново — обновление дойдёт

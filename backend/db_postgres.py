@@ -27,12 +27,22 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 try:  # запуск как модуль: python -m backend.server
-    from .db import DEFAULT_CLIP_LENGTH, DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, ZONE_NAMES
+    from .db import (
+        DEFAULT_CLIP_LENGTH,
+        DEFAULT_SETTINGS,
+        DEVICES,
+        LATE_COLUMNS,
+        LATE_INDEXES,
+        ZONE_COUNT,
+        ZONE_NAMES,
+    )
 except ImportError:  # запуск как файл: python backend/server.py
     from db import (  # type: ignore
         DEFAULT_CLIP_LENGTH,
         DEFAULT_SETTINGS,
         DEVICES,
+        LATE_COLUMNS,
+        LATE_INDEXES,
         ZONE_COUNT,
         ZONE_NAMES,
     )
@@ -172,6 +182,29 @@ def _run_row(row: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _rap_track(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Трек «Рэп-хронологии»: идентификатор, исполнитель, название, год."""
+    data = dict(row)
+    data["id"] = str(data.get("id") or "")
+    data["artist"] = str(data.get("artist") or "")
+    data["title"] = str(data.get("title") or "")
+    data["year"] = int(data.get("year") or 0)
+    return data
+
+
+def _rap_match(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Строка журнала партий «Рэп-хронологии»."""
+    data = dict(row)
+    data["id"] = int(data.get("id") or 0)
+    data["rounds"] = int(data.get("rounds") or 0)
+    for key in ("player1_score", "player2_score"):
+        data[key] = int(data.get(key) or 0)
+    for key in ("player1_id", "player2_id", "winner_id"):
+        data[key] = int(data[key]) if data.get(key) is not None else None
+    data["played_at"] = to_iso(data.get("played_at"))
+    return data
+
+
 def _command(row: Dict[str, Any]) -> Dict[str, Any]:
     """Строка очереди команд в том виде, в каком её ждёт домашний агент."""
     data = dict(row)
@@ -204,6 +237,7 @@ class PostgresDatabase:
         with self.connect() as db:
             for statement in schema_statements():
                 db.execute(statement)
+            self._migrate(db)
             with db.cursor() as cur:
                 cur.executemany(
                     "INSERT INTO zones (id, name, position) VALUES (%s, %s, %s) "
@@ -228,6 +262,14 @@ class PostgresDatabase:
                     "ON CONFLICT (zone_id, name) DO NOTHING",
                     [(z, d) for z in range(1, ZONE_COUNT + 1) for d in DEVICES],
                 )
+
+    @staticmethod
+    def _migrate(db: Any) -> None:
+        """Догоняет схему на базах, созданных прошлыми версиями сервера."""
+        for table, column, definition in LATE_COLUMNS:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+        for statement in LATE_INDEXES:
+            db.execute(statement)
 
     # ------------------------------------------------------------------ zones
     def zones(self) -> List[Dict[str, Any]]:
@@ -820,15 +862,26 @@ class PostgresDatabase:
             cursor = db.execute("DELETE FROM songless_tracks WHERE anime = %s", (anime,))
             return cursor.rowcount > 0
 
-    # --------------------------------------------------------------- 87-0 (CS)
-    def csdraft_pack_count(self) -> int:
+    # ------------------------------------------------- драфт-рогалики (игры)
+    def csdraft_pack_count(self, game: Optional[str] = None) -> int:
         with self.connect() as db:
-            return int(db.execute("SELECT COUNT(*) AS n FROM csdraft_packs").fetchone()["n"])
+            if game:
+                row = db.execute("SELECT COUNT(*) AS n FROM csdraft_packs WHERE game = %s",
+                                 (str(game),)).fetchone()
+            else:
+                row = db.execute("SELECT COUNT(*) AS n FROM csdraft_packs").fetchone()
+            return int(row["n"])
 
-    def csdraft_packs(self) -> List[Dict[str, Any]]:
-        """Паки «87-0»: источник правды для движка игры."""
+    def csdraft_packs(self, game: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Паки одной игры (или всех): источник правды для движка драфта."""
         with self.connect() as db:
-            rows = db.execute("SELECT * FROM csdraft_packs ORDER BY era, year, id").fetchall()
+            if game:
+                rows = db.execute(
+                    "SELECT * FROM csdraft_packs WHERE game = %s ORDER BY era, year, id",
+                    (str(game),)).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM csdraft_packs ORDER BY game, era, year, id").fetchall()
         return [_pack_row(dict(row)) for row in rows]
 
     def csdraft_save_packs(self, rows: Iterable[Dict[str, Any]]) -> int:
@@ -837,14 +890,17 @@ class PostgresDatabase:
         with self.connect() as db:
             for row in rows:
                 db.execute(
-                    "INSERT INTO csdraft_packs (id, team, event, year, place, major, region, era, "
-                    "maps, players, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()) "
-                    "ON CONFLICT(id) DO UPDATE SET team = excluded.team, event = excluded.event, "
-                    "year = excluded.year, place = excluded.place, major = excluded.major, "
-                    "region = excluded.region, era = excluded.era, maps = excluded.maps, "
-                    "players = excluded.players, updated_at = excluded.updated_at",
+                    "INSERT INTO csdraft_packs (id, game, team, event, year, place, major, region, "
+                    "era, maps, players, updated_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()) "
+                    "ON CONFLICT(id) DO UPDATE SET game = excluded.game, team = excluded.team, "
+                    "event = excluded.event, year = excluded.year, place = excluded.place, "
+                    "major = excluded.major, region = excluded.region, era = excluded.era, "
+                    "maps = excluded.maps, players = excluded.players, "
+                    "updated_at = excluded.updated_at",
                     (
                         str(row.get("id") or ""),
+                        str(row.get("game") or "cs"),
                         str(row.get("team") or ""),
                         str(row.get("event") or ""),
                         int(row.get("year") or 0),
@@ -868,10 +924,11 @@ class PostgresDatabase:
         """Пишет прогон в журнал: кто играл, каким составом и чем закончилось."""
         with self.connect() as db:
             row = db.execute(
-                "INSERT INTO csdraft_runs (username, user_id, difficulty, era, champion, wins, "
-                "losses, stage, rating, squad, packs, score, played_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()) RETURNING *",
+                "INSERT INTO csdraft_runs (game, username, user_id, difficulty, era, champion, "
+                "wins, losses, stage, rating, squad, packs, score, played_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()) RETURNING *",
                 (
+                    str(record.get("game") or "cs"),
                     str(record.get("username") or ""),
                     record.get("user_id"),
                     str(record.get("difficulty") or "hard"),
@@ -888,24 +945,122 @@ class PostgresDatabase:
             ).fetchone()
         return _run_row(dict(row))
 
-    def csdraft_runs(self, user_id: Optional[int] = None, limit: int = 50) -> List[Dict[str, Any]]:
-        """Журнал прогонов: свои или все подряд (для администратора)."""
+    def csdraft_runs(self, user_id: Optional[int] = None, limit: int = 50,
+                     game: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Журнал прогонов: свои или все подряд (для администратора), по игре или всем."""
         size = max(1, min(int(limit), 500))
+        where: List[str] = []
+        values: List[Any] = []
+        if game:
+            where.append("game = %s")
+            values.append(str(game))
+        if user_id is not None:
+            where.append("user_id = %s")
+            values.append(int(user_id))
+        condition = f" WHERE {' AND '.join(where)}" if where else ""
         with self.connect() as db:
-            if user_id is None:
-                rows = db.execute(
-                    "SELECT * FROM csdraft_runs ORDER BY id DESC LIMIT %s", (size,)
-                ).fetchall()
-            else:
-                rows = db.execute(
-                    "SELECT * FROM csdraft_runs WHERE user_id = %s ORDER BY id DESC LIMIT %s",
-                    (int(user_id), size),
-                ).fetchall()
+            rows = db.execute(
+                f"SELECT * FROM csdraft_runs{condition} ORDER BY id DESC LIMIT %s",
+                (*values, size),
+            ).fetchall()
         return [_run_row(dict(row)) for row in rows]
 
-    def csdraft_run_count(self) -> int:
+    def csdraft_run_count(self, game: Optional[str] = None) -> int:
         with self.connect() as db:
-            return int(db.execute("SELECT COUNT(*) AS n FROM csdraft_runs").fetchone()["n"])
+            if game:
+                row = db.execute("SELECT COUNT(*) AS n FROM csdraft_runs WHERE game = %s",
+                                 (str(game),)).fetchone()
+            else:
+                row = db.execute("SELECT COUNT(*) AS n FROM csdraft_runs").fetchone()
+            return int(row["n"])
+
+    # ------------------------------------------- «Рэп-хронология» (порядок лет)
+    def raporder_track_count(self) -> int:
+        with self.connect() as db:
+            return int(db.execute("SELECT COUNT(*) AS n FROM raporder_tracks").fetchone()["n"])
+
+    def raporder_tracks(self) -> List[Dict[str, Any]]:
+        """Треки: источник правды для движка игры."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT id, artist, title, year FROM raporder_tracks ORDER BY year, id"
+            ).fetchall()
+        return [_rap_track(dict(row)) for row in rows]
+
+    def raporder_save_tracks(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет и обновляет треки (по идентификатору): ими правит владелец сайта."""
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                db.execute(
+                    "INSERT INTO raporder_tracks (id, artist, title, year, updated_at) "
+                    "VALUES (%s, %s, %s, %s, now()) "
+                    "ON CONFLICT(id) DO UPDATE SET artist = excluded.artist, "
+                    "title = excluded.title, year = excluded.year, "
+                    "updated_at = excluded.updated_at",
+                    (
+                        str(row.get("id") or ""),
+                        str(row.get("artist") or ""),
+                        str(row.get("title") or ""),
+                        int(row.get("year") or 0),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def raporder_delete_track(self, track_id: str) -> bool:
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM raporder_tracks WHERE id = %s", (str(track_id),))
+            return cursor.rowcount > 0
+
+    def raporder_add_match(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Пишет партию в журнал: кто играл, в каком режиме и чем закончилось."""
+        with self.connect() as db:
+            row = db.execute(
+                "INSERT INTO raporder_matches (mode, room, rounds, player1_id, player1_name, "
+                "player1_score, player2_id, player2_name, player2_score, winner_id, winner_name, "
+                "detail, played_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()) RETURNING *",
+                (
+                    str(record.get("mode") or "solo"),
+                    str(record.get("room") or ""),
+                    int(record.get("rounds") or 0),
+                    record.get("player1_id"),
+                    str(record.get("player1_name") or ""),
+                    int(record.get("player1_score") or 0),
+                    record.get("player2_id"),
+                    str(record.get("player2_name") or ""),
+                    int(record.get("player2_score") or 0),
+                    record.get("winner_id"),
+                    str(record.get("winner_name") or ""),
+                    str(record.get("detail") or ""),
+                ),
+            ).fetchone()
+        return _rap_match(dict(row))
+
+    def raporder_matches(self, user_id: Optional[int] = None, limit: int = 50,
+                         mode: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Журнал партий: свои (как игрок или соперник) или все подряд для админа."""
+        size = max(1, min(int(limit), 500))
+        where: List[str] = []
+        values: List[Any] = []
+        if user_id is not None:
+            where.append("(player1_id = %s OR player2_id = %s)")
+            values.extend([int(user_id), int(user_id)])
+        if mode:
+            where.append("mode = %s")
+            values.append(str(mode))
+        condition = f" WHERE {' AND '.join(where)}" if where else ""
+        with self.connect() as db:
+            rows = db.execute(
+                f"SELECT * FROM raporder_matches{condition} ORDER BY id DESC LIMIT %s",
+                (*values, size),
+            ).fetchall()
+        return [_rap_match(dict(row)) for row in rows]
+
+    def raporder_match_count(self) -> int:
+        with self.connect() as db:
+            return int(db.execute("SELECT COUNT(*) AS n FROM raporder_matches").fetchone()["n"])
 
 
 # Правила переноса данных из SQLite (используются backend/migrate_to_postgres.py):
@@ -933,10 +1088,14 @@ TRANSFERS: Tuple[Tuple[str, Tuple[str, ...], Tuple[str, ...]], ...] = (
                          "clip_length", "updated_at"), ("id",)),
     ("device_commands", ("id", "zone_id", "device", "on_state", "seconds", "created_at",
                          "delivered_at", "applied_at", "error"), ("id",)),
-    ("csdraft_packs", ("id", "team", "event", "year", "place", "major", "region", "era",
+    ("csdraft_packs", ("id", "game", "team", "event", "year", "place", "major", "region", "era",
                        "maps", "players", "updated_at"), ("id",)),
-    ("csdraft_runs", ("id", "username", "user_id", "difficulty", "era", "champion", "wins",
+    ("csdraft_runs", ("id", "game", "username", "user_id", "difficulty", "era", "champion", "wins",
                       "losses", "stage", "rating", "squad", "packs", "score", "played_at"), ("id",)),
+    ("raporder_tracks", ("id", "artist", "title", "year", "updated_at"), ("id",)),
+    ("raporder_matches", ("id", "mode", "room", "rounds", "player1_id", "player1_name",
+                          "player1_score", "player2_id", "player2_name", "player2_score",
+                          "winner_id", "winner_name", "detail", "played_at"), ("id",)),
 )
 
 # Колонки, значения которых при переносе нужно привести к типу PostgreSQL.
