@@ -20,10 +20,10 @@
            пять игроков с ролями и карты того маппула;
          * игроков забирают в пять слотов ролей (AWP, IGL, энтри, сапорт,
            луркер), карты — в свой маппул; рероллы ограничены сложностью;
-         * сила состава = средний рейтинг + попадание в роли + сыгранность
-           + усиления, а на своих картах играть легче;
-         * затем прогон по сетке мейджора: четыре стадии, между ними выбор
-           усиления. Поражение заканчивает прогон — это рогалик.
+         * сила состава = средний рейтинг + попадание в роли + сыгранность,
+           а на своих картах играть легче;
+         * затем мейджор по формату последних турниров: три стадии швейцарки
+           и плей-офф. Матчи играются сами, поражение выбивает с мейджора.
 
        Оценки игроков (AIM, CLUTCH, IMP) — игровые, а не официальная
        статистика; ники и названия турниров — исторические факты. */
@@ -353,7 +353,6 @@
         <div class="stat-row" id="run-rating"></div>
         <div class="squad" id="run-squad"></div>
         <div class="row" style="margin-top: 14px;">
-          <button class="btn btn-primary" type="button" id="play-stage">Играть стадию</button>
           <button class="btn btn-ghost" type="button" id="to-lobby">Выйти в лобби</button>
         </div>
         <p class="muted" id="run-hint"></p>
@@ -404,6 +403,7 @@
     let pick = { difficulty: 'hard', era: 'legacy', assign: 'auto' };
     let pendingPlayer = '';          // игрок, которому выбираем роль в ручном режиме
     let busy = false;
+    let playing = false;             // идёт автоматическая симуляция мейджора
 
     /* ------------------------------- утилиты -------------------------------- */
 
@@ -812,6 +812,31 @@
         'Прогон начался: соберите состав');
     }
 
+    // Мейджор играется сам: первая стадия стартует кнопкой, дальше матчи идут
+    // один за другим, чтобы результаты появлялись на глазах.
+    async function startMajor() {
+      await act('POST', '/runs/' + run.id + '/play', null, 'Мейджор начался');
+      await playOut();
+    }
+
+    async function playOut() {
+      if (playing || !run) return;
+      playing = true;
+      try {
+        while (run.status === 'running') {
+          await new Promise((resolve) => setTimeout(resolve, 1300));
+          const before = run.history.length;
+          const data = await api(GAME + '/runs/' + run.id + '/play', { method: 'POST', body: null });
+          applyRun(data.state);
+          if (run.history.length === before) break;
+        }
+      } catch (error) {
+        toast(error.message || 'Не получилось доиграть мейджор', 'err');
+      } finally {
+        playing = false;
+      }
+    }
+
     function renderDraft() {
       const packing = run.pack;
       $('#draft-badge').textContent = run.ready ? 'состав собран' : 'драфт';
@@ -891,7 +916,7 @@
       renderRoleChooser();
       renderFeed($('#draft-feed'), run.log.slice(-6));
       $('#draft-hint').textContent = run.ready
-        ? 'Состав собран: нажмите «Начать мейджор» — впереди четыре стадии.'
+        ? 'Состав собран: нажмите «Начать мейджор» — впереди сетка мейджора.'
         : 'Из пака берут только одно — игрока или карту, — и состав на выбор меняется сам.'
           + ' За свою роль игрок получает надбавку, за чужую — штраф; игроки из одного'
           + ' состава дают сыгранность.';
@@ -948,12 +973,12 @@
       }).join('');
 
       const finished = run.status === 'dead' || run.status === 'champion';
-      $('#play-stage').disabled = finished || !run.ready;
-      $('#play-stage').textContent = run.history.length
-        ? 'Играть следующую стадию' : 'Играть стадию';
-      $('#run-hint').textContent = finished ? 'Прогон закончен.'
-        : 'Матчи симулируются по картам и раундам: чем сильнее состав и чем больше'
-          + ' своих карт, тем выше шансы.';
+      const won = run.status === 'champion';
+      $('#run-hint').textContent = finished
+        ? (won ? 'Мейджор взят: ' + run.history.filter((item) => item.won).length + ' побед подряд.'
+          : 'Прогон закончен: ' + run.history.filter((item) => item.won).length + ' побед из '
+            + run.history.length + '. Поражение выбивает с мейджора.')
+        : 'Матчи идут сами: следующие стадии начнутся через пару секунд.';
 
       $('#matches-badge').textContent = run.history.length
         ? (run.history.filter((item) => item.won).length + ' побед') : 'матчей пока нет';
@@ -967,7 +992,7 @@
         $('#finish-title').textContent = champion ? 'Титул мейджора взят!' : 'Прогон закончен';
         $('#finish-badge').textContent = champion ? 'идеальный прогон' : 'вылет';
         $('#finish-text').textContent = (champion
-          ? 'Состав прошёл все четыре стадии без поражений. '
+          ? 'Состав прошёл всю сетку мейджора без поражений. '
           : 'Поражение завершает прогон — так устроен рогалик. ')
           + 'Итог: ' + wins + ' побед, ' + losses + ' поражений. Сила состава: '
           + num(run.rating.total) + '.';
@@ -1135,14 +1160,11 @@
           return void act('POST', '/runs/' + run.id + '/reroll', null, 'Реролл потрачен');
         }
         if (event.target.closest('#start-run')) {
-          return void act('POST', '/runs/' + run.id + '/play', null, 'Мейджор начался');
+          return void startMajor();
         }
       });
 
       $('#run').addEventListener('click', (event) => {
-        if (event.target.closest('#play-stage')) {
-          return void act('POST', '/runs/' + run.id + '/play', null, '');
-        }
         if (event.target.closest('#again') || event.target.closest('#to-lobby')) {
           return void showLobby();
         }

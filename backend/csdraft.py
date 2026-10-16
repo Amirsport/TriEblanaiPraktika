@@ -58,8 +58,16 @@ CHEM_SAME_PACK = 2.5       # играли вместе в этом состав�
 CHEM_SAME_REGION = 1.0     # из одного региона
 CHEM_DUO = 1.5             # известная связка (device + dupreeh и подобные)
 
+# Уровень выступления состава на своём турнире: по нему подбирается соперник
+# стадии (правило `opponent_rank` в правилах игры).
+PLACE_RANK = {"победитель": 6, "финалист": 5, "топ-4": 4, "топ-8": 3,
+              "топ-12": 2, "топ-16": 1, "группа": 0}
+
 # Сколько усилений предлагать после стадии.
 PACK_OFFERS = 3
+
+# Сколько составов должно набраться в ступени, чтобы ограничивать ею выбор соперника.
+MIN_TIER_PACKS = 8
 
 # Значения игры по умолчанию (CS): движок берёт их из конфигурации, а эти имена
 # остаются для внешних модулей и проверок.
@@ -274,8 +282,14 @@ class Csdraft:
         used.update(pack for pack in run.get("seen_packs", ()))
         return used
 
-    def _draw_pack(self, run: Dict[str, Any]) -> Dict[str, Any]:
-        """Случайный пак под эпоху прогона, которого в этом прогоне ещё не было."""
+    def _draw_pack(self, run: Dict[str, Any], min_rank: int = 0) -> Dict[str, Any]:
+        """Случайный пак под эпоху прогона, которого в этом прогоне ещё не было.
+
+        `min_rank` задаёт уровень соперника: пак должен быть с турнира, где его
+        команда выступила не слабее указанной ступени (`PLACE_RANK`). Если
+        подходящих составов мало, ограничение снимается — лучше показать
+        соперника послабее, чем не показать никакого.
+        """
         pool = self._eligible(run["era"])
         if not pool:
             raise CsdraftError("Набор составов пуст")
@@ -283,6 +297,11 @@ class Csdraft:
         free = [pack for pack in pool if pack["id"] not in used]
         if not free:
             free = list(pool)
+        if min_rank > 0:
+            strong = [pack for pack in free
+                      if PLACE_RANK.get(str(pack.get("place") or ""), 0) >= min_rank]
+            if len(strong) >= MIN_TIER_PACKS:
+                free = strong
         return self._rng.choice(free)
 
     # ------------------------------------------------------------------ оценки
@@ -361,6 +380,17 @@ class Csdraft:
         if map_name and map_name in run.get("pool", ()):
             value += float(self.match.get("map_edge") or 0.0)
         return value
+
+    def _opponent_strength(self, pack: Dict[str, Any],
+                           stage: Optional[Dict[str, Any]] = None) -> float:
+        """Сила соперника: средняя сила его пятёрки плюс уровень стадии.
+
+        Соперник приезжает на турнир со своим готовым составом, поэтому к силе
+        игроков добавляется надбавка стадии (`opponent_bonus` в правилах игры):
+        чем дальше по сетке, тем собраннее и сильнее попадаются команды.
+        """
+        bonus = float((stage or {}).get("opponent_bonus") or 0.0)
+        return _pack_strength(pack) + bonus
 
     # ------------------------------------------------------------------- старт
     def start(self, user: Dict[str, Any], difficulty: str = "hard",
@@ -573,7 +603,8 @@ class Csdraft:
                 self._say(run, self._phrase("started"))
             run["stage"] = min(run["stage"], len(self.stages) - 1)
             stage = self.stages[run["stage"]]
-            opponent = self._draw_pack({**run, "pack": None})
+            opponent = self._draw_pack({**run, "pack": None},
+                                       int(stage.get("opponent_rank") or 0))
             match = self._simulate(run, opponent, stage)
             match["stage"] = stage["key"]
             match["stage_title"] = stage["title"]
@@ -652,7 +683,7 @@ class Csdraft:
             if team_score >= need or opp_score >= need:
                 break
             ours = self._strength(run, map_name)
-            theirs = _pack_strength(opponent)
+            theirs = self._opponent_strength(opponent, stage)
             their_maps = set(opponent.get("maps", ()))
             if map_name in their_maps:
                 theirs += float(self.match.get("map_edge") or 0.0)

@@ -40,14 +40,26 @@ except ImportError:  # запуск как файл: python backend/server.py
     )
     from draft_games_data import RL_PACKS, VALORANT_PACKS  # type: ignore
 
-# Стадии прогона одинаковы по смыслу (группа, четвертьфинал, полуфинал, финал),
-# но форматы разные — как в реальных турнирах этих игр.
-CS_STAGES: Tuple[Dict[str, Any], ...] = (
-    {"key": "opening", "title": "Групповой этап", "best_of": 1},
-    {"key": "quarters", "title": "Четвертьфинал", "best_of": 3},
-    {"key": "semis", "title": "Полуфинал", "best_of": 3},
-    {"key": "final", "title": "Финал мейджора", "best_of": 5},
-)
+    # Стадии прогона одинаковы по смыслу (группа, четвертьфинал, полуфинал, финал),
+    # но форматы разные — как в реальных турнирах этих игр.
+    # У «87-0» формат последних мейджоров: три швейцарские стадии и плей-офф.
+    # `opponent_rank` — насколько высоко соперник выступил на своём турнире
+    # (см. PLACE_RANK), `opponent_bonus` — надбавка за уровень стадии: чем дальше
+    # по сетке, тем собраннее попадаются команды.
+    CS_STAGES: Tuple[Dict[str, Any], ...] = (
+        {"key": "stage1", "title": "Стадия 1", "best_of": 1,
+         "opponent_rank": 0, "opponent_bonus": 5.0},
+        {"key": "stage2", "title": "Стадия 2", "best_of": 1,
+         "opponent_rank": 1, "opponent_bonus": 6.0},
+        {"key": "stage3", "title": "Стадия 3", "best_of": 3,
+         "opponent_rank": 2, "opponent_bonus": 7.0},
+        {"key": "quarters", "title": "Четвертьфинал", "best_of": 3,
+         "opponent_rank": 3, "opponent_bonus": 8.0},
+        {"key": "semis", "title": "Полуфинал", "best_of": 3,
+         "opponent_rank": 4, "opponent_bonus": 9.0},
+        {"key": "final", "title": "Финал мейджора", "best_of": 5,
+         "opponent_rank": 5, "opponent_bonus": 10.0},
+    )
 
 VALORANT_STAGES: Tuple[Dict[str, Any], ...] = (
     {"key": "opening", "title": "Групповой этап", "best_of": 1},
