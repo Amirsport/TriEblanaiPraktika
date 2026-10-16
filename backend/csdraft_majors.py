@@ -15,16 +15,24 @@
       и небольшая детерминированная поправка) — это игровые оценки для баланса,
       а не официальная статистика. Сильнее тот, кто на турнире выступил выше.
 
-Честно про источник: список команд и ники собраны по памяти и требуют проверки.
-Паки, в которых возможна неточность (стендин, спорная роль, границы состава),
-помечены комментарием «проверить». Ники игроков, названия команд и турниров —
-исторические факты и принадлежат их владельцам; игра некоммерческая и не связана
-с Valve.
+Честно про источник: полные составы всех участников лежат в соседнем модуле
+`csdraft_majors_rosters.py` — он собран скриптом `_fetch_major_rosters.py` по
+данным Liquipedia. Набор `EVENTS` ниже — ручной: он остаётся резервом для
+команд, которых в источнике не оказалось, и никогда не перекрывает собранные
+составы. Роли игроков в Liquipedia не публикуются: известные роли проставлены
+по словарю, остальные подставлены по правилу и помечены. Ники игроков, названия
+команд и турниров — исторические факты и принадлежат их владельцам; игра
+некоммерческая и не связана с Valve.
 """
 from __future__ import annotations
 
 import zlib
 from typing import Any, Dict, List, Tuple
+
+try:  # запуск как модуль: python -m backend.server
+    from .csdraft_majors_rosters import EVENTS as ROSTER_EVENTS
+except ImportError:  # запуск как файл: python backend/server.py
+    from csdraft_majors_rosters import EVENTS as ROSTER_EVENTS  # type: ignore
 
 # Маппул года: у каждой команды свои три карты из этого набора.
 YEAR_MAPS: Dict[int, Tuple[str, ...]] = {
@@ -50,6 +58,7 @@ PLACE_POWER: Dict[str, float] = {
     "топ-4": 84.0,
     "топ-8": 82.0,
     "топ-12": 80.0,
+    "топ-16": 79.0,
     "группа": 78.0,
 }
 
@@ -1195,13 +1204,23 @@ def _scores(pack_key: str, place: str, role: str, name: str) -> Tuple[float, flo
 
 
 def major_packs() -> List[Dict[str, Any]]:
-    """Паки мейджоров в том же виде, что и строки набора в csdraft_data."""
+    """Паки мейджоров в том же виде, что и строки набора в csdraft_data.
+
+    Собранный набор (`ROSTER_EVENTS`) идёт первым: при совпадении команды и
+    турнира в игре остаётся состав из источника, а ручные строки добавляют
+    только то, чего в источнике не оказалось.
+    """
     result: List[Dict[str, Any]] = []
-    for event in EVENTS:
+    seen: set = set()
+    for event in tuple(ROSTER_EVENTS) + tuple(EVENTS):
         title = str(event["event"])
         year = int(event["year"])
         era = str(event.get("era") or ("legacy" if year <= 2019 else "modern"))
         for team, region, place, players in event["teams"]:
+            key = (str(team).casefold(), title.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
             pack_id = f"{_slug(str(team))}-{_slug(title)}"
             maps = _maps_for(year, pack_id)
             result.append({
@@ -1222,4 +1241,4 @@ def major_packs() -> List[Dict[str, Any]]:
     return result
 
 
-__all__ = ["EVENTS", "PLACE_POWER", "ROLE_SHIFT", "YEAR_MAPS", "major_packs"]
+__all__ = ["EVENTS", "PLACE_POWER", "ROLE_SHIFT", "ROSTER_EVENTS", "YEAR_MAPS", "major_packs"]
