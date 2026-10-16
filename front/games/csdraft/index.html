@@ -104,13 +104,6 @@
     .stat-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
     .stat-row b { color: var(--text); font-variant-numeric: tabular-nums; }
 
-    .boosts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-    .boost {
-      display: flex; flex-direction: column; gap: 8px; padding: 12px;
-      border-radius: var(--radius-sm); border: 1px solid var(--accent); background: var(--accent-soft);
-    }
-    .boost b { font-size: 14px; }
-
     .matches { display: flex; flex-direction: column; gap: 12px; }
     .match { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid); }
     .match .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
@@ -227,9 +220,11 @@
         </header>
         <p class="muted">
           Паки — это реальные составы прошлых турниров: пять игроков с ролями и карты
-          того маппула. Забирайте игроков в пять слотов ролей и карты в свой маппул:
-          за попадание в роль и сыгранность состав получает надбавку, а на своих картах
-          играть легче. Потом прогон по сетке мейджора: поражение заканчивает прогон.
+          того маппула. Из пака берут только одно: либо игрока, либо карту — после выбора
+          состав на выбор меняется сам. Игроки идут в пять слотов ролей, карты — в свой
+          маппул: за попадание в роль и сыгранность состав получает надбавку, а на своих
+          картах играть легче. Дальше прогон по сетке мейджора без усилений: поражение
+          заканчивает прогон.
         </p>
         <div class="field" style="margin-bottom: 14px;">
           <span>Сложность <b>— сколько даётся рероллов</b></span>
@@ -284,7 +279,7 @@
           <span class="badge" id="pack-meta">—</span>
         </header>
         <div class="field" style="margin-bottom: 14px;">
-          <span>Карты маппула <b>— их можно забрать в свой пул</b></span>
+          <span>Карты маппула <b>— одну из них можно забрать в свой пул</b></span>
           <div class="maps" id="pack-maps"></div>
         </div>
         <div class="players" id="pack-players"></div>
@@ -314,14 +309,6 @@
           <button class="btn btn-ghost" type="button" id="to-lobby">Выйти в лобби</button>
         </div>
         <p class="muted" id="run-hint"></p>
-      </section>
-
-      <section class="card" id="reward-card" hidden>
-        <header class="card-head">
-          <h2>Усиление на выбор</h2>
-          <span class="badge">после победы</span>
-        </header>
-        <div class="boosts" id="reward"></div>
       </section>
 
       <section class="card" id="matches-card">
@@ -768,13 +755,15 @@
       $('#start-run').disabled = !run.ready;
 
       const fit = run.rating.fit;
-      $('#rating').innerHTML = [
+      const cells = [
         { label: 'Игроки', value: num(run.rating.base) },
         { label: 'Роли', value: (fit >= 0 ? '+' : '') + num(fit) },
         { label: 'Сыгранность', value: '+' + num(run.rating.chemistry) },
-        { label: 'Усиления', value: '+' + num(run.rating.boosts) },
+        ...(run.boosts_enabled
+          ? [{ label: 'Усиления', value: '+' + num(run.rating.boosts) }] : []),
         { label: 'Сила состава', value: num(run.rating.total), total: true }
-      ].map((cell) => (
+      ];
+      $('#rating').innerHTML = cells.map((cell) => (
         '<div class="cell' + (cell.total ? ' total' : '') + '"><span>' + cell.label
         + '</span><b>' + cell.value + '</b></div>'
       )).join('');
@@ -798,40 +787,44 @@
         ? run.pool.map((name) => '<span class="map-chip mine">' + escapeHtml(name) + '</span>').join('')
         : '<span class="muted">Пока пусто: карты берутся из маппула предложенного состава.</span>';
 
-      $('#pack-team').textContent = packing.team;
-      $('#pack-meta').textContent = packing.event + ' · ' + packing.year
-        + (packing.place ? ' · ' + packing.place : '') + (packing.major ? ' · мейджор' : '');
+      show('#pack-card', Boolean(packing));
+      if (packing) {
+        $('#pack-team').textContent = packing.team;
+        $('#pack-meta').textContent = packing.event + ' · ' + packing.year
+          + (packing.place ? ' · ' + packing.place : '') + (packing.major ? ' · мейджор' : '');
 
-      $('#pack-maps').innerHTML = packing.maps.map((name) => {
-        const mine = run.pool.includes(name);
-        const full = run.pool.length >= run.pool_limit;
-        return '<button type="button" class="map-chip' + (mine ? ' mine' : '') + '" data-map="'
-          + escapeHtml(name) + '"' + (mine || full ? ' disabled' : '') + '>'
-          + escapeHtml(name) + (mine ? ' ✓' : '') + '</button>';
-      }).join('');
+        $('#pack-maps').innerHTML = packing.maps.map((name) => {
+          const mine = run.pool.includes(name);
+          const full = run.pool.length >= run.pool_limit;
+          return '<button type="button" class="map-chip' + (mine ? ' mine' : '') + '" data-map="'
+            + escapeHtml(name) + '"' + (mine || full ? ' disabled' : '') + '>'
+            + escapeHtml(name) + (mine ? ' ✓' : '') + '</button>';
+        }).join('');
 
-      const taken = Object.values(run.squad).filter(Boolean)
-        .map((player) => player.name.toLowerCase());
-      $('#pack-players').innerHTML = packing.players.map((player) => {
-        const isTaken = taken.includes(player.name.toLowerCase());
-        return '<div class="player-row' + (isTaken ? ' taken' : '') + '">'
-          + '<span class="role-tag">' + escapeHtml(player.role_label) + '</span>'
-          + '<span class="who">' + escapeHtml(player.name) + '</span>'
-          + '<span class="stats">AIM ' + num(player.aim) + ' · CLUTCH ' + num(player.clutch)
-          + ' · IMP ' + num(player.impact) + '</span>'
-          + '<span class="row" style="gap:10px;justify-content:flex-end;">'
-          + '<span class="ovr">' + num(player.ovr) + '</span>'
-          + '<button type="button" class="btn btn-sm ' + (isTaken ? 'btn-ghost' : 'btn-primary')
-          + '" data-player="' + escapeHtml(player.name) + '"' + (isTaken ? ' disabled' : '') + '>'
-          + (isTaken ? 'в составе' : 'Взять') + '</button></span></div>';
-      }).join('');
+        const taken = Object.values(run.squad).filter(Boolean)
+          .map((player) => player.name.toLowerCase());
+        $('#pack-players').innerHTML = packing.players.map((player) => {
+          const isTaken = taken.includes(player.name.toLowerCase());
+          return '<div class="player-row' + (isTaken ? ' taken' : '') + '">'
+            + '<span class="role-tag">' + escapeHtml(player.role_label) + '</span>'
+            + '<span class="who">' + escapeHtml(player.name) + '</span>'
+            + '<span class="stats">AIM ' + num(player.aim) + ' · CLUTCH ' + num(player.clutch)
+            + ' · IMP ' + num(player.impact) + '</span>'
+            + '<span class="row" style="gap:10px;justify-content:flex-end;">'
+            + '<span class="ovr">' + num(player.ovr) + '</span>'
+            + '<button type="button" class="btn btn-sm ' + (isTaken ? 'btn-ghost' : 'btn-primary')
+            + '" data-player="' + escapeHtml(player.name) + '"' + (isTaken ? ' disabled' : '') + '>'
+            + (isTaken ? 'в составе' : 'Взять') + '</button></span></div>';
+        }).join('');
+      }
 
       renderRoleChooser();
       renderFeed($('#draft-feed'), run.log.slice(-6));
       $('#draft-hint').textContent = run.ready
         ? 'Состав собран: нажмите «Начать мейджор» — впереди четыре стадии.'
-        : 'Нужны все пять ролей. За свою роль игрок получает надбавку, за чужую — штраф;'
-          + ' игроки из одного состава дают сыгранность.';
+        : 'Из пака берут только одно — игрока или карту, — и состав на выбор меняется сам.'
+          + ' За свою роль игрок получает надбавку, за чужую — штраф; игроки из одного'
+          + ' состава дают сыгранность.';
     }
 
     function renderRoleChooser() {
@@ -871,7 +864,7 @@
       $('#run-badge').textContent = 'Bo' + stage.best_of + ' · ' + run.difficulty_label;
       $('#run-rating').innerHTML = 'Сила состава: <b>' + num(run.rating.total) + '</b>'
         + ' · карт в пуле: <b>' + run.pool.length + '</b>'
-        + ' · усилений: <b>' + run.boosts.length + '</b>'
+        + (run.boosts_enabled ? ' · усилений: <b>' + run.boosts.length + '</b>' : '')
         + ' · рероллов: <b>' + run.rerolls + '</b>';
 
       $('#run-squad').innerHTML = run.roles.map((role) => {
@@ -883,20 +876,12 @@
       }).join('');
 
       const finished = run.status === 'dead' || run.status === 'champion';
-      $('#play-stage').disabled = finished || !run.ready || run.reward.length > 0;
+      $('#play-stage').disabled = finished || !run.ready;
       $('#play-stage').textContent = run.history.length
         ? 'Играть следующую стадию' : 'Играть стадию';
       $('#run-hint').textContent = finished ? 'Прогон закончен.'
-        : (run.reward.length ? 'Сначала выберите усиление.'
-          : 'Матчи симулируются по картам и раундам: чем сильнее состав и чем больше'
-            + ' своих карт, тем выше шансы.');
-
-      show('#reward-card', run.reward.length > 0);
-      $('#reward').innerHTML = run.reward.map((boost, index) => (
-        '<div class="boost"><b>' + escapeHtml(boost.title) + '</b>'
-        + '<button type="button" class="btn btn-sm btn-primary" data-boost="' + index
-        + '">Взять</button></div>'
-      )).join('');
+        : 'Матчи симулируются по картам и раундам: чем сильнее состав и чем больше'
+          + ' своих карт, тем выше шансы.';
 
       $('#matches-badge').textContent = run.history.length
         ? (run.history.filter((item) => item.won).length + ' побед') : 'матчей пока нет';
@@ -1088,11 +1073,6 @@
       $('#run').addEventListener('click', (event) => {
         if (event.target.closest('#play-stage')) {
           return void act('POST', '/runs/' + run.id + '/play', null, '');
-        }
-        const boost = event.target.closest('[data-boost]');
-        if (boost) {
-          return void act('POST', '/runs/' + run.id + '/boost',
-            { index: Number(boost.dataset.boost) }, 'Усиление взято');
         }
         if (event.target.closest('#again') || event.target.closest('#to-lobby')) {
           return void showLobby();

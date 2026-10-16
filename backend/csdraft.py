@@ -171,6 +171,9 @@ class Csdraft:
         self.pool_size = int(cfg["pool_size"])
         self.match: Dict[str, Any] = dict(cfg["match"])
         self.pack_offers = int(cfg.get("pack_offers", PACK_OFFERS))
+        # Правило «одно из пака»: забрал игрока или карту — состав израсходован,
+        # и на выбор сразу приходит следующий пак.
+        self.one_pick_per_pack = bool(cfg.get("one_pick_per_pack"))
         # Арен в матче не может быть больше, чем самый длинный формат серии.
         self.maps_per_match = max(int(stage["best_of"]) for stage in self.stages)
         self.arena = str(self.match.get("arena") or "карта")
@@ -441,6 +444,7 @@ class Csdraft:
             if all(run["squad"].values()):
                 run["status"] = "ready"
                 self._say(run, f"Состав собран — можно начинать {self.tournament}")
+            self._consume_pack(run)
             return self._payload(run, user, run["updated_at"])
 
     def take_map(self, run_id: str, user: Dict[str, Any], map_name: str) -> Dict[str, Any]:
@@ -459,6 +463,7 @@ class Csdraft:
                 raise CsdraftError(self._phrase("pool_full"))
             run["pool"].append(name)
             self._say(run, self._phrase("pool_added", name=name))
+            self._consume_pack(run)
             run["updated_at"] = time.time()
             return self._payload(run, user, run["updated_at"])
 
@@ -489,6 +494,24 @@ class Csdraft:
                 self._say(run, f"Следующий состав: {run['pack']['team']} ({run['pack']['event']})")
             run["updated_at"] = time.time()
             return self._payload(run, user, run["updated_at"])
+
+    def _consume_pack(self, run: Dict[str, Any]) -> None:
+        """Пак израсходован: взять из него больше нечего.
+
+        В играх с правилом «одно из пака» на выбор сразу приходит следующий
+        состав: им можно добрать карты в пул, пока турнир не начался, а в самом
+        прогоне пак уже не нужен.
+        """
+        if not self.one_pick_per_pack:
+            return
+        pack = run.get("pack") or {}
+        if pack.get("id"):
+            run.setdefault("seen_packs", []).append(pack["id"])
+        if run["status"] in ("draft", "ready"):
+            run["pack"] = self._draw_pack(run)
+            self._say(run, f"Следующий состав: {run['pack']['team']} ({run['pack']['event']})")
+        else:
+            run["pack"] = {}
 
     def set_assign(self, run_id: str, user: Dict[str, Any], mode: str) -> Dict[str, Any]:
         """Способ расстановки: вручную или автоматически по лучшему попаданию."""
@@ -565,8 +588,15 @@ class Csdraft:
                 run["status"] = "champion"
                 self._say(run, self._phrase("champion"))
             elif match["won"]:
-                run["reward"] = self._offer_boosts(run)
-                self._say(run, "Усиление на выбор: три карты бустов")
+                offers = self._offer_boosts(run)
+                if offers:
+                    run["reward"] = offers
+                    self._say(run, "Усиление на выбор: три карты бустов")
+                else:
+                    # В игре без усилений следующая стадия идёт сразу за победой.
+                    run["stage"] += 1
+                    self._say(run, "Дальше — "
+                                   f"{self.stages[min(run['stage'], len(self.stages) - 1)]['title']}")
             run["updated_at"] = time.time()
             if run["status"] in ("dead", "champion"):
                 self._finish(run)
@@ -593,6 +623,8 @@ class Csdraft:
             return self._payload(run, user, run["updated_at"])
 
     def _offer_boosts(self, run: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if not self.boosts:  # у игры усилений нет — предлагать нечего
+            return []
         taken = {boost["id"] for boost in run.get("boosts", ())}
         available = [boost for boost in self.boosts
                      if boost["id"] not in taken or boost.get("repeatable")]
@@ -741,6 +773,7 @@ class Csdraft:
             "pool": list(run["pool"]),
             "pool_limit": self.pool_size + sum(1 for boost in run["boosts"] if boost.get("extra_map")),
             "boosts": [{"id": boost["id"], "title": boost["title"]} for boost in run["boosts"]],
+            "boosts_enabled": bool(self.boosts),
             "rating": rating,
             "arena": self.arena,
             "pool_label": self.pool_label,

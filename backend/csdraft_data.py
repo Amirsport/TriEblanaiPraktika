@@ -390,19 +390,9 @@ DUOS: Tuple[Tuple[str, str], ...] = (
     ("tarik", "Stewie2K"),
 )
 
-# Карты, которые могут усиление добавить в маппул.
-BOOSTS: Tuple[Dict[str, Any], ...] = (
-    {"id": "awp-form", "title": "Прицел снайпера: +4 к AWP", "value": 4.0, "role": "awp"},
-    {"id": "igl-mind", "title": "Видение игры: +4 к IGL", "value": 4.0, "role": "igl"},
-    {"id": "entry-power", "title": "Открывашка: +4 к энтри", "value": 4.0, "role": "entry"},
-    {"id": "support-tools", "title": "Гранаты и смоки: +4 к сапорту", "value": 4.0, "role": "support"},
-    {"id": "lurker-read", "title": "Чтение карты: +4 к луркеру", "value": 4.0, "role": "lurker"},
-    {"id": "chem-camp", "title": "Сбор: +3 к сыгранности", "value": 3.0},
-    {"id": "coach", "title": "Тренер на буткемпе: +5 к составу", "value": 5.0},
-    {"id": "clutch-mind", "title": "Хладнокровие: +3 к составу", "value": 3.0},
-    {"id": "map-pool", "title": "Заготовка: +1 карта в маппул", "value": 0.0, "extra_map": True},
-    {"id": "reroll", "title": "Просмотр рынка: +1 реролл", "value": 0.0, "reroll": 1},
-)
+# Усилений в «87-0» нет: между стадиями ничего не выбирается, а маппул
+# пополняется только картами из паков. Список пустой намеренно.
+BOOSTS: Tuple[Dict[str, Any], ...] = ()
 
 
 def overall(player: Dict[str, Any]) -> float:
