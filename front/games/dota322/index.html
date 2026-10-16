@@ -16,17 +16,22 @@
        что у панели, — красная (data-palette="red" выше); здесь только раскладка.
 
        Как играть:
-         * в пуле 140 участников драфта, у каждого своя цена в очках;
-         * состав — пять игроков, и сумма цен не должна выйти за бюджет
-           сложности (хардкор 300, обычная 320, смёрф 340);
-         * каждому игроку выдаётся герой: позиция героя (1–5) становится
-           позицией игрока, а пять героев обязаны закрыть все пять позиций;
-         * потом сетка: группа (Bo1), четвертьфинал (Bo3), полуфинал (Bo3),
-           финал (Bo5). После каждой победы — усиление на выбор, поражение
-           заканчивает прогон.
+         * в пуле 140 участников драфта, у каждого своя цена в очках и своя
+           позиция (у кого известна);
+         * драфт идёт паками: в паке пять игроков и пять героев, из пака берут
+           одно — игрока либо героя, — и пак меняется целиком;
+         * состав — пять игроков, сумма цен не выходит за бюджет сложности
+           (хардкор 300, обычная 305, смёрф 310);
+         * герой достаётся тому, кому его отдали; пять героев закрывают все
+           пять позиций, а на мид берут игрока дешевле 75 очков;
+         * игра на своей позиции даёт надбавку, на чужой — минус;
+         * потом турнир: две группы по четыре команды (круговая Bo3), места 1–2
+           уходят в верхнюю сетку, 3–4 — в нижнюю. Верхняя сетка даёт право на
+           ошибку, а с нижней вылетают после первого поражения. Финал нижней
+           сетки и гранд-финал — Bo5. Усилений нет.
 
-       Цены игроков — из таблицы владельца сайта; оценки героев игровые,
-       ники участников и герои Dota 2 — названия их владельцев. */
+       Цены и позиции игроков — из таблицы владельца сайта; оценки героев
+       игровые, ники участников и герои Dota 2 — названия их владельцев. */
 
     [hidden] { display: none !important; }
 
@@ -78,50 +83,71 @@
     .slot .who { font-weight: 700; font-size: 15px; line-height: 1.2; }
     .slot .hero { font-size: 12px; }
     .slot .where { font-size: 11.5px; color: var(--text-dim); }
-    .slot .boost { font-size: 11.5px; color: var(--accent); }
 
-    /* Состав: строки игроков с выбором героя. */
+    /* Состав: строки игроков с их позицией и героем. */
     .roster { display: flex; flex-direction: column; gap: 10px; }
     .squad-row {
       display: grid; gap: 10px; align-items: center; padding: 10px 12px;
       border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid);
-      grid-template-columns: minmax(120px, 1fr) 68px minmax(180px, 260px) auto;
+      grid-template-columns: minmax(120px, 1fr) 78px minmax(140px, 1fr) minmax(170px, 1.2fr);
     }
     .squad-row .who { font-weight: 600; }
     .squad-row .cost { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: 13px; }
+    .squad-row .where { font-size: 12.5px; color: var(--text-dim); }
+    .squad-row .where.hit { color: var(--accent); }
+    .squad-row .hero { font-size: 13px; }
     .squad-row .note { grid-column: 1 / -1; font-size: 12px; color: var(--text-dim); }
     .squad-row .note.warn { color: var(--warn); }
-    .squad-row .own { grid-column: 1 / -1; font-size: 12px; color: var(--accent); }
 
-    /* Витрина игроков: поиск, сортировка, строки с ценой. */
-    .shop-tools { display: grid; gap: 10px; grid-template-columns: minmax(160px, 1fr) minmax(150px, 220px); margin-bottom: 12px; }
-    .shop { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; padding-right: 4px; }
-    .shop-row {
+    /* Пак драфта: пять игроков и пять героев, из пака берут одно. */
+    .pack-group { margin-top: 14px; }
+    .pack-group h3 { margin: 0 0 8px; font-size: 14px; }
+    .pack { display: flex; flex-direction: column; gap: 8px; }
+    .pack-row {
       display: grid; gap: 10px; align-items: center; padding: 8px 12px;
-      border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid);
-      grid-template-columns: 1fr 64px auto;
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--surface-solid);
+      grid-template-columns: 1fr 62px minmax(150px, 1fr) auto;
     }
-    .shop-row .who { font-weight: 600; }
-    .shop-row .cost { font-variant-numeric: tabular-nums; text-align: right; }
-    .shop-row .cost b { font-size: 15px; }
-    .shop-row.taken { opacity: 0.6; }
-    .shop-row .taken-tag { font-size: 12px; color: var(--accent); }
+    .pack-row.hero { grid-template-columns: 1fr minmax(150px, 1fr) auto; }
+    .pack-row .who { font-weight: 600; }
+    .pack-row .own {
+      font-size: 11.5px; color: var(--text-dim);
+    }
+    .pack-row .own.hit { color: var(--accent); }
+    .pack-row .cost { font-variant-numeric: tabular-nums; text-align: right; }
+    .pack-row select { width: 100%; }
+    .pack-row .why { font-size: 12px; color: var(--text-dim); }
+
+    /* Группы: таблица мест и серии. */
+    .groups { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .group-block h3 { margin: 0 0 8px; font-size: 14px; }
+    .group-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .group-table th, .group-table td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+    .group-table th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+    .group-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .group-table tr.mine td { color: var(--accent); font-weight: 600; }
+    .group-table tr.up td:first-child { border-left: 3px solid var(--accent); }
+    .group-table tr.down td:first-child { border-left: 3px solid var(--border); }
+
+    /* Сетка плей-офф: серии по раундам. */
+    .bracket { display: flex; flex-direction: column; gap: 10px; }
+    .bracket-row {
+      display: grid; gap: 10px; align-items: baseline; padding: 10px 12px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--surface-solid);
+      grid-template-columns: minmax(150px, 220px) 1fr auto auto;
+    }
+    .bracket-row .round { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+    .bracket-row .teams { font-size: 13.5px; }
+    .bracket-row .score { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .bracket-row .score.win { color: var(--accent); }
+    .bracket-row .score.lose { color: var(--danger); }
+    .bracket-row.mine { border-color: var(--accent); background: var(--accent-soft); }
+    .bracket-row.pending { opacity: 0.72; }
 
     .stat-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
     .stat-row b { color: var(--text); font-variant-numeric: tabular-nums; }
-
-    .boosts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
-    .boost {
-      display: flex; flex-direction: column; gap: 8px; padding: 12px;
-      border-radius: var(--radius-sm); border: 1px solid var(--accent); background: var(--accent-soft);
-    }
-    .boost b { font-size: 14px; }
-    .boosts-taken { display: flex; flex-wrap: wrap; gap: 8px; }
-    .tag {
-      display: inline-flex; padding: 6px 12px; border-radius: 999px;
-      border: 1px solid var(--accent); background: var(--accent-soft);
-      color: var(--accent); font-size: 12.5px;
-    }
 
     .matches { display: flex; flex-direction: column; gap: 12px; }
     .match { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid); }
@@ -170,9 +196,8 @@
 
     @media (max-width: 620px) {
       .brand-text h1 { font-size: 18px; }
-      .squad-row { grid-template-columns: 1fr auto; }
-      .squad-row select { grid-column: 1 / -1; }
-      .shop-tools { grid-template-columns: 1fr; }
+      .squad-row, .pack-row, .pack-row.hero, .bracket-row { grid-template-columns: 1fr 1fr; }
+      .squad-row .hero, .bracket-row .teams, .pack-row select { grid-column: 1 / -1; }
       /* В общей main.css кнопки шапки не переносятся: на узком экране
          с длинным ником они уезжают за край, поэтому переносим их сами. */
       .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -197,7 +222,7 @@
         <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
         <div class="brand-text">
           <h1>322-0</h1>
-          <p>Драфт по Dota 2 на Streamers Battle 13: состав в бюджет и герои по позициям</p>
+          <p>Драфт по Dota 2 на Streamers Battle 13: пак на выбор, состав в бюджет, герои по позициям</p>
         </div>
       </div>
 
@@ -266,9 +291,10 @@
           <span class="badge" id="lobby-badge">—</span>
         </header>
         <p class="muted">
-          Собирайте состав мечты из участников Streamers Battle 13: пять игроков в бюджет,
-          каждому — герой. Герой приносит позицию, пять героев закрывают пять позиций.
-          Дальше сетка турнира, а после каждой победы — усиление на выбор.
+          Собирайте состав мечты из участников Streamers Battle 13: из пака берут
+          одного игрока или одного героя, пак сразу меняется. Пять игроков в бюджет,
+          каждому — герой, и пять героев закрывают все пять позиций.
+          Дальше турнир: две группы по четыре команды и плей-офф с правом на ошибку.
         </p>
         <ul class="rules" id="rules"></ul>
         <div class="field" style="margin: 16px 0 14px;">
@@ -291,7 +317,7 @@
       </section>
     </section>
 
-    <!-- ===== Драфт: состав и витрина игроков ===== -->
+    <!-- ===== Драфт: состав и пак ===== -->
     <section class="stack" id="draft" hidden>
       <section class="card" id="squad-card">
         <header class="card-head">
@@ -312,60 +338,65 @@
         <div class="slots" id="slots" style="margin-top: 14px;"></div>
         <div class="roster" id="roster" style="margin-top: 14px;"></div>
         <div class="row" style="margin-top: 14px;">
-          <button class="btn btn-ghost" type="button" id="auto-heroes">Расставить героев</button>
           <button class="btn btn-primary" type="button" id="play-run" disabled>Играть</button>
           <button class="btn btn-ghost" type="button" id="to-lobby-draft">Выйти в лобби</button>
         </div>
         <p class="muted" id="draft-hint"></p>
       </section>
 
-      <section class="card" id="shop-card">
+      <section class="card" id="pack-card">
         <header class="card-head">
-          <h2>Витрина Streamers Battle 13</h2>
-          <span class="badge" id="shop-badge">—</span>
+          <h2>Пак драфта</h2>
+          <span class="badge" id="pack-badge">—</span>
         </header>
-        <div class="shop-tools">
-          <label class="field">
-            <span>Поиск по нику</span>
-            <input type="search" id="shop-search" placeholder="например, Cooman" autocomplete="off" spellcheck="false">
-          </label>
-          <label class="field">
-            <span>Сортировка</span>
-            <select id="shop-sort">
-              <option value="cost-desc">Сначала дорогие</option>
-              <option value="cost-asc">Сначала дешёвые</option>
-              <option value="name">По нику</option>
-            </select>
-          </label>
+        <p class="muted" id="pack-hint">
+          Из пака берут ровно одно: игрока либо героя. После пика пак меняется
+          целиком — и игроки, и герои.
+        </p>
+        <div class="pack-group">
+          <h3>Игроки в паке</h3>
+          <div class="pack" id="pack-players"></div>
         </div>
-        <div class="shop" id="shop"></div>
+        <div class="pack-group">
+          <h3>Герои в паке</h3>
+          <div class="pack" id="pack-heroes"></div>
+        </div>
+        <p class="muted" id="pack-note"></p>
       </section>
     </section>
 
-    <!-- ===== Прогон: стадии, усиления, журнал ===== -->
+    <!-- ===== Прогон: турнир, группы, сетка, журнал ===== -->
     <section class="stack" id="run" hidden>
       <section class="card" id="stage-card">
         <header class="card-head">
-          <h2 id="stage-title">Стадия</h2>
+          <h2 id="stage-title">Турнир</h2>
           <span class="badge" id="run-badge">—</span>
         </header>
         <div class="stat-row" id="run-stats"></div>
         <div class="cells" id="run-rating"></div>
         <div class="slots" id="run-slots" style="margin-top: 14px;"></div>
+        <div class="opp-block" id="next-match" style="margin-top: 14px;"></div>
         <div class="row" style="margin-top: 14px;">
-          <button class="btn btn-primary" type="button" id="play-stage">Играть стадию</button>
+          <button class="btn btn-primary" type="button" id="play-stage">Играть</button>
           <button class="btn btn-ghost" type="button" id="to-lobby">Выйти в лобби</button>
         </div>
         <p class="muted" id="run-hint"></p>
       </section>
 
-      <section class="card" id="reward-card" hidden>
+      <section class="card" id="groups-card">
         <header class="card-head">
-          <h2>Усиление на выбор</h2>
-          <span class="badge">после победы</span>
+          <h2>Группы</h2>
+          <span class="badge" id="groups-badge">—</span>
         </header>
-        <p class="muted">Возьмите одну карту — без неё следующая стадия не играется.</p>
-        <div class="boosts" id="reward"></div>
+        <div class="groups" id="groups"></div>
+      </section>
+
+      <section class="card" id="bracket-card" hidden>
+        <header class="card-head">
+          <h2>Плей-офф: двойное выбывание</h2>
+          <span class="badge" id="bracket-badge">—</span>
+        </header>
+        <div class="bracket" id="bracket"></div>
       </section>
 
       <section class="card" id="opponent-card" hidden>
@@ -378,18 +409,10 @@
 
       <section class="card" id="matches-card">
         <header class="card-head">
-          <h2>Серии прогона</h2>
+          <h2>Мои серии</h2>
           <span class="badge" id="matches-badge">—</span>
         </header>
         <div class="matches" id="matches"></div>
-      </section>
-
-      <section class="card" id="boosts-card" hidden>
-        <header class="card-head">
-          <h2>Взятые усиления</h2>
-          <span class="badge" id="boosts-badge">—</span>
-        </header>
-        <div class="boosts-taken" id="boosts"></div>
       </section>
 
       <section class="card" id="log-card">
@@ -431,13 +454,11 @@
 
     let apiBase = '';
     let auth = { token: '', user: null };
-    let info = null;                // /status: пул, позиции, сложности, стадии
-    let pool = { players: [], heroes: [] };
+    let info = null;                // /status: пул, позиции, пак, турнир, сложности
     let run = null;                 // состояние текущего прогона
     let journal = [];
     let journalScope = 'mine';
     let pick = { difficulty: 'hard' };
-    let shop = { query: '', sort: 'cost-desc' };
     let busy = false;
 
     /* ------------------------------- утилиты -------------------------------- */
@@ -486,12 +507,25 @@
     const num = (value) => (Math.round(Number(value || 0) * 10) / 10).toString();
     const signed = (value) => (Number(value) > 0 ? '+' : '') + num(value);
 
-    /* Веса движка (backend/dotadraft_data.py): цена игрока и оценка героя.
-       По ним видно вклад каждой связки «игрок + герой» в силу состава. */
+    /* Веса движка (backend/dotadraft_data.py): цена игрока и оценка героя в
+       связке. Оценка героя — под конкретного игрока (его матчи на герое). */
     const PLAYER_WEIGHT = 0.62;
     const HERO_WEIGHT = 0.38;
     const pairStrength = (player) => PLAYER_WEIGHT * Number(player.cost || 0)
-      + HERO_WEIGHT * Number(player.hero ? player.hero.rating : 0);
+      + HERO_WEIGHT * Number(player.hero_rating || 0);
+
+    const runRules = () => (run && run.rules) || {};
+
+    /* Своя позиция против позиции героя: за это движок даёт плюс или минус. */
+    function positionNote(player) {
+      if (!player.hero) return 'герой не выбран';
+      const own = Number(player.own_position || 0);
+      if (!own) return 'своя позиция неизвестна';
+      const rules = runRules();
+      return own === Number(player.hero.position)
+        ? 'на своей позиции ' + signed(rules.own_position_bonus)
+        : 'не на своей позиции ' + signed(rules.other_position_penalty);
+    }
 
     function clockText(seconds) {
       const date = new Date(Number(seconds || 0) * 1000);
@@ -756,7 +790,6 @@
       hideAll();
       show('#lobby', true);
       await loadStatus();
-      await loadPool();
       await loadJournal('mine');
     }
 
@@ -786,28 +819,43 @@
         '<button type="button" class="choice' + (item.key === pick.difficulty ? ' on' : '')
         + '" data-key="' + escapeHtml(item.key) + '">'
         + '<b>' + escapeHtml(item.label) + '</b>'
-        + '<span>бюджет ' + item.budget + ' очков</span>'
-        + '<span>соперники ' + signed(item.opponent_shift) + ' к силе стадии</span></button>'
+        + '<span>бюджет ' + item.budget + ' очков</span></button>'
       )).join('');
     }
 
     function renderRules() {
       if (!info) return;
-      const stages = (info.stages || [])
-        .map((stage) => escapeHtml(stage.title) + ' (Bo' + stage.best_of + ')').join(' → ');
+      const pack = info.pack || { players: 5, heroes: 5 };
+      const mid = info.mid || {};
+      const tour = info.tournament || {};
+      const rounds = (info.rounds || [])
+        .map((round) => escapeHtml(round.title) + ' (Bo' + round.best_of + ')').join(' → ');
       const positions = (info.positions || [])
         .map((item) => '<b>' + item.position + '</b> ' + escapeHtml(item.label) + ' — '
           + item.heroes + ' гер.')
         .join(' · ');
       $('#rules').innerHTML = [
         '<li>В пуле <b>' + info.players + ' игроков</b> Streamers Battle 13 и <b>'
-          + info.heroes + ' героев</b> — у каждого игрока своя цена в очках.</li>',
-        '<li>Состав — <b>' + info.squad_size + ' игроков</b>, сумма цен не больше бюджета сложности.</li>',
-        '<li>Каждому игроку — герой: его позиция становится позицией игрока, а пять'
-          + ' героев обязаны закрыть все пять позиций. Повтор героя или позиции не пройдёт.</li>',
-        '<li>Герои по позициям: ' + positions + '.</li>',
-        '<li>Стадии: ' + stages + '. Поражение заканчивает прогон, после каждой победы'
-          + ' берётся усиление.</li>'
+          + info.heroes + ' героев</b>. Своя позиция известна у <b>'
+          + info.known_positions + '</b> игроков, оценок героев под игрока: <b>'
+          + (info.pairs || 0) + '</b>.</li>',
+        '<li>Пак — <b>' + pack.players + ' игроков и ' + pack.heroes + ' героев</b>. Из пака берут'
+          + ' одно: игрока либо героя, после пика пак меняется целиком.</li>',
+        '<li>Состав — <b>' + info.squad_size + ' игроков</b>, сумма цен не больше бюджета'
+          + ' сложности. Пять героев закрывают все пять позиций.</li>',
+        '<li>На мид (позиция ' + (mid.position || 2) + ', ' + escapeHtml(mid.label || '')
+          + ') берут игрока дешевле <b>' + (mid.cost_limit || 75) + ' очков</b>.</li>',
+        '<li>Игра на своей позиции даёт надбавку, на чужой — минус: позиции игроков'
+          + ' берутся из пула.</li>',
+        '<li>Группы: ' + (tour.groups || 2) + ' по ' + (tour.group_size || 4)
+          + ' команды, круговая Bo' + (tour.group_best_of || 3)
+          + '; места 1–2 уходят в верхнюю сетку, 3–4 — в нижнюю. Верхняя сетка'
+          + ' даёт право на ошибку (поражение опускает в нижнюю), а кто начал с нижней —'
+          + ' вылетает после первого поражения в ней. Бюджеты соперников: '
+          + (tour.opponent_budget_min || 300) + '–'
+          + (tour.opponent_budget_max || 315) + ' очков.</li>',
+        '<li>Раунды: ' + rounds + '. Усилений нет: победа сразу отправляет дальше.</li>',
+        '<li>Герои по позициям: ' + positions + '.</li>'
       ].join('');
     }
 
@@ -816,32 +864,17 @@
       const ready = info.ready !== false;
       $('#start').disabled = !ready || !auth.token;
       $('#lobby-badge').textContent = ready ? (info.players + ' игроков') : 'пул не готов';
-      let hint = 'В пуле: игроков ' + info.players + ', героев ' + info.heroes + '.';
-      const stages = (info.stages || [])
-        .map((stage) => stage.title + ' (Bo' + stage.best_of + ')').join(' → ');
-      if (stages) hint += ' Стадии: ' + stages + '.';
+      let hint = 'В пуле: игроков ' + info.players + ', героев ' + info.heroes
+        + ', оценок героев под игроков ' + (info.pairs || 0) + '.';
       if (!ready) {
-        hint += ' Пул неполный: нужны игроки и хотя бы один герой на каждую позицию.';
+        hint += ' Пул неполный: нужны игроки и герои по пять на каждую позицию.';
         const problems = info.problems || [];
         if (problems.length) hint += ' Замечания: ' + problems.join('; ') + '.';
       }
       $('#pool-hint').textContent = hint;
     }
 
-    /* Герои нужны и для витрины, и для выбора героя в составе. */
-    async function loadPool() {
-      try {
-        const data = await api(GAME + '/pool');
-        pool = {
-          players: Array.isArray(data.players) ? data.players : [],
-          heroes: Array.isArray(data.heroes) ? data.heroes : []
-        };
-      } catch (error) {
-        pool = { players: [], heroes: [] };
-        if (!sessionExpired(error)) toast('Пул не загрузился: ' + failMessage(error), 'err');
-      }
-      renderPoolHint();
-    }
+    /* Пул целиком странице не нужен: и игроки, и герои приходят паком в прогоне. */
 
     /* ------------------------------- журнал --------------------------------- */
 
@@ -858,10 +891,10 @@
       renderJournal();
     }
 
-    /* В журнале стадия лежит ключом — игроку показываем её название. */
-    function stageLabel(key) {
-      const found = info && info.stages
-        ? info.stages.find((stage) => stage.key === key) : null;
+    /* В журнале раунд лежит ключом — игроку показываем его название. */
+    function roundLabel(key) {
+      const found = info && info.rounds
+        ? info.rounds.find((round) => round.key === key) : null;
       return found ? found.title : (key || 'вылет');
     }
 
@@ -889,7 +922,7 @@
         '<div class="row-item"><div class="head">'
         + '<span class="title">#' + item.id + ' · ' + escapeHtml(item.squad || '—') + '</span>'
         + '<span class="' + (item.champion ? 'win' : 'loss') + '">'
-        + (item.champion ? 'титул Streamers Battle 13' : escapeHtml(stageLabel(item.stage)))
+        + (item.champion ? 'титул Streamers Battle 13' : escapeHtml(roundLabel(item.stage)))
         + ' (' + item.wins + ':' + item.losses + ')</span></div>'
         + '<span class="sub">' + escapeHtml(difficultyLabel(item.difficulty))
         + ' · сила состава ' + num(item.rating) + '</span>'
@@ -918,13 +951,13 @@
 
     async function startRun() {
       await act('POST', '/runs', { difficulty: pick.difficulty },
-        'Прогон начался: покупайте игроков');
+        'Прогон начался: берите игрока или героя из пака');
     }
 
     function applyRun(state) {
       run = state;
       hideAll();
-      if (state.phase === 'draft' || state.phase === 'ready') {
+      if (state.phase === 'draft') {
         show('#draft', true);
         renderDraft();
       } else {
@@ -936,12 +969,12 @@
     /* -------------------------------- драфт --------------------------------- */
 
     function ratingCells(rating) {
+      const data = rating || {};
       const cells = [
-        { label: 'Игроки и герои', value: num(rating.base) },
-        { label: 'Связки', value: signed(rating.pairs) },
-        { label: 'Позиции', value: signed(rating.position_boosts) },
-        { label: 'Усиления', value: signed(rating.boosts) },
-        { label: 'Сила состава', value: num(rating.total), total: true }
+        { label: 'Игроки и герои', value: num(data.base) },
+        { label: 'Связки', value: signed(data.pairs) },
+        { label: 'Своя позиция', value: signed(data.positions) },
+        { label: 'Сила состава', value: num(data.total), total: true }
       ];
       return cells.map((cell) => (
         '<div class="cell' + (cell.total ? ' total' : '') + '"><span>' + cell.label
@@ -973,32 +1006,31 @@
       $('#rating').innerHTML = ratingCells(run.rating);
       renderSlots('#slots');
       renderRoster();
-      renderShop();
+      renderPack();
       renderDraftHint();
     }
 
     function slotHtml(slot) {
       if (!slot.player) {
-        // Позиция появляется у игрока вместе с героем: пока героев нет, слот
-        // подсказывает, что состав уже набран и ждёт выбора.
+        // Позицию закрывает герой: пока героев нет, слот подсказывает, чего ждёт.
         const waiting = (run.roster || []).filter((item) => !item.hero).length;
         return '<div class="slot"><span class="pos">' + slot.position + '. '
           + escapeHtml(slot.label) + '</span><span class="who muted">'
           + (waiting ? 'ждёт героя (' + waiting + ' в составе)' : 'пусто') + '</span>'
           + '<span class="where">' + escapeHtml(slot.hint || '') + '</span></div>';
       }
+      const own = Number(slot.player.own_position || 0);
       return '<div class="slot filled"><span class="pos">' + slot.position + '. '
         + escapeHtml(slot.label) + '</span>'
         + '<span class="who">' + escapeHtml(slot.player.nickname) + '</span>'
         + (slot.hero
-          ? '<span class="hero">' + escapeHtml(slot.hero.name) + ' · оценка '
-            + slot.hero.rating + '</span>'
+          ? '<span class="hero">' + escapeHtml(slot.hero.name) + ' · оценка под игрока '
+            + slot.hero_rating + '</span>'
           : '<span class="hero muted">герой не выбран</span>')
-        + '<span class="where">цена ' + slot.player.cost + '</span>'
-        + (slot.hero ? '<span class="where">сила связки ' + num(pairStrength({
-          cost: slot.player.cost, hero: slot.hero
-        })) + '</span>' : '')
-        + (slot.boost ? '<span class="boost">усиление +' + num(slot.boost) + '</span>' : '')
+        + '<span class="where">цена ' + slot.player.cost + (own
+          ? (own === Number(slot.position) ? ' · своя позиция' : ' · своя позиция '
+            + escapeHtml(slot.player.own_position_label))
+          : ' · своя позиция неизвестна') + '</span>'
         + '</div>';
     }
 
@@ -1009,112 +1041,84 @@
     function renderRoster() {
       const node = $('#roster');
       if (!run.roster.length) {
-        node.innerHTML = '<p class="muted">Купите пятерых игроков на витрине ниже —'
-          + ' они встанут в состав. Дорогие игроки не влезут все: считайте бюджет.</p>';
+        node.innerHTML = '<p class="muted">Возьмите игроков из пака ниже: из пака берут'
+          + ' одного игрока или одного героя, после пика пак меняется. Дорогие игроки'
+          + ' не влезут все: считайте бюджет.</p>';
         return;
       }
       node.innerHTML = run.roster.map((player) => {
         const hero = player.hero;
-        const note = hero
-          ? 'Позиция ' + hero.position + ' (' + escapeHtml(hero.position_label) + ') · оценка героя '
-            + hero.rating
-          : 'Герой не выбран: позиция освободится после выбора.';
+        const midWarn = hero && Number(hero.position) === 2 && player.cost >= 75
+          ? 'На мид берут игрока дешевле 75 очков' : '';
         return '<div class="squad-row">'
           + '<span class="who">' + escapeHtml(player.nickname) + '</span>'
           + '<span class="cost">' + player.cost + ' очк.</span>'
-          + heroSelect(player)
-          + '<button class="btn btn-sm btn-ghost" type="button" data-drop="'
-          + escapeHtml(player.id) + '">Убрать</button>'
-          + '<span class="note' + (hero ? '' : ' warn') + '">' + note + '</span>'
+          + '<span class="where' + (player.own_position ? '' : ' muted') + '">'
+          + 'своя позиция: ' + (player.own_position
+            ? escapeHtml(player.own_position_label) : 'неизвестна') + '</span>'
+          + (hero
+            ? '<span class="hero">' + escapeHtml(hero.name) + ' · ' + hero.position + '. '
+              + escapeHtml(hero.position_label) + ' · оценка под игрока ' + player.hero_rating
+              + ' · ' + positionNote(player) + '</span>'
+            : '<span class="hero muted">герой не выбран</span>')
+          + (midWarn ? '<span class="note warn">' + midWarn + '</span>' : '')
           + '</div>';
       }).join('');
     }
 
-    /* Список героев по позициям: занятые герои и позиции сразу помечены. */
-    function heroSelect(player) {
-      const mine = player.hero ? player.hero.id : '';
-      const usedHero = new Map();
-      const usedPos = new Map();
-      run.roster.forEach((item) => {
-        if (item.hero && item.id !== player.id) {
-          usedHero.set(item.hero.id, item.nickname);
-          usedPos.set(item.hero.position, item.nickname);
-        }
-      });
-      const groups = (run.positions_catalog || []).map((slot) => {
-        const heroes = pool.heroes
-          .filter((hero) => Number(hero.position) === Number(slot.position))
-          .sort((a, b) => (b.rating - a.rating)
-            || String(a.name).localeCompare(String(b.name), 'ru'));
-        const options = heroes.map((hero) => {
-          let disabled = '';
-          let note = '';
-          if (hero.id !== mine) {
-            if (usedHero.has(hero.id)) {
-              disabled = ' disabled';
-              note = ' — занят: ' + usedHero.get(hero.id);
-            } else if (usedPos.has(hero.position)) {
-              disabled = ' disabled';
-              note = ' — позиция ' + hero.position + ' занята';
-            }
-          }
-          return '<option value="' + escapeHtml(hero.id) + '"'
-            + (hero.id === mine ? ' selected' : '') + disabled + '>'
-            + escapeHtml(hero.name) + ' · ' + hero.rating + escapeHtml(note) + '</option>';
-        }).join('');
-        return '<optgroup label="' + slot.position + '. ' + escapeHtml(slot.label)
-          + ' — ' + escapeHtml(slot.hint || '') + ' · героев: ' + heroes.length + '">'
-          + options + '</optgroup>';
-      }).join('');
-      return '<select data-hero-for="' + escapeHtml(player.id) + '" title="Герой игрока">'
-        + '<option value=""' + (mine ? '' : ' selected') + '>— герой не выбран —</option>'
-        + groups + '</select>';
-    }
-
-    function sortPlayers(list) {
-      const items = list.slice();
-      if (shop.sort === 'cost-asc') {
-        items.sort((a, b) => (a.cost - b.cost)
-          || String(a.nickname).localeCompare(String(b.nickname), 'ru'));
-      } else if (shop.sort === 'name') {
-        items.sort((a, b) => String(a.nickname).localeCompare(String(b.nickname), 'ru'));
-      } else {
-        items.sort((a, b) => (b.cost - a.cost)
-          || String(a.nickname).localeCompare(String(b.nickname), 'ru'));
-      }
-      return items;
-    }
-
-    function renderShop() {
-      const taken = new Set(run.roster.map((player) => player.id));
-      const query = shop.query.trim().toLowerCase();
-      const filtered = (pool.players || []).filter((player) => (
-        !query || String(player.nickname).toLowerCase().includes(query)
-      ));
-      const items = sortPlayers(filtered);
+    /* Пак: пять игроков и пять героев. Взять можно одно — пак после этого
+       меняется. Герою ещё нужно выбрать игрока: на мид дорогой не встанет. */
+    function renderPack() {
+      const pack = run.pack || { players: [], heroes: [] };
       const full = run.roster.length >= run.squad_size;
-      $('#shop-badge').textContent = 'игроков: ' + items.length + ' из ' + (pool.players || []).length;
-      if (!items.length) {
-        $('#shop').innerHTML = '<p class="muted">Никого не нашлось: измените поиск.</p>';
-        return;
-      }
-      $('#shop').innerHTML = items.map((player) => {
-        const mine = taken.has(player.id);
-        if (mine) {
-          return '<div class="shop-row taken"><span class="who">'
-            + escapeHtml(player.nickname) + '</span><span class="cost"><b>' + player.cost
-            + '</b></span><span class="taken-tag">в составе</span></div>';
-        }
-        const fits = !full && player.cost <= run.left;
-        const why = full ? 'состав уже собран' : (player.cost > run.left
-          ? 'не хватает ' + (player.cost - run.left) + ' очков' : '');
-        return '<div class="shop-row"><span class="who">' + escapeHtml(player.nickname)
-          + '</span><span class="cost"><b>' + player.cost + '</b></span>'
+      $('#pack-badge').textContent = 'взято карт: ' + (run.picks || 0);
+      $('#pack-players').innerHTML = (pack.players || []).map((player) => {
+        const fits = !full && player.fits !== false;
+        const why = full ? 'состав уже собран'
+          : (player.cost > run.left ? 'не хватает ' + (player.cost - run.left) + ' очков' : '');
+        return '<div class="pack-row">'
+          + '<span class="who">' + escapeHtml(player.nickname) + '</span>'
+          + '<span class="cost">' + player.cost + '</span>'
+          + '<span class="own' + (player.own_position ? ' hit' : '') + '">'
+          + (player.own_position ? 'своя позиция: ' + escapeHtml(player.own_position_label)
+            : 'своя позиция неизвестна') + '</span>'
           + '<button class="btn btn-sm' + (fits ? ' btn-primary' : ' btn-ghost')
-          + '" type="button" data-take="' + escapeHtml(player.id) + '"'
+          + '" type="button" data-pack-player="' + escapeHtml(player.id) + '"'
           + (fits ? '' : ' disabled') + ' title="' + escapeHtml(why) + '">'
-          + (fits ? 'Купить' : escapeHtml(why)) + '</button></div>';
-      }).join('');
+          + (fits ? 'Взять игрока' : escapeHtml(why)) + '</button></div>';
+      }).join('') || '<p class="muted">Игроков в паке нет.</p>';
+
+      const free = run.roster.filter((player) => !player.hero);
+      $('#pack-heroes').innerHTML = (pack.heroes || []).map((hero) => {
+        if (!free.length) {
+          return '<div class="pack-row hero">'
+            + '<span class="who">' + escapeHtml(hero.name) + ' · ' + hero.position + '. '
+            + escapeHtml(hero.position_label) + ' · ' + hero.rating + '</span>'
+            + '<span class="why">сначала возьмите игрока с героем</span>'
+            + '<button class="btn btn-sm btn-ghost" type="button" disabled>Некуда</button></div>';
+        }
+        const options = free.map((player) => {
+          const midBlock = Number(hero.position) === 2 && player.cost >= 75;
+          return '<option value="' + escapeHtml(player.id) + '"' + (midBlock ? ' disabled' : '')
+            + '>' + escapeHtml(player.nickname) + ' · ' + player.cost
+            + (player.own_position ? ' · своя ' + escapeHtml(player.own_position_label) : '')
+            + (midBlock ? ' — на мид нужен дешевле 75' : '') + '</option>';
+        }).join('');
+        return '<div class="pack-row hero">'
+          + '<span class="who">' + escapeHtml(hero.name) + ' · ' + hero.position + '. '
+          + escapeHtml(hero.position_label) + ' · ' + hero.rating + '</span>'
+          + '<select data-pack-hero="' + escapeHtml(hero.id) + '" title="Кому отдать героя">'
+          + options + '</select>'
+          + '<button class="btn btn-sm btn-primary" type="button" data-pack-hero-take="'
+          + escapeHtml(hero.id) + '">Взять героя</button></div>';
+      }).join('') || '<p class="muted">Свободных позиций для героев нет.</p>';
+
+      $('#pack-note').textContent = full
+        ? 'Состав собран: осталось выдать героев.'
+        : (!run.roster.length
+          ? 'Сначала возьмите игрока — героя выдают только игроку состава.'
+          : 'В составе ' + run.roster.length + ' из ' + run.squad_size + ' игроков,'
+            + ' героев свободно: ' + free.length + '.');
     }
 
     function renderDraftHint() {
@@ -1122,58 +1126,49 @@
       const heroes = run.rating ? run.rating.filled : 0;
       if (run.ready) {
         node.textContent = 'Состав готов: ' + run.roster.length + ' игроков, все пять позиций'
-          + ' закрыты героями. Можно играть — или подождите, если хотите другой состав.';
+          + ' закрыты героями. Нажмите «Играть» — и начнётся турнир.';
         return;
       }
       if (run.roster.length < run.squad_size) {
         const left = run.squad_size - run.roster.length;
         node.textContent = 'До полного состава не хватает ' + left + ' игрок'
-          + (left > 1 ? 'ов' : '') + '. Осталось ' + run.left + ' очков —'
-          + ' этого хватит не на всех: дорогие игроки съедают бюджет.';
+          + (left > 1 ? 'ов' : '') + '. Осталось ' + run.left + ' очков: этого хватит'
+          + ' не на всех — дорогие игроки съедают бюджет.';
         return;
       }
       node.textContent = 'Игроков пять, а героев ' + heroes + ' из ' + run.squad_size
-        + ': выдайте героя каждому — или нажмите «Расставить героев», и позиции'
-        + ' закроются сами.';
+        + ': берите героев из пака и указывайте, кому они достаются.';
     }
 
     /* --------------------------------- прогон -------------------------------- */
 
     function renderRun() {
-      const stage = run.stage || {};
-      $('#stage-title').textContent = (stage.title || 'Стадия') + ' · '
-        + ((stage.index || 0) + 1) + ' из ' + (stage.total || 0);
-      $('#run-badge').textContent = 'Bo' + (stage.best_of || 1) + ' · ' + run.difficulty_label;
-      $('#run-stats').innerHTML = 'Сила состава: <b>' + num(run.rating.total) + '</b>'
-        + ' · соперник стадии собирается под <b>' + (stage.opponent_cost != null
-          ? stage.opponent_cost : '—') + '</b> очков'
-        + ' · усилений: <b>' + (run.boosts || []).length + '</b>'
-        + ' · серий сыграно: <b>' + (run.history || []).length + '</b>';
+      const tournament = run.tournament || {};
+      const next = tournament.next;
+      const finished = run.phase === 'dead' || run.phase === 'champion';
+      const phaseLabel = run.phase === 'group' ? 'Группы'
+        : (run.phase === 'playoff' ? 'Плей-офф' : (finished ? 'Итог' : 'Турнир'));
+      $('#stage-title').textContent = phaseLabel
+        + (next ? ' · ' + next.title : '');
+      $('#run-badge').textContent = (next ? 'Bo' + next.best_of + ' · ' : '')
+        + run.difficulty_label;
+      $('#run-stats').innerHTML = 'Сила состава: <b>' + num((run.rating || {}).total) + '</b>'
+        + ' · бюджет: <b>' + run.budget + '</b> очков'
+        + ' · серий сыграно: <b>' + (run.history || []).length + '</b>'
+        + ' · побед: <b>' + (run.history || []).filter((item) => item.won).length + '</b>'
+        + ' · поражений в сетке: <b>' + ((run.tournament || {}).my_losses || 0) + '</b>';
       $('#run-rating').innerHTML = ratingCells(run.rating);
       renderSlots('#run-slots');
 
-      const finished = run.phase === 'dead' || run.phase === 'champion';
-      const reward = run.reward || [];
-      $('#play-stage').disabled = finished || !run.ready || reward.length > 0;
-      $('#play-stage').textContent = (run.history || []).length
-        ? 'Играть следующую стадию' : 'Играть стадию';
+      $('#play-stage').disabled = finished || !next;
+      $('#play-stage').textContent = next ? 'Играть серию' : 'Играть нечего';
       $('#run-hint').textContent = finished ? 'Прогон закончен — начните новый.'
-        : (reward.length ? 'Сначала выберите усиление: без него следующая стадия не играется.'
-          : 'Серия симулируется по силе составов: чем сильнее игроки и герои, тем выше шансы.');
+        : (next ? 'Серия симулируется по силе составов: чем сильнее игроки и герои, тем выше шансы.'
+          : 'Ваших серий впереди нет — турнир идёт без вас.');
 
-      show('#reward-card', reward.length > 0);
-      $('#reward').innerHTML = reward.map((boost, index) => (
-        '<div class="boost"><b>' + escapeHtml(boost.title) + '</b>'
-        + '<button type="button" class="btn btn-sm btn-primary" data-boost="' + index
-        + '">Взять</button></div>'
-      )).join('');
-
-      show('#boosts-card', (run.boosts || []).length > 0);
-      $('#boosts-badge').textContent = (run.boosts || []).length ? 'карт: ' + run.boosts.length : '—';
-      $('#boosts').innerHTML = (run.boosts || []).map((boost) => (
-        '<span class="tag">' + escapeHtml(boost.title) + '</span>'
-      )).join('');
-
+      renderNextMatch(next);
+      renderGroups();
+      renderBracket();
       renderOpponent();
       renderMatches();
       renderFeed();
@@ -1181,19 +1176,103 @@
       show('#finish-card', finished);
       if (finished) {
         const champion = run.phase === 'champion';
-        const wins = (run.history || []).filter((item) => item.won).length;
-        const losses = (run.history || []).filter((item) => !item.won).length;
-        const last = (run.history || [])[(run.history || []).length - 1];
+        const history = run.history || [];
+        const last = history[history.length - 1];
         $('#finish-title').textContent = champion
           ? 'Титул Streamers Battle 13 взят!' : 'Прогон закончен';
-        $('#finish-badge').textContent = champion ? 'без поражений' : 'вылет';
+        const losses = (run.tournament || {}).my_losses || 0;
+        $('#finish-badge').textContent = champion ? 'гранд-финал выигран'
+          : (last && last.key === 'gf-0' ? 'гранд-финал проигран'
+            : (losses === 1 ? 'вылет из нижней сетки' : 'два поражения'));
         $('#finish-text').textContent = (champion
-          ? 'Состав прошёл все стадии и забрал титул. '
-          : 'Поражение завершает прогон — так устроен рогалик. ')
-          + 'Итог: ' + wins + ' побед, ' + losses + ' поражений, сила состава '
-          + num(run.rating.total) + '.'
-          + (last ? ' Последняя серия: ' + last.stage_title + ' ' + last.score + '.' : '');
+          ? 'Команда прошла группы и всю сетку и забрала титул. '
+          : (last && last.key === 'gf-0'
+            ? 'Гранд-финал решающий: одного поражения там достаточно. '
+            : (losses === 1
+              ? 'Кто начал с нижней сетки, вылетает после первого поражения в ней. '
+              : 'Верхняя сетка даёт право на ошибку, но второй проигрыш — и прогон кончен. ')))
+          + 'Итог: ' + history.filter((item) => item.won).length + ' побед, '
+          + history.filter((item) => !item.won).length + ' поражений, сила состава '
+          + num((run.rating || {}).total) + '.'
+          + (last ? ' Последняя серия: ' + last.title + ' ' + last.score + '.' : '');
       }
+    }
+
+    /* Следующая серия: соперник, его бюджет и сила. */
+    function renderNextMatch(next) {
+      const node = $('#next-match');
+      if (!next) {
+        node.innerHTML = '<div class="line"><span>Впереди своих серий нет.</span></div>';
+        return;
+      }
+      const opponent = next.opponent || {};
+      const heroes = (opponent.heroes || []).map((hero) => (
+        '<span class="hero-chip"><b>' + escapeHtml(hero.name) + '</b> · '
+        + escapeHtml(hero.position_label || '') + ' · ' + hero.rating + '</span>'
+      )).join('');
+      const roster = (opponent.roster || []).map((player) => (
+        '<span class="who">' + escapeHtml(player.nickname) + ' · ' + player.cost
+        + (player.own_position ? ' (' + escapeHtml(player.own_position_label) + ')' : '')
+        + '</span>'
+      )).join('');
+      node.innerHTML = '<div class="line"><span>Следующая серия:</span> <b>'
+        + escapeHtml(next.title) + '</b> <span>· Bo' + next.best_of + '</span></div>'
+        + '<div class="line"><span>Соперник:</span> <b>' + escapeHtml(opponent.name || '—')
+        + '</b> <span>· бюджет:</span> <b>' + (opponent.budget || 0) + '</b>'
+        + ' <span>· сила:</span> <b>' + num(opponent.strength) + '</b></div>'
+        + '<div class="opp-roster">' + roster + '</div>'
+        + '<div class="opp-heroes">' + heroes + '</div>';
+    }
+
+    /* Группы: места, серии и разница карт. Верхние два места — верхняя сетка. */
+    function renderGroups() {
+      const groups = (run.tournament || {}).groups || [];
+      $('#groups-badge').textContent = groups.length
+        ? 'Bo' + ((run.tournament || {}).group_best_of || 3) : '—';
+      if (!groups.length) {
+        $('#groups').innerHTML = '<p class="muted">Группы появятся после драфта.</p>';
+        return;
+      }
+      $('#groups').innerHTML = groups.map((group) => (
+        '<div class="group-block"><h3>' + escapeHtml(group.title) + '</h3>'
+        + '<table class="group-table"><thead><tr>'
+        + '<th>#</th><th>Команда</th><th>Серии</th><th>Карты</th><th>Сила</th>'
+        + '</tr></thead><tbody>'
+        + group.rows.map((row) => (
+          '<tr class="' + (row.mine ? 'mine ' : '') + (row.place <= 2 ? 'up' : 'down') + '">'
+          + '<td>' + row.place + '</td>'
+          + '<td>' + escapeHtml(row.name) + '</td>'
+          + '<td class="num">' + row.wins + '–' + row.losses + '</td>'
+          + '<td class="num">' + row.maps + '–' + row.maps_lost + '</td>'
+          + '<td class="num">' + num(row.strength) + '</td>'
+          + '</tr>'
+        )).join('')
+        + '</tbody></table></div>'
+      )).join('');
+    }
+
+    /* Сетка плей-офф: серии по раундам, свои подсвечены. */
+    function renderBracket() {
+      const bracket = (run.tournament || {}).bracket || [];
+      const playoff = bracket.some((item) => ['ub1', 'ub2', 'lb1', 'lb2', 'lb3', 'lb4', 'gf']
+        .includes(item.round));
+      show('#bracket-card', playoff);
+      if (!playoff) return;
+      $('#bracket-badge').textContent = 'серий: ' + bracket.length;
+      $('#bracket').innerHTML = bracket.map((item) => {
+        const classes = ['bracket-row'];
+        if (item.mine) classes.push('mine');
+        if (!item.played) classes.push('pending');
+        return '<div class="' + classes.join(' ') + '">'
+          + '<span class="round">' + escapeHtml(item.title) + ' · Bo' + item.best_of + '</span>'
+          + '<span class="teams">' + escapeHtml(item.teams.join(' — ')) + '</span>'
+          + (item.played
+            ? '<span class="score ' + (item.won ? 'win' : 'lose') + '">'
+              + escapeHtml(item.score) + '</span>'
+            : '<span class="score">—</span>')
+          + '<span class="round">' + (item.played ? 'сыграна' : 'ждёт') + '</span>'
+          + '</div>';
+      }).join('');
     }
 
     function renderOpponent() {
@@ -1209,10 +1288,10 @@
       const roster = (opponent.roster || []).map((player) => (
         '<span class="who">' + escapeHtml(player.nickname) + ' · ' + player.cost + '</span>'
       )).join('');
-      $('#opponent-badge').textContent = escapeHtml(last.stage_title || '') + ' · Bo'
+      $('#opponent-badge').textContent = escapeHtml(last.title || '') + ' · Bo'
         + last.best_of + ' · ' + escapeHtml(last.score);
       $('#opponent').innerHTML = '<div class="line"><span>Состав:</span> <b>'
-        + escapeHtml(opponent.label || '—') + '</b></div>'
+        + escapeHtml(opponent.name || '—') + '</b></div>'
         + '<div class="line"><span>Сила:</span> <b>' + num(opponent.strength) + '</b>'
         + ' <span>· наш состав:</span> <b>' + num(last.our_strength) + '</b>'
         + ' <span>· бюджет соперника:</span> <b>' + (opponent.budget || 0) + '</b> очков</div>'
@@ -1227,14 +1306,14 @@
         ? (history.filter((item) => item.won).length + ' побед из ' + history.length)
         : 'серий пока нет';
       if (!history.length) {
-        node.innerHTML = '<p class="muted">Серии появятся здесь: стадия, формат, счёт'
+        node.innerHTML = '<p class="muted">Серии появятся здесь: раунд, формат, счёт'
           + ' и сила обоих составов.</p>';
         return;
       }
       node.innerHTML = history.map((match) => (
         '<div class="match"><div class="head">'
-        + '<span class="stage">' + escapeHtml(match.stage_title) + ' · Bo' + match.best_of
-        + ' · против ' + escapeHtml((match.opponent || {}).label || '—') + '</span>'
+        + '<span class="stage">' + escapeHtml(match.title) + ' · Bo' + match.best_of
+        + ' · против ' + escapeHtml((match.opponent || {}).name || '—') + '</span>'
         + '<span class="score ' + (match.won ? 'win' : 'lose') + '">'
         + escapeHtml(match.score) + '</span></div>'
         + '<span class="sub">наша сила ' + num(match.our_strength) + ' · сила соперника '
@@ -1338,53 +1417,30 @@
         }
       });
 
+      /* Пак: взять игрока и взять героя (с выбором, кому он достаётся). */
       $('#draft').addEventListener('click', (event) => {
-        const take = event.target.closest('[data-take]');
-        if (take) {
-          if (take.disabled) return;
-          return void act('POST', '/runs/' + run.id + '/take',
-            { player: take.dataset.take }, 'Игрок куплен');
+        const player = event.target.closest('[data-pack-player]');
+        if (player) {
+          if (player.disabled) return;
+          return void act('POST', '/runs/' + run.id + '/pack/player',
+            { player: player.dataset.packPlayer }, 'Игрок взят из пака');
         }
-        const drop = event.target.closest('[data-drop]');
-        if (drop) {
-          return void act('POST', '/runs/' + run.id + '/drop',
-            { player: drop.dataset.drop }, 'Игрок убран из состава');
+        const hero = event.target.closest('[data-pack-hero-take]');
+        if (hero) {
+          const select = $('[data-pack-hero="' + hero.dataset.packHeroTake + '"]');
+          const owner = select ? select.value : '';
+          if (!owner) {
+            toast('Выберите, кому отдать героя', 'err');
+            return;
+          }
+          return void act('POST', '/runs/' + run.id + '/pack/hero',
+            { hero: hero.dataset.packHeroTake, player: owner }, 'Герой взят из пака');
         }
-        if (event.target.closest('#auto-heroes')) {
-          return void act('POST', '/runs/' + run.id + '/auto', {},
-            'Герои расставлены по позициям');
-        }
-        if (event.target.closest('#play-run')) {
-          return void act('POST', '/runs/' + run.id + '/play', {}, '');
-        }
+        if (event.target.closest('#play-run')) return void showLobby();
         if (event.target.closest('#to-lobby-draft')) return void showLobby();
       });
 
-      /* Выбор героя: пустое значение — снять героя с игрока. */
-      $('#draft').addEventListener('change', (event) => {
-        const select = event.target.closest('[data-hero-for]');
-        if (!select) return;
-        const hero = (select.value || '').trim();
-        act('POST', '/runs/' + run.id + '/hero',
-          { player: select.dataset.heroFor, hero: hero || null },
-          hero ? 'Герой выдан' : 'Герой снят');
-      });
-
-      $('#shop-search').addEventListener('input', (event) => {
-        shop.query = event.target.value || '';
-        if (run && (run.phase === 'draft' || run.phase === 'ready')) renderShop();
-      });
-      $('#shop-sort').addEventListener('change', (event) => {
-        shop.sort = event.target.value || 'cost-desc';
-        if (run && (run.phase === 'draft' || run.phase === 'ready')) renderShop();
-      });
-
       $('#run').addEventListener('click', (event) => {
-        const boost = event.target.closest('[data-boost]');
-        if (boost) {
-          return void act('POST', '/runs/' + run.id + '/boost',
-            { index: Number(boost.dataset.boost) }, 'Усиление взято');
-        }
         if (event.target.closest('#play-stage')) {
           return void act('POST', '/runs/' + run.id + '/play', {}, '');
         }

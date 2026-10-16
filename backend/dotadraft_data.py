@@ -2,20 +2,24 @@
 """Данные игры «322-0»: пул игроков Streamers Battle 13 и герои Dota 2.
 
 Игра — про сборку команды в бюджет: у каждого игрока в таблице есть
-стоимость, состав из пяти игроков должен уложиться в отведённые очки, а
-каждому игроку ещё выбирается герой под его позицию.
+стоимость и своя позиция, состав из пяти игроков должен уложиться в
+отведённые очки, а каждому игроку выбирается герой.
 
 Что здесь есть:
     * PLAYERS — игроки Streamers Battle 13 с их стоимостью (из таблицы
       владельца сайта; ники — исторические и принадлежат участникам);
+    * PLAYER_POSITIONS — своя позиция игрока (1–5) там, где она известна;
     * HEROES — подборка героев Dota 2: русское имя, английское имя, привычная
       позиция (1–5) и оценка силы. Оценки — **игровые**, это не официальная
       статистика и не баланс Valve: они расставлены так, чтобы герои различались
       по силе и по позициям. Позиция — типичная для героя, а не единственная
-      возможная.
+      возможная;
+    * PLAYER_HERO_RATINGS — оценки героев под конкретного игрока (по его матчам
+      на Dotabuff). Пока пары нет, берётся обычная оценка героя.
 
-Пул и героев игра берёт из базы (`dotadraft_players` и `dotadraft_heroes`),
-а этот файл — исходник для её наполнения (см. backend/seed_dotadraft.py).
+Пул, героев и оценки пар игра берёт из базы (`dotadraft_players`,
+`dotadraft_heroes` и `dotadraft_player_heroes`), а этот файл — исходник для её
+наполнения (см. backend/seed_dotadraft.py).
 Dota 2 и её герои — товарные знаки Valve; игра некоммерческая и не связана
 с Valve.
 """
@@ -26,6 +30,21 @@ from typing import Any, Dict, List, Tuple
 # Бюджет состава в очках стоимости и размер состава.
 BUDGET = 300
 SQUAD_SIZE = 5
+
+# Пак драфта: пять игроков и пять героев. Из пака берут ровно одно — игрока
+# либо героя, — после чего пак меняется целиком.
+PACK_PLAYERS = 5
+PACK_HEROES = 5
+
+# Мид — особая позиция: туда берут только игрока дешевле этого порога.
+MID_POSITION = 2
+MID_COST_LIMIT = 75
+
+# Своя позиция игрока (столбец position в пуле): игра на своей позиции даёт
+# надбавку, игра на чужой — заметный минус. Ноль значит «позиция неизвестна»:
+# тогда нет ни надбавки, ни минуса.
+OWN_POSITION_BONUS = 5.0
+OTHER_POSITION_PENALTY = -10.0
 
 # Позиции в Dota: номер → как её называют.
 POSITIONS: Tuple[Tuple[int, str], ...] = (
@@ -44,39 +63,36 @@ POSITION_HINTS: Dict[int, str] = {
     5: "пятёрка, вижн и прикрытие керри",
 }
 
-# Сложность — это бюджет: сколько очков стоимости даётся на состав.
-DIFFICULTY_BUDGETS: Dict[str, int] = {"hard": 300, "easy": 320, "smurf": 340}
+# Сложность — это бюджет состава: 300, 305 или 310 очков.
+DIFFICULTY_BUDGETS: Dict[str, int] = {"hard": 300, "easy": 305, "smurf": 310}
 DIFFICULTY_LABELS: Dict[str, str] = {
     "hard": "Хардкор (300)",
-    "easy": "Обычная (320)",
-    "smurf": "Смёрф (340)",
+    "easy": "Обычная (305)",
+    "smurf": "Смёрф (310)",
 }
 DIFFICULTIES: Tuple[str, ...] = ("hard", "easy", "smurf")
 
-# Чем больше денег даётся игроку, тем слабее поле: сдвиг бюджета соперников.
-DIFFICULTY_OPPONENT_SHIFT: Dict[str, int] = {"hard": 0, "easy": -10, "smurf": -20}
+# Турнир: две группы по четыре команды, внутри группы круговая Bo3. Места 1–2
+# в группе уходят в верхнюю сетку — там поражение опускает в нижнюю, — а места
+# 3–4 начинают с нижней сетки и вылетают после первого поражения в ней. Финал
+# нижней сетки и гранд-финал играются Bo5, гранд-финал решающий.
+GROUPS = 2
+GROUP_SIZE = 4
+GROUP_BEST_OF = 3
 
-# Стадии: групповой этап, четвертьфинал, полуфинал, финал.
-# opponent_cost — бюджет, из которого собирается состав соперника на стадии.
-STAGES: Tuple[Dict[str, Any], ...] = (
-    {"key": "group", "title": "Групповой этап", "best_of": 1, "opponent_cost": 288},
-    {"key": "quarters", "title": "Четвертьфинал", "best_of": 3, "opponent_cost": 308},
-    {"key": "semis", "title": "Полуфинал", "best_of": 3, "opponent_cost": 328},
-    {"key": "final", "title": "Финал", "best_of": 5, "opponent_cost": 348},
-)
+# Бюджеты чужих составов: у соперников он чуть выше и разный от команды к команде.
+OPPONENT_BUDGET_MIN = 300
+OPPONENT_BUDGET_MAX = 315
 
-# Усиления: те же по смыслу, что в драфтах по CS, но про позиции и героев.
-BOOSTS: Tuple[Dict[str, Any], ...] = (
-    {"id": "pos1-farm", "title": "Свободный фарм керри: +4 к позиции 1", "value": 4.0, "position": 1},
-    {"id": "pos2-rune", "title": "Контроль рун: +4 к позиции 2", "value": 4.0, "position": 2},
-    {"id": "pos3-init", "title": "Инициация с офлейна: +4 к позиции 3", "value": 4.0, "position": 3},
-    {"id": "pos4-gank", "title": "Роум на четвёрке: +4 к позиции 4", "value": 4.0, "position": 4},
-    {"id": "pos5-vision", "title": "Вижн и стаки: +4 к позиции 5", "value": 4.0, "position": 5},
-    {"id": "coach", "title": "Тренер на буткемпе: +5 к составу", "value": 5.0},
-    {"id": "meta", "title": "Свежая мета: +4 к каждому герою", "value": 4.0, "heroes": True},
-    {"id": "draft-plan", "title": "Заготовка драфта: +3 к составу", "value": 3.0},
-    {"id": "captain", "title": "Капитан-драфтер: +3 к составу", "value": 3.0},
-    {"id": "clutch", "title": "Хладнокровие в лейте: +3 к составу", "value": 3.0},
+# Раунды плей-офф: ключи те же, что у серий в движке (backend/dotadraft.py).
+BRACKET_ROUNDS: Tuple[Dict[str, Any], ...] = (
+    {"key": "ub1", "title": "Верхняя сетка, полуфинал", "best_of": 3},
+    {"key": "ub2", "title": "Верхняя сетка, финал", "best_of": 3},
+    {"key": "lb1", "title": "Нижняя сетка, первый раунд", "best_of": 3},
+    {"key": "lb2", "title": "Нижняя сетка, второй раунд", "best_of": 3},
+    {"key": "lb3", "title": "Нижняя сетка, полуфинал", "best_of": 3},
+    {"key": "lb4", "title": "Финал нижней сетки", "best_of": 5},
+    {"key": "gf", "title": "Гранд-финал", "best_of": 5},
 )
 
 # Оценка состава: стоимость игрока весит больше, герой — меньше.
@@ -238,6 +254,29 @@ PLAYERS: Tuple[Tuple[str, int], ...] = (
     ("Мелхарукос", 10),
 )
 
+# Своя позиция игрока (1–5) — столбец position в пуле. Расставлено там, где
+# роль игрока известна; кто не указан, у того позиция считается неизвестной
+# (0). Такой игрок не получает ни надбавки за свою позицию, ни минуса за чужую.
+# Владелец сайта дополняет словарь, в том числе прямо в базе.
+PLAYER_POSITIONS: Dict[str, int] = {
+    "Satanic": 1,
+    "Ramzes": 1,
+    "Dyrachyo": 1,
+    "Cooman": 1,
+    "iLTW": 2,
+    "Afoninje": 2,
+    "zxcursed": 2,
+    "9Pasha": 3,
+    "Afterlife": 3,
+    "Alohadance": 4,
+    "rodjer": 4,
+    "Miposhka": 5,
+    "Solo": 5,
+    "Fng": 5,
+    "Just_ns": 5,
+    "Dread": 5,
+}
+
 # Герои: (русское имя, английское имя, позиция, оценка).
 HEROES: Tuple[Tuple[str, str, int, int], ...] = (
     # Позиция 1 — керри
@@ -350,6 +389,12 @@ HEROES: Tuple[Tuple[str, str, int, int], ...] = (
     ("Виверна", "Winter Wyvern", 5, 81),
 )
 
+# Оценки героев под конкретного игрока: (ник игрока, английское имя героя,
+# оценка). Так оценка героя зависит от того, насколько игрок на нём играет —
+# источник владельца сайта, матчи игрока на герое на Dotabuff. Пустой набор
+# значит «пар нет»: тогда используется обычная оценка героя из HEROES.
+PLAYER_HERO_RATINGS: Tuple[Tuple[str, str, int], ...] = ()
+
 
 def slug(text: str) -> str:
     """Идентификатор из ника или имени: латиница/цифры, остальное — дефис."""
@@ -369,7 +414,7 @@ def slug(text: str) -> str:
 
 
 def player_rows() -> List[Dict[str, Any]]:
-    """Пул игроков: идентификатор, ник и стоимость."""
+    """Пул игроков: идентификатор, ник, стоимость и своя позиция."""
     rows: List[Dict[str, Any]] = []
     used: Dict[str, int] = {}
     for nickname, cost in PLAYERS:
@@ -380,6 +425,7 @@ def player_rows() -> List[Dict[str, Any]]:
             "id": base if index == 1 else f"{base}-{index}",
             "nickname": str(nickname),
             "cost": int(cost),
+            "position": int(PLAYER_POSITIONS.get(str(nickname), 0)),
         })
     return rows
 
@@ -403,7 +449,7 @@ def hero_rows() -> List[Dict[str, Any]]:
 
 
 def validate_players(rows: Any = None) -> List[str]:
-    """Проверка пула: уникальные id, заполненные ники, стоимость в границах."""
+    """Проверка пула: уникальные id, заполненные ники, стоимость и позиция."""
     problems: List[str] = []
     seen = set()
     for row in (list(rows) if rows is not None else player_rows()):
@@ -423,6 +469,13 @@ def validate_players(rows: Any = None) -> List[str]:
             continue
         if not 1 <= cost <= 200:
             problems.append(f"{player_id}: странная стоимость ({cost})")
+        try:
+            position = int(row.get("position") or 0)
+        except (TypeError, ValueError):
+            problems.append(f"{player_id}: позиция не число")
+            continue
+        if position and position not in {value for value, _ in POSITIONS}:
+            problems.append(f"{player_id}: неизвестная своя позиция ({position})")
     return problems
 
 
@@ -459,9 +512,40 @@ def validate_heroes(rows: Any = None) -> List[str]:
     return problems
 
 
+def player_hero_rows() -> List[Dict[str, Any]]:
+    """Оценки героев под игроков: пара «игрок + герой» и её оценка."""
+    players = {row["nickname"]: row["id"] for row in player_rows()}
+    heroes = {row["name_en"]: row["id"] for row in hero_rows()}
+    rows: List[Dict[str, Any]] = []
+    for nickname, hero_name, rating in PLAYER_HERO_RATINGS:
+        player_id = players.get(str(nickname))
+        hero_id = heroes.get(str(hero_name))
+        if not player_id or not hero_id:
+            continue
+        rows.append({
+            "player_id": player_id,
+            "hero_id": hero_id,
+            "rating": int(rating),
+        })
+    return rows
+
+
+def validate_player_heroes(rows: Any = None) -> List[str]:
+    """Проверка пар: ники и герои должны быть из своих наборов."""
+    problems: List[str] = []
+    players = {row["nickname"] for row in player_rows()}
+    heroes = {row["name_en"] for row in hero_rows()}
+    for row in (list(rows) if rows is not None else player_hero_rows()):
+        nickname = str(row.get("nickname") or "")
+        hero_name = str(row.get("hero_name") or "")
+        if rows is None and (nickname not in players or hero_name not in heroes):
+            problems.append(f"пара не из пула: {nickname} + {hero_name}")
+    return problems
+
+
 def validate() -> List[str]:
     """Проверка всего набора сразу."""
-    problems = validate_players() + validate_heroes()
+    problems = validate_players() + validate_heroes() + validate_player_heroes()
     for position in (position for position, _ in POSITIONS):
         count = len([1 for hero in hero_rows() if hero["position"] == position])
         if count < 3:
@@ -470,20 +554,32 @@ def validate() -> List[str]:
 
 
 __all__ = [
-    "BOOSTS",
+    "BRACKET_ROUNDS",
     "BUDGET",
     "DIFFICULTIES",
     "DIFFICULTY_BUDGETS",
     "DIFFICULTY_LABELS",
+    "GROUPS",
+    "GROUP_BEST_OF",
+    "GROUP_SIZE",
     "HEROES",
     "HERO_WEIGHT",
+    "MID_COST_LIMIT",
+    "MID_POSITION",
+    "OPPONENT_BUDGET_MAX",
+    "OPPONENT_BUDGET_MIN",
+    "OTHER_POSITION_PENALTY",
+    "OWN_POSITION_BONUS",
+    "PACK_HEROES",
+    "PACK_PLAYERS",
     "PLAYERS",
+    "PLAYER_HERO_RATINGS",
+    "PLAYER_POSITIONS",
     "PLAYER_WEIGHT",
     "POSITIONS",
     "POSITION_HINTS",
     "POSITION_LABELS",
     "SQUAD_SIZE",
-    "STAGES",
     "STAR_CARRY_WEAK_HERO",
     "STAR_COST",
     "STAR_PAIR",
@@ -491,6 +587,7 @@ __all__ = [
     "STRONG_HERO",
     "WEAK_HERO",
     "hero_rows",
+    "player_hero_rows",
     "player_rows",
     "slug",
     "validate",

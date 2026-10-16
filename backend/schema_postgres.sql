@@ -234,12 +234,14 @@ CREATE TABLE IF NOT EXISTS raporder_matches (
 CREATE INDEX IF NOT EXISTS idx_raporder_matches_player ON raporder_matches (player1_id, id DESC);
 
 -- «322-0» (драфт по Dota 2 на Streamers Battle 13): пул игроков со стоимостью
--- и пул героев с позицией и игровой оценкой. Журнал прогонов общий с
--- драфт-рогаликами (csdraft_runs, game = 'dota322').
+-- и своей позицией (1–5, 0 — неизвестна), пул героев с позицией и игровой
+-- оценкой и оценки героев под конкретных игроков (пары «игрок + герой»).
+-- Журнал прогонов общий с драфт-рогаликами (csdraft_runs, game = 'dota322').
 CREATE TABLE IF NOT EXISTS dotadraft_players (
     id         TEXT PRIMARY KEY,
     nickname   TEXT NOT NULL,
     cost       INTEGER NOT NULL DEFAULT 0,
+    position   INTEGER NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -255,6 +257,14 @@ CREATE TABLE IF NOT EXISTS dotadraft_heroes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_dotadraft_heroes_pos ON dotadraft_heroes (position, rating DESC);
+
+CREATE TABLE IF NOT EXISTS dotadraft_player_heroes (
+    player_id  TEXT NOT NULL,
+    hero_id    TEXT NOT NULL,
+    rating     INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (player_id, hero_id)
+);
 
 -- «Угадай песню за 10 секунд»: песни по темам (аниме, русский рэп, хип-хоп)
 -- и журнал заходов. Записи добавляет владелец сайта — файлами или ссылками.

@@ -183,11 +183,21 @@ def _run_row(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _dotadraft_player(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Игрок из пула «322-0»: идентификатор, ник и стоимость в очках."""
+    """Игрок из пула «322-0»: ник, стоимость и своя позиция (0 — неизвестна)."""
     data = dict(row)
     data["id"] = str(data.get("id") or "")
     data["nickname"] = str(data.get("nickname") or "")
     data["cost"] = int(data.get("cost") or 0)
+    data["position"] = int(data.get("position") or 0)
+    return data
+
+
+def _dotadraft_player_hero(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Оценка героя под игрока: пара «игрок + герой» и её оценка силы."""
+    data = dict(row)
+    data["player_id"] = str(data.get("player_id") or "")
+    data["hero_id"] = str(data.get("hero_id") or "")
+    data["rating"] = int(data.get("rating") or 0)
     return data
 
 
@@ -1034,12 +1044,17 @@ class PostgresDatabase:
         """Пул игроков «322-0»: источник правды для движка."""
         with self.connect() as db:
             rows = db.execute(
-                "SELECT id, nickname, cost FROM dotadraft_players ORDER BY cost DESC, id"
+                "SELECT id, nickname, cost, position FROM dotadraft_players "
+                "ORDER BY cost DESC, id"
             ).fetchall()
         return [_dotadraft_player(dict(row)) for row in rows]
 
     def dotadraft_save_players(self, rows: Iterable[Dict[str, Any]]) -> int:
-        """Добавляет и обновляет игроков пула (по идентификатору)."""
+        """Добавляет и обновляет игроков пула (по идентификатору).
+
+        Нулевая позиция в наборе значит «позиция неизвестна» и уже
+        заполненную позицию в базе не затирает: её правят руками.
+        """
         saved = 0
         with self.connect() as db:
             for row in rows:
@@ -1047,18 +1062,31 @@ class PostgresDatabase:
                 if not player_id:
                     continue
                 db.execute(
-                    "INSERT INTO dotadraft_players (id, nickname, cost, updated_at) "
-                    "VALUES (%s, %s, %s, now()) "
+                    "INSERT INTO dotadraft_players (id, nickname, cost, position, updated_at) "
+                    "VALUES (%s, %s, %s, %s, now()) "
                     "ON CONFLICT(id) DO UPDATE SET nickname = excluded.nickname, "
-                    "cost = excluded.cost, updated_at = excluded.updated_at",
+                    "cost = excluded.cost, "
+                    "position = CASE WHEN excluded.position > 0 THEN excluded.position "
+                    "ELSE dotadraft_players.position END, "
+                    "updated_at = excluded.updated_at",
                     (
                         player_id,
                         str(row.get("nickname") or player_id),
                         int(row.get("cost") or 0),
+                        int(row.get("position") or 0),
                     ),
                 )
                 saved += 1
         return saved
+
+    def dotadraft_set_player_position(self, player_id: str, position: int) -> bool:
+        """Своя позиция игрока (0 — сбросить): правка пула на ходу."""
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE dotadraft_players SET position = %s, updated_at = now() WHERE id = %s",
+                (int(position or 0), str(player_id)),
+            )
+            return cursor.rowcount > 0
 
     def dotadraft_delete_player(self, player_id: str) -> bool:
         with self.connect() as db:
@@ -1106,6 +1134,48 @@ class PostgresDatabase:
     def dotadraft_delete_hero(self, hero_id: str) -> bool:
         with self.connect() as db:
             cursor = db.execute("DELETE FROM dotadraft_heroes WHERE id = %s", (str(hero_id),))
+            return cursor.rowcount > 0
+
+    def dotadraft_player_hero_count(self) -> int:
+        with self.connect() as db:
+            return int(db.execute(
+                "SELECT COUNT(*) AS n FROM dotadraft_player_heroes"
+            ).fetchone()["n"])
+
+    def dotadraft_player_hero_ratings(self) -> List[Dict[str, Any]]:
+        """Оценки героев под игроков: пары «игрок + герой», источник для движка."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT player_id, hero_id, rating FROM dotadraft_player_heroes "
+                "ORDER BY player_id, hero_id"
+            ).fetchall()
+        return [_dotadraft_player_hero(dict(row)) for row in rows]
+
+    def dotadraft_save_player_hero_ratings(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет и обновляет оценки пар «игрок + герой» (по паре)."""
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                player_id = str(row.get("player_id") or "").strip()
+                hero_id = str(row.get("hero_id") or "").strip()
+                if not player_id or not hero_id:
+                    continue
+                db.execute(
+                    "INSERT INTO dotadraft_player_heroes "
+                    "(player_id, hero_id, rating, updated_at) VALUES (%s, %s, %s, now()) "
+                    "ON CONFLICT(player_id, hero_id) DO UPDATE SET "
+                    "rating = excluded.rating, updated_at = excluded.updated_at",
+                    (player_id, hero_id, int(row.get("rating") or 0)),
+                )
+                saved += 1
+        return saved
+
+    def dotadraft_delete_player_hero(self, player_id: str, hero_id: str) -> bool:
+        with self.connect() as db:
+            cursor = db.execute(
+                "DELETE FROM dotadraft_player_heroes WHERE player_id = %s AND hero_id = %s",
+                (str(player_id), str(hero_id)),
+            )
             return cursor.rowcount > 0
 
     # ----------------------------------- «Угадай песню за 10 секунд» (песни)

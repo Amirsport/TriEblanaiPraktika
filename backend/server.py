@@ -155,7 +155,15 @@ try:  # запуск как модуль: python -m backend.server
     )
     from .dotadraft_data import (
         BUDGET as DOTA_BUDGET,
-        DIFFICULTY_OPPONENT_SHIFT as DOTA_OPPONENT_SHIFT,
+        GROUP_BEST_OF as DOTA_GROUP_BEST_OF,
+        GROUPS as DOTA_GROUPS,
+        GROUP_SIZE as DOTA_GROUP_SIZE,
+        MID_COST_LIMIT as DOTA_MID_COST_LIMIT,
+        MID_POSITION as DOTA_MID_POSITION,
+        OPPONENT_BUDGET_MAX as DOTA_OPPONENT_MAX,
+        OPPONENT_BUDGET_MIN as DOTA_OPPONENT_MIN,
+        PACK_HEROES as DOTA_PACK_HEROES,
+        PACK_PLAYERS as DOTA_PACK_PLAYERS,
         POSITION_HINTS as DOTA_POSITION_HINTS,
         POSITION_LABELS as DOTA_POSITION_LABELS,
         SQUAD_SIZE as DOTA_SQUAD_SIZE,
@@ -222,7 +230,15 @@ except ImportError:  # запуск как файл: python backend/server.py
     )
     from dotadraft_data import (  # type: ignore
         BUDGET as DOTA_BUDGET,
-        DIFFICULTY_OPPONENT_SHIFT as DOTA_OPPONENT_SHIFT,
+        GROUP_BEST_OF as DOTA_GROUP_BEST_OF,
+        GROUPS as DOTA_GROUPS,
+        GROUP_SIZE as DOTA_GROUP_SIZE,
+        MID_COST_LIMIT as DOTA_MID_COST_LIMIT,
+        MID_POSITION as DOTA_MID_POSITION,
+        OPPONENT_BUDGET_MAX as DOTA_OPPONENT_MAX,
+        OPPONENT_BUDGET_MIN as DOTA_OPPONENT_MIN,
+        PACK_HEROES as DOTA_PACK_HEROES,
+        PACK_PLAYERS as DOTA_PACK_PLAYERS,
         POSITION_HINTS as DOTA_POSITION_HINTS,
         POSITION_LABELS as DOTA_POSITION_LABELS,
         SQUAD_SIZE as DOTA_SQUAD_SIZE,
@@ -350,8 +366,10 @@ class Application:
         self.dotadraft = DotaDraft(
             players=self._dotadraft_players(),
             heroes=self._dotadraft_heroes(),
+            player_heroes=self.db.dotadraft_player_hero_ratings(),
             players_provider=self.db.dotadraft_players,
             heroes_provider=self.db.dotadraft_heroes,
+            ratings_provider=self.db.dotadraft_player_hero_ratings,
             on_finish=self._log_dota_run,
         )
 
@@ -582,8 +600,10 @@ class Application:
     def _log_dota_run(self, record: Dict[str, Any]) -> None:
         """Пишет итог прогона «322-0» в журнал прогонов и в общий журнал событий."""
         entry = self.db.csdraft_add_run(record)
+        titles = {item["key"]: item["title"] for item in self.dotadraft.rounds_catalog()}
+        stage = titles.get(str(entry.get("stage") or ""), str(entry.get("stage") or ""))
         result = "титул Streamers Battle 13" if entry.get("champion") else \
-            f"вылет на стадии «{entry['stage']}»"
+            f"вылет на стадии «{stage}»"
         self.db.add_log(
             f"322-0: прогон #{entry['id']} у {entry['username']} — {result} "
             f"({entry['wins']}:{entry['losses']}, состав {entry['squad']})",
@@ -1538,9 +1558,11 @@ class Handler(BaseHTTPRequestHandler):
         """«322-0»: драфт по Dota 2 на Streamers Battle 13 с бюджетом на состав.
 
         Вход — по аккаунту панели (Bearer): прогон принадлежит игроку, чужой его
-        продолжить не может. Сначала игрок собирает состав в бюджет (пять игроков
-        из пула), затем выдаёт каждому героя — пять героев обязаны закрыть все
-        позиции 1–5, — и только потом играет стадии. Прогоны живут в памяти
+        продолжить не может. Драфт идёт паками: в паке пять игроков и пять
+        героев, из пака берут одно — игрока либо героя, — после чего пак
+        меняется целиком. Пять героев закрывают пять позиций, на мид берут
+        игрока дешевле порога. Дальше турнир: две группы по четыре команды,
+        круговая Bo3 и плей-офф с двойным выбыванием. Прогоны живут в памяти
         процесса, поэтому перезапуск сервера их теряет; итог каждого уходит в
         журнал, он и переживает перезапуск.
         """
@@ -1562,21 +1584,27 @@ class Handler(BaseHTTPRequestHandler):
                     "event": "Streamers Battle 13",
                     "players": engine.player_count(),
                     "heroes": engine.hero_count(),
+                    "pairs": engine.pair_count(),
+                    "known_positions": engine.known_positions(),
                     "positions": [{"position": position, "label": DOTA_POSITION_LABELS[position],
                                    "hint": DOTA_POSITION_HINTS.get(position, ""),
                                    "heroes": engine.position_counts().get(position, 0)}
                                   for position, _ in DOTA_POSITION_LABELS.items()],
                     "budget": DOTA_BUDGET,
                     "squad_size": DOTA_SQUAD_SIZE,
+                    "pack": {"players": DOTA_PACK_PLAYERS, "heroes": DOTA_PACK_HEROES},
+                    "mid": {"position": DOTA_MID_POSITION,
+                            "label": DOTA_POSITION_LABELS.get(DOTA_MID_POSITION, ""),
+                            "cost_limit": DOTA_MID_COST_LIMIT},
+                    "tournament": {"groups": DOTA_GROUPS, "group_size": DOTA_GROUP_SIZE,
+                                   "group_best_of": DOTA_GROUP_BEST_OF,
+                                   "opponent_budget_min": DOTA_OPPONENT_MIN,
+                                   "opponent_budget_max": DOTA_OPPONENT_MAX},
                     "difficulties": [
                         {"key": key, "label": DOTA_DIFFICULTY_LABELS[key],
-                         "budget": DOTA_BUDGETS[key],
-                         "opponent_shift": DOTA_OPPONENT_SHIFT.get(key, 0)}
+                         "budget": DOTA_BUDGETS[key]}
                         for key in DOTA_DIFFICULTIES],
-                    "stages": [{"key": stage["key"], "title": stage["title"],
-                                "best_of": stage["best_of"],
-                                "opponent_cost": stage.get("opponent_cost", 0)}
-                               for stage in engine.stages],
+                    "rounds": engine.rounds_catalog(),
                     "ready": engine.ready(),
                     "problems": engine.problems()[:10],
                 })
@@ -1609,37 +1637,23 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and match:
                 return self._json({"state": engine.state(match.group(1), user)})
 
-            match = re.fullmatch(rf"{run_pattern}/take", path)
+            match = re.fullmatch(rf"{run_pattern}/pack/player", path)
             if method == "POST" and match:
-                return self._json({"state": engine.take(
+                return self._json({"state": engine.take_player(
                     match.group(1), user, str(self._body().get("player") or ""))})
 
-            match = re.fullmatch(rf"{run_pattern}/drop", path)
-            if method == "POST" and match:
-                return self._json({"state": engine.drop(
-                    match.group(1), user, str(self._body().get("player") or ""))})
-
-            match = re.fullmatch(rf"{run_pattern}/hero", path)
+            match = re.fullmatch(rf"{run_pattern}/pack/hero", path)
             if method == "POST" and match:
                 data = self._body()
-                return self._json({"state": engine.hero(
-                    match.group(1), user, str(data.get("player") or ""),
-                    data.get("hero") if data.get("hero") else None)})
-
-            match = re.fullmatch(rf"{run_pattern}/auto", path)
-            if method == "POST" and match:
-                return self._json({"state": engine.auto_heroes(match.group(1), user)})
+                return self._json({"state": engine.take_hero(
+                    match.group(1), user, str(data.get("hero") or ""),
+                    str(data.get("player") or ""))})
 
             match = re.fullmatch(rf"{run_pattern}/play", path)
             if method == "POST" and match:
                 if not app.allow_game_action(client):
                     return self._error("Слишком много матчей за минуту — подождите немного", 429)
                 return self._json({"state": engine.play(match.group(1), user)})
-
-            match = re.fullmatch(rf"{run_pattern}/boost", path)
-            if method == "POST" and match:
-                return self._json({"state": engine.boost(
-                    match.group(1), user, self._body().get("index"))})
 
             return self._error(f"Не найдено: {method} {path}", 404)
         except DotaDraftError as exc:
