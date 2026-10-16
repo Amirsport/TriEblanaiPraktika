@@ -8,6 +8,14 @@
 #   bash _setup_vps.sh --domain ai-parnik.ru --domain api.ai-parnik.ru --email me@example.com
 #   bash _setup_vps.sh --domain ai-parnik.ru --email me@example.com --db data/greenhouse.sqlite3
 #   bash _setup_vps.sh --domain ai-parnik.ru --email me@example.com --dump data/greenhouse-dump.sql
+#   bash _setup_vps.sh --domain ai-parnik.ru --games-domain amrgames.ru --email me@example.com
+#
+# --games-domain заводит второй сайт — витрину мини-игр: nginx раздаёт её прямо
+# из каталога front/games, поэтому игры открываются по коротким адресам
+# (/narutodle/, /csdraft/ и так далее), а не по /games/<игра>/. Запросы /api/
+# этого домена уходят серверу теплицы, так что страницы игр не спрашивают адрес
+# сервера. Название «Умная AI-Теплица» и запрет индексации в общих страницах игр
+# на этом домене подменяются на AmrGames (панель теплицы это не затрагивает).
 #
 # --dump принимает дамп PostgreSQL (pg_dump --clean --if-exists), снятый с рабочей
 # базы: так переносятся аккаунты, журналы матчей, персонажи с портретами и всё
@@ -28,6 +36,7 @@ SERVICE_USER="greenhouse"
 ENV_FILE="/etc/greenhouse.env"
 SERVICE_FILE="/etc/systemd/system/greenhouse.service"
 NGINX_SITE="/etc/nginx/sites-available/greenhouse"
+NGINX_GAMES_SITE="/etc/nginx/sites-available/amrgames"
 PORT=8000
 DB_NAME="greenhouse"
 DB_USER="greenhouse"
@@ -35,6 +44,7 @@ EMAIL=""
 DB_FILE=""
 DUMP_FILE=""
 DOMAINS=()
+GAMES_DOMAINS=()
 SKIP_APT=0
 NO_NGINX=0
 DRY_RUN=0
@@ -45,6 +55,9 @@ usage() {
     cat <<'USAGE'
 Параметры:
   --domain <имя>     домен сайта; можно несколько раз (например, основной и api.)
+  --games-domain <имя>
+                     домен витрины игр: второй сайт со страницами из front/games;
+                     можно несколько раз (например, с www.)
   --email <адрес>    почта для Let's Encrypt (без неё сертификат не выпускается)
   --db <файл>        SQLite-база для переноса данных (по умолчанию не переносится)
   --dump <файл>      дамп PostgreSQL (pg_dump --clean --if-exists) для переноса данных
@@ -72,6 +85,15 @@ run_shell() {
     fi
 }
 
+capture() {
+    # То же, что run_shell, но без печати команды: вывод нужен целиком в
+    # переменной. Иначе в неё попадала бы и строка «+ sudo ... SELECT 1 ...»,
+    # и проверка «уже существует» срабатывала бы на чистом сервере.
+    if [ "$DRY_RUN" = 0 ]; then
+        bash -c "$*"
+    fi
+}
+
 random_hex() {
     python3 -c 'import secrets,sys; print(secrets.token_hex(int(sys.argv[1])))' "$1"
 }
@@ -84,6 +106,7 @@ env_value() {
 while [ $# -gt 0 ]; do
     case "$1" in
         --domain) DOMAINS+=("$2"); shift 2 ;;
+        --games-domain) GAMES_DOMAINS+=("$2"); shift 2 ;;
         --email) EMAIL="$2"; shift 2 ;;
         --db) DB_FILE="$2"; shift 2 ;;
         --dump) DUMP_FILE="$2"; shift 2 ;;
@@ -108,6 +131,14 @@ fi
 if [ "$NO_NGINX" = 0 ] && [ ${#DOMAINS[@]} -eq 0 ]; then
     say "Укажите домен: --domain ai-parnik.ru (или --no-nginx, чтобы настроить позже)."
     exit 2
+fi
+if [ ${#GAMES_DOMAINS[@]} -gt 0 ] && [ "$NO_NGINX" = 1 ]; then
+    say "--games-domain настраивает только nginx: без nginx домен витрины пропущен"
+    GAMES_DOMAINS=()
+fi
+if [ ${#GAMES_DOMAINS[@]} -gt 0 ] && [ ! -f "$ROOT_DIR/front/games/index.html" ]; then
+    say "В $ROOT_DIR нет front/games/index.html — витрину игр раздавать не из чего."
+    exit 3
 fi
 
 # ---------------------------------------------------------------- 1. пакеты
@@ -163,14 +194,14 @@ fi
 
 # ---------------------------------------------------------------- 4. PostgreSQL
 say "== PostgreSQL =="
-role_exists="$(run_shell "sudo -u postgres psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" || true)"
-if [ "$DRY_RUN" = 0 ] && printf '%s' "$role_exists" | grep -q 1; then
+role_exists="$(capture "sudo -u postgres psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" || true)"
+if [ "$DRY_RUN" = 0 ] && printf '%s' "$role_exists" | grep -qx 1; then
     run sudo -u postgres psql -c "ALTER ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD'"
 else
     run sudo -u postgres psql -c "CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD'"
 fi
-db_exists="$(run_shell "sudo -u postgres psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'\"" || true)"
-if [ "$DRY_RUN" = 0 ] && printf '%s' "$db_exists" | grep -q 1; then
+db_exists="$(capture "sudo -u postgres psql -tAc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'\"" || true)"
+if [ "$DRY_RUN" = 0 ] && printf '%s' "$db_exists" | grep -qx 1; then
     say "   база $DB_NAME уже есть"
 else
     run sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER"
@@ -281,8 +312,9 @@ if [ "$NO_NGINX" = 0 ]; then
     say "== nginx =="
     server_names="${DOMAINS[*]}"
     if [ "$DRY_RUN" = 0 ]; then
-        cat > "$NGINX_SITE" <<NGINXEOF
-# Панель, игры и API «Умной AI-Теплицы»: статику и запросы отдаёт наш сервер.
+        {
+            cat <<NGINXEOF
+# Панель и API «Умной AI-Теплицы»: статику и запросы отдаёт наш сервер.
 server {
     listen 80;
     listen [::]:80;
@@ -296,22 +328,133 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
-}
 NGINXEOF
+            # Мини-игры уехали на витрину (--games-domain): на домене панели их
+            # нет, чтобы раздел не жил в двух местах. Записи игр тоже закрыты:
+            # их отдаёт витрина через свой /api/. Исключение — файл с адресом
+            # API и ключом панели: из него браузеры с устаревшим адресом
+            # туннеля узнают новый (см. _publish_address.py).
+            if [ ${#GAMES_DOMAINS[@]} -gt 0 ]; then
+                cat <<GONEEOF
+
+    location = /games/api-address.json {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+    location = /games {
+        return 404;
+    }
+    location ^~ /games/ {
+        return 404;
+    }
+GONEEOF
+            fi
+            printf '}\n'
+        } > "$NGINX_SITE"
     fi
     say "+ записан $NGINX_SITE (server_name: $server_names)"
     run ln -sfn "$NGINX_SITE" /etc/nginx/sites-enabled/greenhouse
+
+    # Второй сайт — витрина игр. Игры живут в том же проекте, что и панель,
+    # поэтому домен витрины раздаёт каталог front/games как корень сайта, а
+    # запросы /api/ переправляет тому же серверу теплицы.
+    if [ ${#GAMES_DOMAINS[@]} -gt 0 ]; then
+        games_names="${GAMES_DOMAINS[*]}"
+        panel_host="${DOMAINS[0]}"
+        # sub_filter есть в nginx из штатных пакетов Debian и Ubuntu. Если его
+        # вдруг нет, витрина останется с прежним названием, но сайт будет цел.
+        branding=0
+        if nginx -V 2>&1 | grep -q -- '--with-http_sub_module'; then
+            branding=1
+        else
+            say "   в nginx нет http_sub_module: название витрины не подменяется"
+        fi
+        if [ "$DRY_RUN" = 0 ]; then
+            {
+                cat <<GAMESEOF
+# Витрина мини-игр AmrGames: страницы и записи лежат на диске, а сами игры
+# ходят в /api/ этого же домена — его переправляем серверу теплицы.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $games_names;
+
+    root $ROOT_DIR/front/games;
+    index index.html;
+
+    client_max_body_size 8m;   # фрагменты записей для «Аниме-сонглесса»
+
+    # Страницы игр лежат в подкаталогах корня, а общие стили и иконки проекта —
+    # на уровень выше: со страниц ссылки ../css и ../icons ведут в корень сайта.
+    location ^~ /css/ {
+        alias $ROOT_DIR/front/css/;
+        add_header Cache-Control "no-cache, must-revalidate";
+    }
+    location ^~ /icons/ {
+        alias $ROOT_DIR/front/icons/;
+        expires 30d;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:$PORT;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    location / {
+        add_header Cache-Control "no-cache, must-revalidate";
+        try_files \$uri \$uri/ \$uri/index.html =404;
+    }
+GAMESEOF
+                if [ "$branding" = 1 ]; then
+                    # Страницы витрины и игр общие с панелью теплицы, поэтому
+                    # название сайта и запрет индексации подменяем здесь, на
+                    # домене витрины. Тексты взяты из front/games/index.html:
+                    # если их там поправят, поправить нужно и здесь.
+                    cat <<BRANDEOF
+
+    # Скрипты тоже фильтруем: у драфтов заголовок вкладки ставит draft.js.
+    sub_filter_types text/html text/javascript application/javascript;
+    sub_filter_once off;
+    sub_filter "<meta name=\"robots\" content=\"noindex, nofollow\">" "<meta name=\"robots\" content=\"index, follow\">";
+    sub_filter "· Умная AI-Теплица" "· AmrGames";
+    sub_filter "<h1>Игровая комната</h1>" "<h1>AmrGames</h1>";
+    sub_filter "<p>Онлайн мини-игры проекта «Умная AI-Теплица»</p>" "<p>Мини-игры проекта AmrGames</p>";
+    sub_filter "<a class=\"icon-btn\" href=\"../\" title=\"Вернуться к панели теплицы\">←</a>" "<a class=\"icon-btn\" href=\"https://$panel_host/\" title=\"Панель теплицы\">←</a>";
+BRANDEOF
+                fi
+                printf '}\n'
+            } > "$NGINX_GAMES_SITE"
+        fi
+        say "+ записан $NGINX_GAMES_SITE (server_name: $games_names)"
+        run ln -sfn "$NGINX_GAMES_SITE" /etc/nginx/sites-enabled/amrgames
+    fi
+
     run nginx -t
     run systemctl reload nginx
 
     if [ -n "$EMAIL" ]; then
         say "== Сертификат Let's Encrypt =="
         certbot_args=()
-        for domain in "${DOMAINS[@]}"; do
+        for domain in "${DOMAINS[@]}" "${GAMES_DOMAINS[@]}"; do
             certbot_args+=(-d "$domain")
         done
+        # --expand: повторный запуск с новыми доменами (например, когда
+        # добавляется витрина игр) расширяет уже выпущенный сертификат,
+        # а не спрашивает подтверждение.
         run certbot --nginx "${certbot_args[@]}" --email "$EMAIL" --agree-tos \
-            --non-interactive --redirect
+            --non-interactive --redirect --expand
+        # Если сертификат уже существовал и перевыпуск не потребовался, certbot
+        # мог не трогать nginx, а vhost выше записан заново без TLS: доводим
+        # установку сертификата до конфига.
+        if [ -f "/etc/letsencrypt/live/${DOMAINS[0]}/fullchain.pem" ] \
+            && ! grep -q ssl_certificate "$NGINX_SITE"; then
+            run certbot install --nginx --cert-name "${DOMAINS[0]}" --redirect \
+                --non-interactive
+        fi
     else
         say "   сертификат не выпускаю: не задан --email"
     fi
@@ -334,7 +477,7 @@ first_domain="${DOMAINS[0]:-<домен>}"
 cat <<FINALE
 
 Готово. Что дальше:
-  1. Панель: https://$first_domain/  (она же раздаёт статику и игры с этого сервера)
+  1. Панель: https://$first_domain/  (панель, API и статика проекта)
   2. Ключ панели: $API_TOKEN
   3. Токен агента: $DEVICE_TOKEN
   4. Пароль администратора: $ADMIN_PASSWORD (смените после входа, если он был задан здесь)
@@ -345,3 +488,14 @@ cat <<FINALE
      «Режим» → https://$first_domain (панель запомнит его в браузере).
   7. Журнал сервера: journalctl -u greenhouse -f
 FINALE
+
+if [ ${#GAMES_DOMAINS[@]} -gt 0 ]; then
+    games_domain="${GAMES_DOMAINS[0]}"
+    cat <<GAMESFINALE
+
+Витрина игр (--games-domain):
+  https://$games_domain/          — «Игровая комната» под названием AmrGames
+  https://$games_domain/narutodle/ и другие игры — по коротким адресам
+  Поисковикам витрина открыта, а /api/ того же домена идёт на сервер теплицы.
+GAMESFINALE
+fi

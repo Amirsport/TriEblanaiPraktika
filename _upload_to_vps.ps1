@@ -19,6 +19,10 @@
 #   # несколько доменов на одном сервере (панель и отдельный api.)
 #   ... -Domain ai-parnik.ru,api.ai-parnik.ru -Email me@example.com
 #
+#   # панель теплицы и витрина мини-игр двумя доменами на одном сервере
+#   powershell -ExecutionPolicy Bypass -File _upload_to_vps.ps1 -Server 203.0.113.10 `
+#       -Domain ai-parnik.ru -GamesDomain amrgames.ru -Email me@example.com -PgDump
+#
 #   # только посмотреть, что будет сделано (архив собирается, загрузки нет)
 #   powershell -ExecutionPolicy Bypass -File _upload_to_vps.ps1 -Server 203.0.113.10 -DryRun
 #
@@ -33,6 +37,7 @@ param(
     [string]$Key = '',
     [int]$Port = 22,
     [string[]]$Domain = @(),
+    [string[]]$GamesDomain = @(),
     [string]$Email = '',
     [string]$Sqlite = '',
     [switch]$PgDump,
@@ -80,7 +85,10 @@ $ssh = Require-Tool 'ssh.exe'
 # ------------------------------------------------------------ 1. архив проекта
 $exclude = @(
     '--exclude=.git', '--exclude=.venv', '--exclude=data', '--exclude=__pycache__',
-    '--exclude=*.zip', '--exclude=*.pyc', '--exclude=*.sqlite3'
+    '--exclude=*.zip', '--exclude=*.pyc', '--exclude=*.sqlite3',
+    # адрес прошлого туннеля: на VPS страницы игр берут адрес API у своего домена,
+    # а устаревший файл с хостинга отправил бы их на несуществующий адрес
+    '--exclude=api-address.json'
 )
 Write-Output "Собираю архив проекта..."
 & $tar $exclude -czf $archive -C $repo .
@@ -91,15 +99,27 @@ $sshArgs = @()
 if ($Key) { $sshArgs += @('-i', $Key) }
 $sshArgs += @('-p', "$Port", '-o', 'StrictHostKeyChecking=accept-new')
 
+# У scp порт задаётся ключом -P (заглавная), а -p означает «сохранить время
+# файла»: с общим набором аргументов номер порта уходил как имя файла, и
+# загрузка падала с «stat local "22": No such file or directory».
+$scpArgs = @()
+if ($Key) { $scpArgs += @('-i', $Key) }
+$scpArgs += @('-P', "$Port", '-o', 'StrictHostKeyChecking=accept-new')
+
 # При запуске через powershell -File список доменов приходит одной строкой
 # («a.ru,b.ru»), поэтому разделяем и его, и повторённые ключи.
 $domains = @()
 foreach ($item in $Domain) {
     $domains += ($item -split ',' | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() })
 }
+$gamesDomains = @()
+foreach ($item in $GamesDomain) {
+    $gamesDomains += ($item -split ',' | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() })
+}
 
 $setupArgs = @("--root $RemoteRoot")
 foreach ($name in $domains) { $setupArgs += "--domain $name" }
+foreach ($name in $gamesDomains) { $setupArgs += "--games-domain $name" }
 if ($Email) { $setupArgs += "--email $Email" }
 if ($SkipApt) { $setupArgs += '--skip-apt' }
 if ($NoNginx) { $setupArgs += '--no-nginx' }
@@ -162,7 +182,7 @@ if ($DryRun) {
 # --------------------------------------------------------------- 2. публикация
 Write-Output ''
 Write-Output 'Копирую архив на сервер...'
-& $scp @sshArgs $archive "${target}:$remoteArchive"
+& $scp @scpArgs $archive "${target}:$remoteArchive"
 
 # Секреты не передаются аргументами командной строки (они видны в списке процессов):
 # установщик создаёт их сам и печатает один раз, а на повторном запуске берёт из файла.
@@ -174,13 +194,13 @@ Write-Output 'Готовлю проект на сервере...'
 if ($sqlitePath) {
     Write-Output 'Копирую базу SQLite для переноса...'
     & $ssh @sshArgs $target "mkdir -p '$RemoteRoot/data'"
-    & $scp @sshArgs $sqlitePath "${target}:$RemoteRoot/data/greenhouse.sqlite3"
+    & $scp @scpArgs $sqlitePath "${target}:$RemoteRoot/data/greenhouse.sqlite3"
 }
 
 if ($PgDump) {
     Write-Output 'Копирую дамп базы...'
     & $ssh @sshArgs $target "rm -f '$remoteDump'"
-    & $scp @sshArgs $dumpFile "${target}:$remoteDump"
+    & $scp @scpArgs $dumpFile "${target}:$remoteDump"
 }
 
 # ------------------------------------------------------------------ 3. установка
