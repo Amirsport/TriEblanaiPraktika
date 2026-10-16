@@ -75,6 +75,9 @@ EVENTS: Sequence[Tuple[str, str, int]] = (
 PLACE_BY_POSITION = ((1, "победитель"), (2, "финалист"), (4, "топ-4"),
                      (8, "топ-8"), (12, "топ-12"), (16, "топ-16"))
 
+# Амплуа, которые раздаются игрокам без известной роли.
+ROLE_ORDER = ("awp", "igl", "entry", "support", "lurker")
+
 # Роли известных игроков (ник в нижнем регистре -> роль). Роль — та, в которой
 # игрок выступал большую часть карьеры; в конкретном составе она может
 # отличаться, поэтому роли всегда считаются ориентиром, а не фактом.
@@ -364,13 +367,25 @@ def parse_places(html: str) -> "Dict[str, str]":
     return parser.places
 
 
-def role_for(nick: str, index: int) -> Tuple[str, bool]:
-    """Роль игрока: известная или подставленная по правилу."""
-    known = KNOWN_ROLES.get(nick.lower()) or KNOWN_ROLES.get(norm(nick))
-    if known:
-        return known, True
-    fallback = ("awp", "igl", "entry", "support", "lurker")
-    return fallback[index % len(fallback)], False
+def assign_roles(players: Sequence[str]) -> "List[Tuple[str, bool]]":
+    """Роли всей пятёрки.
+
+    Известные роли остаются как есть, а подставленные раздаются по свободным
+    амплуа — чтобы в одном составе не вышло, например, двух капитанов.
+    """
+    roles: "List[Tuple[str, bool]]" = []
+    used = set()
+    for nick in players:
+        known = KNOWN_ROLES.get(nick.lower()) or KNOWN_ROLES.get(norm(nick))
+        if known:
+            used.add(known)
+        roles.append((known, True) if known else ("", False))
+    free = [role for role in ROLE_ORDER if role not in used]
+    for index, (role, known) in enumerate(roles):
+        if known:
+            continue
+        roles[index] = (free.pop(0) if free else ROLE_ORDER[index % len(ROLE_ORDER)], False)
+    return roles
 
 
 def region_for(team: str) -> str:
@@ -410,7 +425,7 @@ def build() -> Tuple[List[Dict[str, object]], List[str]]:
             if not place:
                 place = "группа"
                 warnings.append(f"{title}: {team} — место не найдено, поставлена группа")
-            roles = [role_for(nick, index) for index, nick in enumerate(players)]
+            roles = assign_roles(players)
             prepared.append((team, region_for(team), place, players, roles))
         prepared.sort(key=lambda item: item[2])
         events.append({"event": title, "year": year,
