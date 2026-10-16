@@ -408,6 +408,15 @@ server {
         add_header Cache-Control "no-cache, must-revalidate";
         try_files \$uri \$uri/ \$uri/index.html =404;
     }
+
+    # Файл с адресом панели на витрине не нужен: страницы игр общие с панелью, и
+    # с ним они уходили бы на её домен. Пустой адрес значит «тот же домен» — на
+    # витрине это её собственный /api/, — а ключ остаётся, чтобы страницы играли
+    # без настройки.
+    location = /api-address.json {
+        default_type application/json;
+        return 200 "{\"apiBase\":\"\",\"apiKey\":\"$API_TOKEN\"}";
+    }
 GAMESEOF
                 if [ "$branding" = 1 ]; then
                     # Страницы витрины и игр общие с панелью теплицы, поэтому

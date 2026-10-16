@@ -6,7 +6,9 @@
       (повторный запуск обновляет пак по его идентификатору: состав, карты,
       место и эпоху можно поправить в файле данных и залить заново);
     * показывает, что уже лежит в базе (--list) и что советует игра (--check);
-    * убирает пак из базы (--remove), если состав оказался неточным.
+    * убирает пак из базы (--remove), если состав оказался неточным;
+    * приводит базу в соответствие с набором (--prune): составы, которых в файле
+      данных больше нет, из базы уходят.
 
 Повторный запуск без изменений в файле данных ничего не портит: строки паков
 обновляются на месте, журнал прогонов (csdraft_runs) не трогается.
@@ -94,6 +96,8 @@ def main() -> int:
                         help="проверить набор в файле данных и то, что лежит в базе")
     parser.add_argument("--remove", action="append", default=[],
                         help="убрать состав из базы: --remove nip-dh-winter-2013")
+    parser.add_argument("--prune", action="store_true",
+                        help="убрать из базы составы, которых больше нет в наборе")
     parser.add_argument("--dry-run", action="store_true",
                         help="ничего не менять, только показать план")
     args = parser.parse_args()
@@ -133,6 +137,23 @@ def main() -> int:
             print(f"  состав убран: {pack_id}")
         else:
             print(f"  состав не найден: {pack_id}")
+
+    if args.prune:
+        keep = {str(row["id"]) for row in rows}
+        # Трогаем только те игры, которые описаны в источнике: в той же таблице
+        # лежат паки других драфтов (13-0, 4-0), и их терять нельзя.
+        games = {str(row.get("game") or "cs") for row in rows}
+        extra = [item for item in db.csdraft_packs()
+                 if str(item["id"]) not in keep
+                 and str(item.get("game") or "cs") in games]
+        removed = 0
+        for item in extra:
+            if args.dry_run:
+                print(f"  убрали бы лишний состав: {item['id']} ({item['team']}, {item['event']})")
+            elif db.csdraft_delete_pack(str(item["id"])):
+                removed += 1
+        print(f"Лишних составов в базе: {len(extra)}"
+              f"{' — холостой прогон' if args.dry_run else f', убрано {removed}'}")
 
     if args.list:
         show(db)
