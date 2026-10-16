@@ -22,8 +22,10 @@
            луркер), карты — в свой маппул; рероллы ограничены сложностью;
          * сила состава = средний рейтинг + попадание в роли + сыгранность,
            а на своих картах играть легче;
-         * затем мейджор по формату последних турниров: три стадии швейцарки
-           и плей-офф. Матчи играются сами, поражение выбивает с мейджора.
+         * затем мейджор по формату последних турниров: три швейцарские стадии
+           (все матчи до трёх побед или трёх поражений, решающие — Bo3) и
+           плей-офф. Матчи играются сами, вылет — после трёх поражений в
+           швейцарке или после первой проигранной серии в плей-офф.
 
        Оценки игроков (AIM, CLUTCH, IMP) — игровые, а не официальная
        статистика; ники и названия турниров — исторические факты. */
@@ -269,8 +271,9 @@
           того маппула. Из пака берут только одно: либо игрока, либо карту — после выбора
           состав на выбор меняется сам. Игроки идут в пять слотов ролей, карты — в свой
           маппул: за попадание в роль и сыгранность состав получает надбавку, а на своих
-          картах играть легче. Дальше прогон по сетке мейджора без усилений: поражение
-          заканчивает прогон.
+          картах играть легче. Дальше прогон по формату последних мейджоров и без
+          усилений: три швейцарские стадии до трёх побед (три поражения — вылет) и
+          плей-офф, где проигранная серия заканчивает прогон.
         </p>
         <div class="field" style="margin-bottom: 14px;">
           <span>Сложность <b>— сколько даётся рероллов</b></span>
@@ -756,7 +759,8 @@
       const node = $('#pool-hint');
       if (!info) return;
       const ready = info.ready[pick.era] !== false && info.packs > 0;
-      const stages = info.stages.map((stage) => stage.title + ' (Bo' + stage.best_of + ')').join(' → ');
+      const stages = info.stages.map((stage) => stage.title
+        + (stage.swiss ? ' (швейцарка: Bo1, решающие Bo3)' : ' (Bo' + stage.best_of + ')')).join(' → ');
       node.textContent = 'Составов в базе: ' + info.packs + '. Стадии прогона: ' + stages + '.';
       $('#start').disabled = !ready;
       $('#lobby-badge').textContent = ready ? ('составов: ' + info.packs) : 'составов нет';
@@ -916,7 +920,7 @@
       renderRoleChooser();
       renderFeed($('#draft-feed'), run.log.slice(-6));
       $('#draft-hint').textContent = run.ready
-        ? 'Состав собран: нажмите «Начать мейджор» — впереди сетка мейджора.'
+        ? 'Состав собран: нажмите «Начать мейджор» — три швейцарские стадии и плей-офф впереди.'
         : 'Из пака берут только одно — игрока или карту, — и состав на выбор меняется сам.'
           + ' За свою роль игрок получает надбавку, за чужую — штраф; игроки из одного'
           + ' состава дают сыгранность.';
@@ -955,8 +959,13 @@
 
     function renderRun() {
       const stage = run.stage;
-      $('#stage-title').textContent = stage.title + ' · ' + (stage.index + 1) + ' из ' + stage.total;
-      $('#run-badge').textContent = 'Bo' + stage.best_of + ' · ' + run.difficulty_label;
+      const record = stage.record;
+      $('#stage-title').textContent = stage.title + (record
+        ? ' · счёт ' + record.wins + ':' + record.losses + ' (до ' + record.wins_target + ' побед)'
+        : ' · ' + (stage.index + 1) + ' из ' + stage.total);
+      const decisive = record && (record.wins >= record.wins_target - 1 || record.losses >= record.losses_limit - 1);
+      $('#run-badge').textContent = 'Bo' + stage.best_of + (decisive ? ' · решающий' : '')
+        + ' · ' + run.difficulty_label;
       $('#run-rating').innerHTML = 'Сила состава: <b>' + num(run.rating.total) + '</b>'
         + ' · карт в пуле: <b>' + run.pool.length + '</b>'
         + (run.boosts_enabled ? ' · усилений: <b>' + run.boosts.length + '</b>' : '')
@@ -975,10 +984,14 @@
       const finished = run.status === 'dead' || run.status === 'champion';
       const won = run.status === 'champion';
       $('#run-hint').textContent = finished
-        ? (won ? 'Мейджор взят: ' + run.history.filter((item) => item.won).length + ' побед подряд.'
+        ? (won ? 'Мейджор взят: ' + run.history.filter((item) => item.won).length + ' побед в '
+            + run.history.length + ' матчах.'
           : 'Прогон закончен: ' + run.history.filter((item) => item.won).length + ' побед из '
-            + run.history.length + '. Поражение выбивает с мейджора.')
-        : 'Матчи идут сами: следующие стадии начнутся через пару секунд.';
+            + run.history.length + '. Вылет из швейцарки или проигранная серия плей-офф завершают мейджор.')
+        : (record
+          ? 'Швейцарка: играем до ' + record.wins_target + ' побед, три поражения — вылет.'
+            + ' Решающие матчи идут Bo3. Матчи стартуют сами.'
+          : 'Плей-офф: серия идёт до ' + Math.ceil(stage.best_of / 2) + ' побед. Матчи стартуют сами.');
 
       $('#matches-badge').textContent = run.history.length
         ? (run.history.filter((item) => item.won).length + ' побед') : 'матчей пока нет';
@@ -990,10 +1003,10 @@
         const wins = run.history.filter((item) => item.won).length;
         const losses = run.history.filter((item) => !item.won).length;
         $('#finish-title').textContent = champion ? 'Титул мейджора взят!' : 'Прогон закончен';
-        $('#finish-badge').textContent = champion ? 'идеальный прогон' : 'вылет';
+        $('#finish-badge').textContent = champion ? 'мейджор взят' : 'вылет';
         $('#finish-text').textContent = (champion
-          ? 'Состав прошёл всю сетку мейджора без поражений. '
-          : 'Поражение завершает прогон — так устроен рогалик. ')
+          ? 'Состав прошёл три швейцарские стадии и плей-офф мейджора. '
+          : 'Из швейцарки выбивают три поражения, в плей-офф — проигранная серия. ')
           + 'Итог: ' + wins + ' побед, ' + losses + ' поражений. Сила состава: '
           + num(run.rating.total) + '.';
       }

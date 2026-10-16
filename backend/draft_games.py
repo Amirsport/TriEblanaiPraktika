@@ -43,22 +43,24 @@ except ImportError:  # запуск как файл: python backend/server.py
     # Стадии прогона одинаковы по смыслу (группа, четвертьфинал, полуфинал, финал),
     # но форматы разные — как в реальных турнирах этих игр.
     # У «87-0» формат последних мейджоров: три швейцарские стадии и плей-офф.
-    # `opponent_rank` — насколько высоко соперник выступил на своём турнире
-    # (см. PLACE_RANK), `opponent_bonus` — надбавка за уровень стадии: чем дальше
-    # по сетке, тем собраннее попадаются команды.
+    # В швейцарке играются все матчи стадии — до трёх побед (проход) или трёх
+    # поражений (вылет), решающие матчи идут Bo3. `opponent_rank` — насколько
+    # высоко соперник выступил на своём турнире (см. PLACE_RANK), `opponent_bonus` —
+    # надбавка к силе соперника: она подобрана замерами, чтобы сильный состав
+    # брал мажор примерно в одном прогоне из шести, а слабый — в одном из восемнадцати.
     CS_STAGES: Tuple[Dict[str, Any], ...] = (
-        {"key": "stage1", "title": "Стадия 1", "best_of": 1,
-         "opponent_rank": 0, "opponent_bonus": 5.0},
-        {"key": "stage2", "title": "Стадия 2", "best_of": 1,
-         "opponent_rank": 1, "opponent_bonus": 6.0},
-        {"key": "stage3", "title": "Стадия 3", "best_of": 3,
-         "opponent_rank": 2, "opponent_bonus": 7.0},
+        {"key": "stage1", "title": "Стадия 1", "swiss": True, "best_of": 1, "decisive_best_of": 3,
+         "opponent_rank": 0, "opponent_bonus": 11.0},
+        {"key": "stage2", "title": "Стадия 2", "swiss": True, "best_of": 1, "decisive_best_of": 3,
+         "opponent_rank": 0, "opponent_bonus": 11.0},
+        {"key": "stage3", "title": "Стадия 3", "swiss": True, "best_of": 1, "decisive_best_of": 3,
+         "opponent_rank": 1, "opponent_bonus": 11.0},
         {"key": "quarters", "title": "Четвертьфинал", "best_of": 3,
-         "opponent_rank": 3, "opponent_bonus": 8.0},
+         "opponent_rank": 2, "opponent_bonus": 11.0},
         {"key": "semis", "title": "Полуфинал", "best_of": 3,
-         "opponent_rank": 4, "opponent_bonus": 9.0},
+         "opponent_rank": 3, "opponent_bonus": 11.0},
         {"key": "final", "title": "Финал мейджора", "best_of": 5,
-         "opponent_rank": 5, "opponent_bonus": 10.0},
+         "opponent_rank": 4, "opponent_bonus": 11.0},
     )
 
 VALORANT_STAGES: Tuple[Dict[str, Any], ...] = (
@@ -217,8 +219,8 @@ CS_GAME: Dict[str, Any] = {
         "pool_taken": "{name} уже в вашем маппуле",
         "pool_full": "Маппул заполнен: больше карт в пул не влезет",
         "pool_added": "В маппул добавлена карта {name}",
-        "started": "Мейджор начался: четыре стадии до титула",
-        "champion": "Титул мейджора взят без поражений — идеальный прогон!",
+        "started": "Мейджор начался: три швейцарские стадии и плей-офф",
+        "champion": "Титул мейджора взят: швейцарка и плей-офф пройдены!",
     },
     "stages": CS_STAGES,
     "boosts": CS_BOOSTS,
@@ -373,7 +375,8 @@ def game_block(key: str) -> Dict[str, Any]:
         "boot_title": cfg["boot_title"],
         "roles": [{"key": role, "label": cfg["role_labels"][role]} for role in cfg["roles"]],
         "era_labels": dict(cfg["era_labels"]),
-        "stages": [{"key": stage["key"], "title": stage["title"], "best_of": stage["best_of"]}
+        "stages": [{"key": stage["key"], "title": stage["title"], "best_of": stage["best_of"],
+                    "swiss": bool(stage.get("swiss"))}
                    for stage in cfg["stages"]],
         "match": {
             "arena": cfg["match"]["arena"],

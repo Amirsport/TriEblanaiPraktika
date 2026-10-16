@@ -1468,7 +1468,8 @@ class Handler(BaseHTTPRequestHandler):
                         {"key": key, "label": DIFFICULTY_LABELS[key],
                          "rerolls": DIFFICULTY_REROLLS[key]} for key in DIFFICULTIES],
                     "stages": [{"key": stage["key"], "title": stage["title"],
-                                "best_of": stage["best_of"]} for stage in engine.stages],
+                                "best_of": stage["best_of"],
+                                "swiss": bool(stage.get("swiss"))} for stage in engine.stages],
                     "roles": [{"key": role, "label": engine.role_labels[role]}
                               for role in engine.roles],
                     "pool_size": engine.pool_size,

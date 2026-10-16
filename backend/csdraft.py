@@ -9,9 +9,10 @@
       (арены) его пула;
     * состав оценивается по базовому рейтингу игроков, попаданию в свою роль,
       сыгранности (кто играл вместе) и своему пулу;
-    * прогон — четыре стадии: матчи симулируются по картам и раундам, а между
-      стадиями даётся усиление на выбор;
-    * поражение заканчивает прогон: это рогалик, результат уходит в журнал.
+    * прогон — стадии турнира: матчи симулируются по картам и раундам
+      (у «87-0» три швейцарские стадии до трёх побед и плей-офф мейджора);
+    * в швейцарке вылетают после трёх поражений, в плей-офф — после первой
+      проигранной серии: это рогалик, результат уходит в журнал.
 
 Движок один на все игры: чем одна игра отличается от другой (роли, стадии,
 усиления, правила розыгрыша карты), описано в реестре backend/draft_games.py.
@@ -62,6 +63,15 @@ CHEM_DUO = 1.5             # известная связка (device + dupreeh �
 # стадии (правило `opponent_rank` в правилах игры).
 PLACE_RANK = {"победитель": 6, "финалист": 5, "топ-4": 4, "топ-8": 3,
               "топ-12": 2, "топ-16": 1, "группа": 0}
+
+# Швейцарская стадия: играем, пока не наберём три победы (проход дальше) или три
+# поражения (вылет). Решающие для прохода и вылета матчи идут до двух побед, как
+# на мейджорах, остальные — до одной.
+SWISS_WINS = 3
+SWISS_LOSSES = 3
+SWISS_DECISIVE_WINS = 2
+SWISS_DECISIVE_LOSSES = 2
+SWISS_DECISIVE_BEST_OF = 3
 
 # Сколько усилений предлагать после стадии.
 PACK_OFFERS = 3
@@ -381,16 +391,37 @@ class Csdraft:
             value += float(self.match.get("map_edge") or 0.0)
         return value
 
-    def _opponent_strength(self, pack: Dict[str, Any],
-                           stage: Optional[Dict[str, Any]] = None) -> float:
-        """Сила соперника: средняя сила его пятёрки плюс уровень стадии.
+    def _opponent_strength(self, pack: Dict[str, Any], bonus: float = 0.0) -> float:
+        """Сила соперника: средняя сила его пятёрки плюс надбавка стадии.
 
         Соперник приезжает на турнир со своим готовым составом, поэтому к силе
         игроков добавляется надбавка стадии (`opponent_bonus` в правилах игры):
         чем дальше по сетке, тем собраннее и сильнее попадаются команды.
         """
-        bonus = float((stage or {}).get("opponent_bonus") or 0.0)
-        return _pack_strength(pack) + bonus
+        return _pack_strength(pack) + float(bonus or 0.0)
+
+    def _best_of(self, stage: Dict[str, Any], record: Dict[str, int]) -> int:
+        """Формат матча: в швейцарке решающие встречи идут до двух побед."""
+        if not stage.get("swiss"):
+            return int(stage["best_of"])
+        wins = int(record.get("wins") or 0)
+        losses = int(record.get("losses") or 0)
+        if wins >= SWISS_DECISIVE_WINS or losses >= SWISS_DECISIVE_LOSSES:
+            return int(stage.get("decisive_best_of") or SWISS_DECISIVE_BEST_OF)
+        return int(stage.get("best_of") or 1)
+
+    def _record_payload(self, run: Dict[str, Any],
+                        stage: Dict[str, Any]) -> Optional[Dict[str, int]]:
+        """Счёт швейцарской стадии для страницы игры."""
+        if not stage.get("swiss"):
+            return None
+        record = run.get("record") or {}
+        return {
+            "wins": int(record.get("wins") or 0),
+            "losses": int(record.get("losses") or 0),
+            "wins_target": SWISS_WINS,
+            "losses_limit": SWISS_LOSSES,
+        }
 
     # ------------------------------------------------------------------- старт
     def start(self, user: Dict[str, Any], difficulty: str = "hard",
@@ -427,6 +458,8 @@ class Csdraft:
                 "boosts": [],
                 "seen_packs": [],
                 "stage": 0,
+                # Счёт швейцарской стадии: обнуляется на входе в каждую стадию.
+                "record": {"wins": 0, "losses": 0},
                 "history": [],
                 "wins": 0,
                 "losses": 0,
@@ -603,27 +636,52 @@ class Csdraft:
                 self._say(run, self._phrase("started"))
             run["stage"] = min(run["stage"], len(self.stages) - 1)
             stage = self.stages[run["stage"]]
-            opponent = self._draw_pack({**run, "pack": None},
-                                       int(stage.get("opponent_rank") or 0))
-            match = self._simulate(run, opponent, stage)
+            record = run.setdefault("record", {"wins": 0, "losses": 0})
+            swiss = bool(stage.get("swiss"))
+            best_of = self._best_of(stage, record)
+            match_number = record["wins"] + record["losses"] + 1
+            # В швейцарке соперники крепчают вместе со счётом: у 2:0 попадаются
+            # команды, которые тоже идут без поражений.
+            rank = int(stage.get("opponent_rank") or 0) + (record["wins"] if swiss else 0)
+            bonus = float(stage.get("opponent_bonus") or 0.0)
+            opponent = self._draw_pack({**run, "pack": None}, rank)
+            match = self._simulate(run, opponent, stage, best_of, bonus)
             match["stage"] = stage["key"]
-            match["stage_title"] = stage["title"]
+            match["stage_title"] = (f"{stage['title']} · матч {match_number}" if swiss
+                                    else stage["title"])
             match["stage_index"] = run["stage"]
+            match["swiss"] = swiss
+            match["record"] = f"{record['wins']}:{record['losses']}"
             run["history"].append(match)
+            # Вне швейцарки поражение по-прежнему выбивает: стадия одна на всю сетку.
+            end_note = "" if (swiss or match["won"]) else " — прогон закончен"
             if match["won"]:
                 run["wins"] += 1
-                self._say(run, f"{stage['title']}: победа над {opponent['team']} "
+                record["wins"] += 1
+                self._say(run, f"{match['stage_title']}: победа над {opponent['team']} "
                                f"{match['score']} ({match['maps']})")
             else:
                 run["losses"] += 1
-                run["status"] = "dead"
-                self._say(run, f"{stage['title']}: поражение от {opponent['team']} "
-                               f"{match['score']} ({match['maps']}) — прогон закончен")
+                record["losses"] += 1
+                self._say(run, f"{match['stage_title']}: поражение от {opponent['team']} "
+                               f"{match['score']} ({match['maps']}){end_note}")
 
-            if match["won"] and run["stage"] == len(self.stages) - 1:
+            passed = (not swiss) or record["wins"] >= SWISS_WINS
+            eliminated = ((swiss and record["losses"] >= SWISS_LOSSES)
+                          or (not swiss and not match["won"]))
+            if eliminated:
+                run["status"] = "dead"
+                if swiss:
+                    self._say(run, f"«{stage['title']}»: три поражения со счётом "
+                                   f"{record['wins']}:{record['losses']} — вылет с мейджора")
+            elif match["won"] and passed and run["stage"] == len(self.stages) - 1:
                 run["status"] = "champion"
                 self._say(run, self._phrase("champion"))
-            elif match["won"]:
+            elif match["won"] and passed:
+                if swiss:
+                    self._say(run, f"«{stage['title']}» пройдена со счётом "
+                                   f"{record['wins']}:{record['losses']}")
+                run["record"] = {"wins": 0, "losses": 0}
                 offers = self._offer_boosts(run)
                 if offers:
                     run["reward"] = offers
@@ -633,6 +691,8 @@ class Csdraft:
                     run["stage"] += 1
                     self._say(run, "Дальше — "
                                    f"{self.stages[min(run['stage'], len(self.stages) - 1)]['title']}")
+            elif not match["won"]:
+                self._say(run, f"Счёт на «{stage['title']}»: {record['wins']}:{record['losses']}")
             run["updated_at"] = time.time()
             if run["status"] in ("dead", "champion"):
                 self._finish(run)
@@ -670,10 +730,13 @@ class Csdraft:
             available, min(self.pack_offers, len(available)))]
 
     def _simulate(self, run: Dict[str, Any], opponent: Dict[str, Any],
-                  stage: Dict[str, Any]) -> Dict[str, Any]:
+                  stage: Dict[str, Any], best_of: Optional[int] = None,
+                  opponent_bonus: float = 0.0) -> Dict[str, Any]:
         """Матч: играем карты до победы, как в реальном формате Bo1/Bo3/Bo5."""
-        rng = random.Random(run["seed"] + run["stage"] * 7919 + zlib.crc32(opponent["id"].encode("utf-8")))
-        need = stage["best_of"] // 2 + 1
+        rng = random.Random(run["seed"] + run["stage"] * 7919 + len(run["history"]) * 104729
+                            + zlib.crc32(opponent["id"].encode("utf-8")))
+        format_of = int(best_of or stage["best_of"])
+        need = format_of // 2 + 1
 
         maps_choice = self._maps_for_match(run, opponent, rng)
         team_score = 0
@@ -683,7 +746,7 @@ class Csdraft:
             if team_score >= need or opp_score >= need:
                 break
             ours = self._strength(run, map_name)
-            theirs = self._opponent_strength(opponent, stage)
+            theirs = self._opponent_strength(opponent, opponent_bonus)
             their_maps = set(opponent.get("maps", ()))
             if map_name in their_maps:
                 theirs += float(self.match.get("map_edge") or 0.0)
@@ -711,7 +774,7 @@ class Csdraft:
                 "maps": list(opponent.get("maps", ())),
                 "players": [player["name"] for player in opponent["players"]],
             },
-            "best_of": stage["best_of"],
+            "best_of": format_of,
             "team_score": team_score,
             "opp_score": opp_score,
             "score": f"{team_score}:{opp_score}",
@@ -818,8 +881,10 @@ class Csdraft:
                 "index": min(run["stage"], len(self.stages) - 1),
                 "key": stage["key"],
                 "title": stage["title"],
-                "best_of": stage["best_of"],
+                "best_of": self._best_of(stage, run.get("record") or {}),
                 "total": len(self.stages),
+                "swiss": bool(stage.get("swiss")),
+                "record": self._record_payload(run, stage),
             },
             "history": run["history"],
             "reward": run.get("reward", []),
