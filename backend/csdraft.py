@@ -171,6 +171,11 @@ class Csdraft:
         self.pool_size = int(cfg["pool_size"])
         self.match: Dict[str, Any] = dict(cfg["match"])
         self.pack_offers = int(cfg.get("pack_offers", PACK_OFFERS))
+        # Надбавка за попадание в роль: у каждой игры свои числа.
+        fit = dict(cfg.get("role_fit") or {})
+        self.fit_natural = float(fit.get("natural", FIT_NATURAL))
+        self.fit_adjacent = float(fit.get("adjacent", FIT_ADJACENT))
+        self.fit_wrong = float(fit.get("wrong", FIT_WRONG))
         # Правило «одно из пака»: забрал игрока или карту — состав израсходован,
         # и на выбор сразу приходит следующий пак.
         self.one_pick_per_pack = bool(cfg.get("one_pick_per_pack"))
@@ -297,8 +302,8 @@ class Csdraft:
     def _fit(self, natural: str, slot: str) -> float:
         """Насколько игрок подходит слоту: своя роль, родственная или чужая."""
         if natural == slot:
-            return FIT_NATURAL
-        return FIT_ADJACENT if slot in self.adjacency.get(natural, ()) else FIT_WRONG
+            return self.fit_natural
+        return self.fit_adjacent if slot in self.adjacency.get(natural, ()) else self.fit_wrong
 
     def _duo_bonus(self, names: Sequence[str]) -> float:
         bonus = 0.0

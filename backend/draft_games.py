@@ -191,6 +191,8 @@ CS_GAME: Dict[str, Any] = {
     "roles": CS_ROLES,
     "role_labels": CS_ROLE_LABELS,
     "adjacency": CS_ADJACENCY,
+    # Надбавка за роль в «87-0»: своя роль +2, родственная 0, чужая -5.
+    "role_fit": {"natural": 2.0, "adjacent": 0.0, "wrong": -5.0},
     "pool_size": 3,
     "pool_label": "Свой маппул",
     "pool_hint": "на этих картах состав играет лучше",

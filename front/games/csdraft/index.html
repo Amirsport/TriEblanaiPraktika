@@ -64,6 +64,8 @@
     .slot .fit { font-size: 11.5px; }
     .slot .fit.good { color: var(--accent); }
     .slot .fit.bad { color: var(--danger); }
+    .slot-body { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+    .slot-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 
     /* Оценка состава: база, роли, сыгранность, усиления, итог. */
     .rating { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); margin: 4px 0 14px; }
@@ -138,6 +140,8 @@
     .photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
     .photo--player { aspect-ratio: 4 / 5; font-size: 26px; }
     .photo--map { aspect-ratio: 16 / 10; font-size: 20px; }
+    /* Фото в слоте состава: узкая колонка слева от подписи. */
+    .photo--slot { width: 52px; flex: 0 0 52px; aspect-ratio: 4 / 5; font-size: 15px; border-radius: 7px; }
     .pack-note { font-size: 11.5px; margin: 14px 0 0; }
     .pack-note a { color: var(--accent); }
 
@@ -839,9 +843,10 @@
         const fitText = player.fit > 0 ? 'своя роль'
           : (player.fit < 0 ? 'не своя роль' : 'родственная роль');
         return '<div class="slot filled"><span class="role">' + escapeHtml(role.label)
-          + '</span><span class="who">' + escapeHtml(player.name) + '</span>'
+          + '</span><span class="slot-body">' + photoTag('player', player.name, 'photo--slot', player.name)
+          + '<span class="slot-text"><span class="who">' + escapeHtml(player.name) + '</span>'
           + '<span class="where">' + num(player.ovr) + ' · ' + escapeHtml(player.role_label) + '</span>'
-          + '<span class="fit ' + fitClass + '">' + fitText + '</span></div>';
+          + '<span class="fit ' + fitClass + '">' + fitText + '</span></span></span></div>';
       }).join('');
 
       $('#map-pool').innerHTML = run.pool.length
@@ -936,8 +941,10 @@
         const player = run.squad[role.key];
         if (!player) return '';
         return '<div class="slot filled"><span class="role">' + escapeHtml(role.label)
-          + '</span><span class="who">' + escapeHtml(player.name) + '</span>'
-          + '<span class="where">' + num(player.ovr) + ' · ' + escapeHtml(player.pack) + '</span></div>';
+          + '</span><span class="slot-body">' + photoTag('player', player.name, 'photo--slot', player.name)
+          + '<span class="slot-text"><span class="who">' + escapeHtml(player.name) + '</span>'
+          + '<span class="where">' + num(player.ovr) + ' · ' + escapeHtml(player.pack) + '</span>'
+          + '</span></span></div>';
       }).join('');
 
       const finished = run.status === 'dead' || run.status === 'champion';
