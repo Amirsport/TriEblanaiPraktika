@@ -51,8 +51,13 @@ UA = "GreenhouseCraft/1.0 (personal non-commercial project; contact: site owner)
 CACHE_DIR = os.path.join(os.environ.get("TEMP") or os.environ.get("TMP") or ".", "liqcache")
 PAUSE = 6.0
 BATCH = 50
-PLAYER_WIDTH = 160
-MAP_WIDTH = 480
+# Размер превью в игре и размер, который запрашивается у Liquipedia (с запасом
+# на резкость при уменьшении).
+PLAYER_WIDTH = 320
+PLAYER_SOURCE = 720
+MAP_WIDTH = 960
+MAP_SOURCE = 1600
+JPEG_QUALITY = 88
 
 # Как карта называется в игре и где искать её снимок: страницы проверяются
 # по порядку, пока не найдётся подходящая картинка.
@@ -221,7 +226,7 @@ def save_image(url: str, folder: str, key: str, width: int) -> bool:
         image = image.resize((width, max(1, round(image.height * width / image.width))),
                              Image.LANCZOS)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    image.save(path, "JPEG", quality=82, optimize=True)
+    image.save(path, "JPEG", quality=JPEG_QUALITY, optimize=True)
     return True
 
 
@@ -272,7 +277,7 @@ def collect(players: List[str], maps: List[str]) -> Tuple[int, int]:
             if photo:
                 chosen_maps[name] = photo
                 break
-    map_urls = file_urls(sorted(set(chosen_maps.values())), MAP_WIDTH)
+    map_urls = file_urls(sorted(set(chosen_maps.values())), MAP_SOURCE)
     saved_maps = 0
     for name, title in chosen_maps.items():
         url = map_urls.get(title)
@@ -290,7 +295,7 @@ def collect(players: List[str], maps: List[str]) -> Tuple[int, int]:
         if file:
             chosen[player] = file if file.startswith("File:") else f"File:{file}"
     print(f"фотографий нашлось: {len(chosen)} из {len(players)}")
-    urls = file_urls(sorted(set(chosen.values())), PLAYER_WIDTH)
+    urls = file_urls(sorted(set(chosen.values())), PLAYER_SOURCE)
     saved = 0
     for player, file in chosen.items():
         url = urls.get(file)

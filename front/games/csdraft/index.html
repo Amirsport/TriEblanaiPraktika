@@ -308,7 +308,6 @@
         </div>
         <div class="row">
           <button class="btn btn-ghost" type="button" id="auto-assign">Расставить по ролям</button>
-          <button class="btn btn-ghost" type="button" id="skip-pack">Другой состав</button>
           <button class="btn btn-ghost" type="button" id="reroll">Реролл (<span id="rerolls">0</span>)</button>
           <button class="btn btn-primary" type="button" id="start-run" disabled>Начать мейджор</button>
         </div>
@@ -1124,9 +1123,6 @@
         }
         if (event.target.closest('#auto-assign')) {
           return void act('POST', '/runs/' + run.id + '/auto', null, 'Роли расставлены');
-        }
-        if (event.target.closest('#skip-pack')) {
-          return void act('POST', '/runs/' + run.id + '/pack', null, 'Предложен другой состав');
         }
         if (event.target.closest('#reroll')) {
           return void act('POST', '/runs/' + run.id + '/reroll', null, 'Реролл потрачен');
