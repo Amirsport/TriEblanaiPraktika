@@ -21,6 +21,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Tuple
 
+try:  # запуск как модуль: python -m backend.server
+    from .csdraft_majors import major_packs
+except ImportError:  # запуск как файл: python backend/server.py
+    from csdraft_majors import major_packs  # type: ignore
+
 # Роли в составе. AWP — снайпер, IGL — капитан, остальные — по амплуа.
 ROLES: Tuple[str, ...] = ("awp", "igl", "entry", "support", "lurker")
 
@@ -34,7 +39,7 @@ ROLE_LABELS: Dict[str, str] = {
 
 ERA_LABELS: Dict[str, str] = {
     "legacy": "Легенды (2013–2019)",
-    "modern": "Новое время (2020–2025)",
+    "modern": "Новое время (2020–2026)",
 }
 
 # Вес оценок при подсчёте общего рейтинга игрока.
@@ -438,9 +443,19 @@ def _player_from_row(row: Any) -> Dict[str, Any]:
 
 
 def packs() -> List[Dict[str, Any]]:
-    """Набор паков в виде словарей (для движка и проверок)."""
+    """Набор паков в виде словарей (для движка и проверок).
+
+    Сначала идут составы, описанные вручную в этом файле, затем — массовый набор
+    мейджоров из `csdraft_majors.py`. Совпадения по команде и турниру отбрасываются:
+    выверенный вручную пак сильнее машинного.
+    """
     result: List[Dict[str, Any]] = []
-    for row in PACKS:
+    seen = set()
+    for row in list(PACKS) + list(major_packs()):
+        key = (str(row["team"]).casefold(), str(row["event"]).casefold())
+        if key in seen:
+            continue
+        seen.add(key)
         pack = {
             "id": str(row["id"]),
             "team": str(row["team"]),
