@@ -15,16 +15,14 @@
     /* Раздел игр использует общую тему проекта (css/main.css), но в красной
        палитре: data-palette="red" выше в <html>. Здесь — только раскладка.
        Игры идут онлайн, поэтому связь с сервером обязательна: без неё запуск
-       закрыт. Адрес API и ключ — те же, что в панели теплицы. */
+       закрыт. Адрес API и ключ страница определяет сама — из настроек панели
+       теплицы и файла api-address.json на сайте. */
 
     .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
 
     button.status-pill { font-family: inherit; cursor: pointer; }
     button.status-pill:hover { color: var(--text); border-color: var(--accent); }
     a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
-
-    .conn-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-    .conn-note { font-size: 12.5px; color: var(--text-dim); }
 
     .games-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
 
@@ -88,43 +86,6 @@
         <a class="icon-btn" href="../" title="Вернуться к панели теплицы">←</a>
       </div>
     </header>
-
-    <!-- ===== Подключение к серверу ===== -->
-    <section class="card">
-      <header class="card-head">
-        <h2>Подключение к серверу</h2>
-        <span class="badge" id="conn-badge">проверка…</span>
-      </header>
-
-      <p class="muted">
-        Игры идут онлайн: счёт, соперники и прогресс живут на сервере теплицы. Пока связи нет,
-        играть нельзя — кнопки на карточках остаются закрытыми.
-      </p>
-
-      <div class="conn-fields">
-        <label class="field">
-          <span>Адрес API <b>— сервер, к которому подключается панель</b></span>
-          <input type="text" id="api-base" placeholder="https://ваш-адрес-сервера" autocomplete="off" spellcheck="false">
-        </label>
-        <label class="field">
-          <span>API-ключ <b>X-Api-Token</b></span>
-          <input type="password" id="api-token" placeholder="ключ доступа к API" autocomplete="off">
-        </label>
-      </div>
-
-      <div class="row">
-        <button class="btn btn-primary" type="button" id="conn-check">Проверить связь</button>
-        <button class="btn btn-ghost" type="button" id="conn-save">Сохранить</button>
-        <button class="btn btn-ghost" type="button" id="conn-panel">Как в панели</button>
-      </div>
-
-      <p class="conn-note">
-        Пока своих значений нет, страница берёт адрес и ключ из настроек панели теплицы —
-        кнопка «Как в панели» возвращает это поведение. Панель их не перезаписывает:
-        своё подключение игр хранится отдельно. Пустой адрес — обращения к тому же домену,
-        с которого открыта страница.
-      </p>
-    </section>
 
     <!-- ===== Показатели раздела ===== -->
     <section class="kpis">
@@ -283,8 +244,12 @@
       }
     }
 
-    const apiBase = () => ($('#api-base').value || '').trim().replace(/\/+$/, '');
-    const apiToken = () => ($('#api-token').value || '').trim();
+    /* Действующее подключение страницы: свои сохранённые значения, иначе
+       настройки панели теплицы. Пустой адрес значит «тот же домен». */
+    const connection = loadConnection();
+
+    const apiBase = () => connection.apiBase;
+    const apiToken = () => connection.apiToken;
 
     function healthUrl() {
       const base = apiBase();
@@ -298,7 +263,6 @@
       pill.classList.toggle('online', kind === 'online');
       pill.classList.toggle('err', kind === 'err');
       $('#conn-text').textContent = text;
-      $('#conn-badge').textContent = text;
     }
 
     /* Состояние связи. /api/health закрыт API-ключом, поэтому 401 значит
@@ -309,10 +273,10 @@
       const url = healthUrl();
       if (!url) {
         online = false;
-        setStatus('err', 'адрес API не задан');
+        setStatus('err', 'адрес сервера не определён');
         $('#conn-ms').textContent = '—';
         renderGames();
-        if (notify) toast('Укажите адрес API сервера теплицы', 'warn');
+        if (notify) toast('Не удалось определить адрес сервера теплицы', 'warn');
         return false;
       }
 
@@ -342,8 +306,8 @@
           // Ключ либо не задан, либо сменился на сервере: свежий лежит на сайте.
           keyRejected = true;
         } else if (response.status === 404 && !apiBase()) {
-          // Хостинг статики: API живёт дома, поэтому адрес нужно указать явно.
-          text = 'API на этом домене нет — укажите адрес сервера';
+          // Хостинг статики: API живёт дома, а опубликованного адреса нет.
+          text = 'API на этом домене нет';
         } else {
           text = `сервер ответил HTTP ${response.status}`;
         }
@@ -394,42 +358,20 @@
     async function healFromPublished(force = false) {
       const fresh = await publishedConnection();
       let changed = false;
-      if (fresh.apiBase && fresh.apiBase !== apiBase()) {
-        $('#api-base').value = fresh.apiBase;
+      if (fresh.apiBase && fresh.apiBase !== connection.apiBase) {
+        connection.apiBase = fresh.apiBase;
         toast('Адрес сервера обновлён: туннель перезапускался');
         changed = true;
       }
       /* Ключ берём, когда своего нет или когда сервер его не принял. */
-      if (fresh.apiToken && (force || !apiToken()) && fresh.apiToken !== apiToken()) {
-        $('#api-token').value = fresh.apiToken;
+      if (fresh.apiToken && (force || !connection.apiToken) && fresh.apiToken !== connection.apiToken) {
+        connection.apiToken = fresh.apiToken;
         if (!changed) toast('Ключ доступа взят из файла на сайте');
         changed = true;
       }
       if (!changed) return false;
-      storeConnection({ apiBase: apiBase(), apiToken: apiToken() });
+      storeConnection(connection);
       return true;
-    }
-
-    function saveConnection() {
-      const saved = storeConnection({ apiBase: apiBase(), apiToken: apiToken() });
-      toast(saved
-        ? 'Настройки игр сохранены — панель их не перезапишет'
-        : 'Не удалось сохранить: браузер запретил запись', saved ? '' : 'err');
-      checkConnection(false);
-    }
-
-    /* Возвращает к настройкам панели: своих значений у страницы снова нет. */
-    function takeFromPanel() {
-      try {
-        localStorage.removeItem(CONN_KEY);
-      } catch (error) {
-        /* запись запрещена — просто подставим значения панели */
-      }
-      const panel = panelConnection();
-      $('#api-base').value = panel.apiBase;
-      $('#api-token').value = panel.apiToken;
-      toast('Адрес и ключ взяты из настроек панели теплицы');
-      checkConnection(false);
     }
 
     /* Карточки игр. Игры онлайн, поэтому без связи «Играть» закрыта. */
@@ -508,25 +450,9 @@
       setInterval(update, 1000);
     }
 
-    /* Поля подключения заполняем сохранёнными значениями и следим за связью. */
+    /* Адрес и ключ страница определяет сама, поэтому здесь только проверка связи. */
     function initConnection() {
-      const saved = loadConnection();
-      $('#api-base').value = saved.apiBase;
-      $('#api-token').value = saved.apiToken;
-
-      $('#conn-check').addEventListener('click', () => checkConnection(true));
-      $('#conn-save').addEventListener('click', saveConnection);
-      $('#conn-panel').addEventListener('click', takeFromPanel);
       $('#conn-pill').addEventListener('click', () => checkConnection(true));
-
-      ['#api-base', '#api-token'].forEach((selector) => {
-        $(selector).addEventListener('keydown', (event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            saveConnection();
-          }
-        });
-      });
 
       window.addEventListener('online', () => checkConnection(false));
       window.addEventListener('offline', () => {
