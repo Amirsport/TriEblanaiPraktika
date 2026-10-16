@@ -175,6 +175,14 @@ try:  # запуск как модуль: python -m backend.server
     )
     from .raporder_data import seed_rows as raporder_seed_rows
     from .raporder_data import TRACKS_PER_ROUND as RAP_TRACKS_PER_ROUND
+    from .songguess import SongGuess, SongGuessError
+    from .songguess_data import (
+        CATEGORIES as SONGGUESS_CATEGORIES,
+        DIFFICULTIES as SONGGUESS_DIFFICULTIES,
+        ROUNDS_PER_GAME as SONGGUESS_ROUNDS,
+        SLICE_SECONDS as SONGGUESS_SLICE,
+        seed_rows as songguess_seed_rows,
+    )
     from .songless import (
         ANSWER_SECONDS,
         MAX_PLAYERS,
@@ -243,6 +251,14 @@ except ImportError:  # запуск как файл: python backend/server.py
         Songless,
         SonglessError,
     )
+    from songguess import SongGuess, SongGuessError  # type: ignore
+    from songguess_data import (  # type: ignore
+        CATEGORIES as SONGGUESS_CATEGORIES,
+        DIFFICULTIES as SONGGUESS_DIFFICULTIES,
+        ROUNDS_PER_GAME as SONGGUESS_ROUNDS,
+        SLICE_SECONDS as SONGGUESS_SLICE,
+        seed_rows as songguess_seed_rows,
+    )
     from songless_data import seed_rows as songless_seed_rows  # type: ignore
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -308,6 +324,11 @@ class Application:
                                    provider=self.db.narutodle_characters)
         self.songless = Songless(tracks=self._songless_tracks(),
                                  provider=self.db.songless_tracks)
+        # «Угадай песню за 10 секунд»: своя таблица песен по темам, но записи
+        # владелец сайта кладёт так же — файлами или ссылками.
+        self.songguess = SongGuess(tracks=self._songguess_tracks(),
+                                   provider=self.db.songguess_tracks,
+                                   on_finish=self._log_songguess_run)
         self.raporder = RapOrder(tracks=self._raporder_tracks(),
                                  provider=self.db.raporder_tracks,
                                  on_finish=self._log_raporder_match)
@@ -422,6 +443,35 @@ class Application:
     def reload_songless_tracks(self) -> int:
         """Перечитывает набор треков из базы (на случай правок на ходу)."""
         return self.songless.refresh()
+
+    # -------------------------------------------- «Угадай песню за 10 секунд»
+    def _songguess_tracks(self) -> List[Dict[str, Any]]:
+        """Песни из базы; на пустой таблице заливает исходный набор.
+
+        Дальше источник правды — база: песни, темы и записи можно править прямо
+        в ней (backend/seed_songguess.py умеет и то, и другое).
+        """
+        if not self.db.songguess_track_count():
+            seeded = self.db.songguess_save_tracks(songguess_seed_rows())
+            self.db.add_log(f"Угадай песню: набор песен залит в базу ({seeded})", "info")
+        return self.db.songguess_tracks()
+
+    def reload_songguess_tracks(self) -> int:
+        """Перечитывает набор песен из базы (на случай правок на ходу)."""
+        return self.songguess.refresh()
+
+    def _log_songguess_run(self, record: Dict[str, Any]) -> None:
+        """Пишет итог захода в журнал игры и в общий журнал событий."""
+        entry = self.db.songguess_add_run(record)
+        fastest = entry.get("fastest")
+        note = f", лучший ответ {fastest:.1f} с" if fastest else ""
+        self.db.add_log(
+            f"Угадай песню: заход #{entry['id']} у {entry['username']} — "
+            f"{entry['correct']} из {entry['rounds']} верных, {entry['score']} очков "
+            f"(тема «{record.get('category_label') or entry['category']}», "
+            f"{entry['difficulty']}{note})",
+            "info",
+        )
 
     # ---------------------------------------------- игра «Рэп-хронология»
     def _raporder_tracks(self) -> List[Dict[str, Any]]:
@@ -1204,6 +1254,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/games/songless"):
             return self._handle_songless_api(method, path)
 
+        if path.startswith("/api/games/songguess"):
+            return self._handle_songguess_api(method, path)
+
         if path.startswith("/api/games/raporder"):
             return self._handle_raporder_api(method, path)
 
@@ -1701,6 +1754,84 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             return self._error(f"Внутренняя ошибка: {exc}", 500)
 
+    def _handle_songguess_api(self, method: str, path: str) -> None:
+        """«Угадай песню за 10 секунд»: быстрые заходы по темам.
+
+        Вход — по аккаунту панели (Bearer): заход принадлежит игроку, чужой его
+        продолжить не может. Верного варианта нет в ответах, пока раунд не
+        закончился, а фрагмент отдаётся отдельным адресом — по имени файла песню
+        тоже не угадать. Заходы живут в памяти процесса, итог уходит в журнал.
+        """
+        app = self.app
+        prefix = "/api/games/songguess"
+        client = self.client_address[0] if self.client_address else "?"
+        query = self._query()
+
+        try:
+            engine = app.songguess
+            user = app.user_by_token(self._bearer_token())
+
+            # Состояние набора открыто до входа: страница сразу объясняет, что
+            # играть можно, и в каких темах уже есть записи.
+            if method == "GET" and path == f"{prefix}/status":
+                engine.refresh()
+                return self._json({
+                    "title": "Угадай песню за 10 секунд",
+                    "tracks": engine.track_count(),
+                    "playable": engine.playable_count(),
+                    "ready": engine.ready(),
+                    "rounds": SONGGUESS_ROUNDS,
+                    "slice_seconds": SONGGUESS_SLICE,
+                    "categories": engine.categories(),
+                    "difficulties": engine.difficulty_blocks(),
+                    "problems": engine.problems()[:6],
+                })
+
+            if not user:
+                return self._error("Требуется вход в аккаунт", 401)
+
+            if method == "POST" and path == f"{prefix}/runs":
+                if not app.allow_game_action(client):
+                    return self._error("Слишком много попыток за минуту — подождите немного", 429)
+                data = self._body()
+                return self._json({"state": engine.start(
+                    user,
+                    category=str(data.get("category") or "anime"),
+                    difficulty=str(data.get("difficulty") or "normal"),
+                )}, 201)
+
+            if method == "GET" and path == f"{prefix}/matches":
+                scope = str(query.get("scope") or "mine").lower()
+                category = str(query.get("category") or "").strip().lower() or None
+                limit = self._limit_arg(query)
+                if scope == "all":
+                    if not self._require_admin(user):
+                        return self._error("Журнал всех заходов доступен только администратору", 403)
+                    return self._json({"matches": app.db.songguess_matches(None, limit, category)})
+                return self._json({"matches": app.db.songguess_matches(
+                    user["id"], limit, category)})
+
+            run_pattern = rf"{prefix}/runs/(g[0-9a-f]{{7}})"
+            match = re.fullmatch(run_pattern, path)
+            if method == "GET" and match:
+                return self._json({"state": engine.state(match.group(1), user)})
+
+            match = re.fullmatch(rf"{run_pattern}/answer", path)
+            if method == "POST" and match:
+                return self._json({"state": engine.answer(
+                    match.group(1), user, self._body().get("choice"))})
+
+            match = re.fullmatch(rf"{run_pattern}/clip", path)
+            if method == "GET" and match:
+                track = engine.clip_track(match.group(1), user, self._round_param(query))
+                return self._send_clip(track, "songguess")
+
+            return self._error(f"Не найдено: {method} {path}", 404)
+        except SongGuessError as exc:
+            return self._error(str(exc), 400)
+        except Exception as exc:  # noqa: BLE001
+            return self._error(f"Внутренняя ошибка: {exc}", 500)
+
     def _handle_songless_api(self, method: str, path: str) -> None:
         """«Аниме-сонглесс»: соло-заходы и комнаты на несколько игроков.
 
@@ -1838,15 +1969,16 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     # ------------------------------------------------------------- songless files
-    def _send_clip(self, track: Dict[str, Any]) -> None:
+    def _send_clip(self, track: Dict[str, Any], game: str = "animesongless") -> None:
         """Отдаёт запись трека: свой файл — потоком, внешнюю ссылку — перенаправлением.
 
-        Адрес фрагмента не выдаёт название аниме: клиент получает не имя файла
-        из базы, а служебный путь комнаты или захода.
+        Адрес фрагмента не выдаёт, что за песня играет: клиент получает не имя
+        файла из базы, а служебный путь комнаты или захода. У игры свои записи
+        (`front/games/<игра>/audio`), поэтому каталог передаётся аргументом.
         """
         audio = str(track.get("audio") or "")
         if not audio:
-            return self._error("У этого трека нет записи", 404)
+            return self._error("У этой песни нет записи", 404)
 
         if audio.startswith(("http://", "https://")):
             self.send_response(302)
@@ -1857,7 +1989,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        base = (FRONT / "games" / "animesongless").resolve()
+        base = (FRONT / "games" / game).resolve()
         target = (base / audio.lstrip("/")).resolve()
         try:
             target.relative_to(base)

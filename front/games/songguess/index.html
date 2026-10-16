@@ -1,0 +1,1380 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light" data-palette="red">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Угадай песню за 10 секунд · фрагмент и таймер · Умная AI-Теплица</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#c5342b">
+  <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
+  <link rel="stylesheet" href="../../css/main.css?v=21">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* «Угадай песню за 10 секунд»: короткий фрагмент, четыре названия и таймер.
+       Тема та же, что у панели, в красной палитре (data-palette="red").
+
+       Как играть:
+         * выбираете тему (аниме, русский рэп, хип-хоп) и сложность — это и есть
+           те самые «X секунд»: 5, 10 или 15 секунд на ответ;
+         * звучит фрагмент (пять секунд музыки), на экране четыре названия:
+           одно верное и три «обманки» из той же темы;
+         * угадали — очки за ответ и добавка за скорость, не успели или
+           промахнулись — раунд потерян; в заходе пять раундов.
+
+       Верного варианта на странице нет, пока раунд не закончился: сервер отдаёт
+       исполнителя и год только в разборе. Записи песен защищены авторским
+       правом, поэтому их добавляет владелец сайта — файлами в
+       front/games/songguess/audio или ссылками через backend/seed_songguess.py. */
+
+    [hidden] { display: none !important; }
+
+    .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+    button.status-pill { font-family: inherit; cursor: pointer; }
+    a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
+
+    .stack { display: flex; flex-direction: column; gap: 20px; }
+    .auth-card { width: min(420px, 100%); margin: 0 auto; }
+    .auth-card h2 { text-align: center; }
+
+    /* Кнопки шапки на узком экране переносятся на свою строку — иначе страница
+       уезжает вбок на телефоне. */
+    .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
+
+    /* Темы игры: карточка-кнопка. Недоступная тема не запускается и говорит, почему. */
+    .cats { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+    .cat {
+      display: flex; flex-direction: column; gap: 6px; padding: 14px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--surface-solid); color: var(--text);
+      font-family: inherit; text-align: left; cursor: pointer;
+    }
+    .cat:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
+    .cat:disabled { cursor: not-allowed; opacity: 0.6; }
+    .cat.chosen { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .cat-label { font-family: 'Playfair Display', Georgia, serif; font-size: 18px; }
+    .cat-hint { font-size: 12.5px; color: var(--text-dim); }
+    .cat-count { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .cat.off .cat-count { color: var(--danger); }
+    .cat.chosen .cat-count { color: var(--accent); }
+
+    .diffs { display: flex; flex-wrap: wrap; gap: 10px; }
+    .diff {
+      padding: 10px 16px; border-radius: 999px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface-solid);
+      color: var(--text); font-family: inherit; font-size: 13.5px;
+    }
+    .diff:hover { border-color: var(--accent); }
+    .diff.chosen { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+    .note {
+      padding: 12px 14px; margin-top: 12px; border-radius: var(--radius-sm);
+      border: 1px dashed var(--accent); background: var(--accent-soft); font-size: 13px;
+    }
+    .note code {
+      display: block; margin: 6px 0 0; padding: 6px 8px; border-radius: 8px;
+      background: rgba(0, 0, 0, 0.06); font-size: 12px; word-break: break-all;
+    }
+    [data-theme="dark"] .note code { background: rgba(255, 255, 255, 0.08); }
+
+    /* Отсчёт: крупная цифра и полоса, которая тает. */
+    .timer-row { display: flex; align-items: center; gap: 14px; margin: 14px 0 12px; }
+    .count {
+      font-family: 'Playfair Display', Georgia, serif; font-size: 42px; font-weight: 700;
+      line-height: 1; min-width: 92px; font-variant-numeric: tabular-nums; color: var(--accent);
+    }
+    .count small { font-size: 15px; font-weight: 600; }
+    .count.low { color: var(--danger); }
+    .timer { flex: 1; height: 12px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; }
+    .timer span { display: block; height: 100%; width: 100%; background: var(--accent); }
+    .timer.calm span { background: #2f9a43; }
+    .timer.low span { background: var(--danger); }
+
+    .clip-box { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .clip-box .btn.flash { animation: pulse 1.1s ease-in-out infinite; }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
+      50% { box-shadow: 0 0 0 6px var(--accent-soft); }
+    }
+
+    .options { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 14px; }
+    .option {
+      display: flex; align-items: center; gap: 10px; padding: 14px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--surface-solid); color: var(--text);
+      font-family: inherit; font-size: 14.5px; text-align: left; cursor: pointer;
+    }
+    .option:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
+    .option:disabled { cursor: default; }
+    .option .key {
+      width: 24px; height: 24px; flex: 0 0 24px; display: grid; place-items: center;
+      border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+      font-size: 12.5px; font-weight: 600;
+    }
+    .option.picked { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+    .option.right { border-color: #2f9a43; background: rgba(46, 160, 67, 0.16); }
+    .option.wrong { border-color: var(--danger); background: rgba(197, 52, 43, 0.12); }
+
+    .result {
+      padding: 16px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+      border-left: 4px solid var(--accent); background: var(--surface-solid);
+    }
+    .result h2 { font-family: 'Playfair Display', Georgia, serif; font-size: 21px; margin-bottom: 6px; }
+    .result.win { border-left-color: #2f9a43; }
+    .result.lose { border-left-color: var(--danger); }
+    .answer-name { font-size: 17px; font-weight: 600; }
+    .answer-attrs { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-dim); margin-top: 8px; }
+    .answer-attrs span { padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); }
+
+    .stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13.5px; color: var(--text-dim); }
+    .stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    /* Журнал заходов и список раундов. */
+    .matches { display: flex; flex-direction: column; gap: 10px; }
+    .match { padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-solid); }
+    .match .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; justify-content: space-between; }
+    .match .mode { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-dim); }
+    .match .score { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .match .score.win { color: var(--accent); }
+    .match .score.lose { color: var(--danger); }
+    .match .line { display: flex; gap: 10px; justify-content: space-between; margin-top: 6px; font-size: 12.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+    .match .ok { color: #2f9a43; }
+    .match .no { color: var(--danger); }
+
+    @media (max-width: 640px) {
+      .count { font-size: 34px; min-width: 70px; }
+      .options { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="app">
+
+    <!-- ===== Шапка ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
+        <div class="brand-text">
+          <h1>Угадай песню за 10 секунд</h1>
+          <p>Тема, короткий фрагмент и таймер: 5, 10 или 15 секунд на ответ</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="status-pill" type="button" id="conn-pill" title="Состояние подключения к серверу">
+          <span class="dot"></span>
+          <span id="conn-text">подключаемся…</span>
+        </button>
+        <div class="user-pill" id="user-pill" hidden>
+          <span aria-hidden="true">👤</span>
+          <span id="user-name">—</span>
+        </div>
+        <button class="icon-btn" type="button" id="logout" title="Выйти из аккаунта" hidden>⎋</button>
+        <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
+        <a class="icon-btn" href="../" title="Вернуться в игровую комнату">←</a>
+      </div>
+    </header>
+
+    <!-- ===== Адрес сервера ===== -->
+    <section class="card" id="server-card" hidden>
+      <header class="card-head">
+        <h2>Сервер игры</h2>
+        <span class="badge" id="server-badge">не подключён</span>
+      </header>
+      <p class="muted">
+        Заход считает сервер теплицы. Если адрес не подставился сам, впишите его руками.
+      </p>
+      <label class="field">
+        <span>Адрес API</span>
+        <input type="text" id="srv-input" placeholder="https://ваш-адрес-сервера" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button class="btn btn-primary" type="button" id="srv-save">Подключиться</button>
+      </div>
+      <p class="muted">Пустой адрес — обращения к тому же домену, с которого открыта страница.</p>
+    </section>
+
+    <!-- ===== Вход и регистрация ===== -->
+    <section class="card auth-card" id="auth-card" hidden>
+      <h2 id="auth-title">Регистрация</h2>
+      <p class="muted" id="auth-hint">
+        Аккаунт нужен, чтобы заходы сохранялись за вами. Он же открывает панель теплицы.
+      </p>
+      <label class="field">
+        <span>Логин</span>
+        <input type="text" id="auth-user" autocomplete="username" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Пароль</span>
+        <input type="password" id="auth-pass" autocomplete="current-password">
+      </label>
+      <label class="field" id="auth-confirm-field">
+        <span>Повторите пароль</span>
+        <input type="password" id="auth-confirm" autocomplete="new-password">
+      </label>
+      <p class="login-error" id="auth-error" hidden></p>
+      <button class="btn btn-primary btn-wide" type="button" id="auth-submit">Зарегистрироваться</button>
+      <button class="link-btn" type="button" id="auth-toggle">У меня уже есть аккаунт</button>
+    </section>
+
+    <!-- ===== Лобби: тема, сложность, справка, журнал ===== -->
+    <section class="stack" id="lobby" hidden>
+      <section class="card" id="theme-card">
+        <header class="card-head">
+          <h2>Тема</h2>
+          <span class="badge" id="theme-badge">—</span>
+        </header>
+        <p class="muted">
+          В теме должно быть не меньше четырёх песен с записью: одно верное название
+          и три «обманки» из той же темы.
+        </p>
+        <div class="cats" id="categories"></div>
+        <div class="note" id="theme-note" hidden></div>
+      </section>
+
+      <section class="card" id="difficulty-card">
+        <header class="card-head">
+          <h2>Сколько секунд на ответ</h2>
+          <span class="badge" id="difficulty-badge">—</span>
+        </header>
+        <div class="diffs" id="difficulties"></div>
+        <p class="muted" id="rules-note">
+          Пять раундов: слушаете фрагмент, выбираете название. Верный ответ — 100 очков
+          плюс до 100 за скорость. Не успели или промахнулись — раунд потерян.
+        </p>
+        <div class="row" style="margin-top: 14px;">
+          <button class="btn btn-primary" type="button" id="start-run">Начать заход</button>
+        </div>
+        <p class="muted" id="start-hint"></p>
+      </section>
+
+      <section class="card" id="journal-card">
+        <header class="card-head">
+          <h2>Мои заходы</h2>
+          <span class="badge" id="journal-badge">—</span>
+        </header>
+        <div class="matches" id="journal"></div>
+        <div class="row" style="margin-top: 12px;">
+          <button class="btn btn-ghost btn-sm" type="button" id="journal-all" hidden>Все заходы</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="journal-mine" hidden>Только мои</button>
+        </div>
+      </section>
+    </section>
+
+    <!-- ===== Игра ===== -->
+    <section class="stack" id="game" hidden>
+      <section class="card" id="round-card">
+        <header class="card-head">
+          <h2 id="game-title">Раунд 1 из 5</h2>
+          <span class="badge" id="game-badge">—</span>
+        </header>
+
+        <div class="stats" id="game-stats"></div>
+
+        <div class="timer-row">
+          <div class="count" id="count">—</div>
+          <div class="timer calm" id="timer"><span id="timer-fill"></span></div>
+        </div>
+
+        <div class="clip-box">
+          <button class="btn btn-ghost" type="button" id="clip-play">▶ Повторить фрагмент</button>
+          <span class="muted" id="clip-state">фрагмент загружается…</span>
+          <audio id="clip" preload="auto"></audio>
+        </div>
+
+        <div class="options" id="options"></div>
+        <p class="muted" id="round-hint"></p>
+      </section>
+
+      <section class="card" id="reveal-card" hidden>
+        <div class="result" id="reveal-box">
+          <h2 id="reveal-title">Раунд разобран</h2>
+          <div class="answer-name" id="reveal-name">—</div>
+          <div class="answer-attrs" id="reveal-attrs"></div>
+          <p class="muted" id="reveal-text"></p>
+        </div>
+      </section>
+
+      <section class="card" id="rounds-card" hidden>
+        <header class="card-head">
+          <h2>Сыгранные раунды</h2>
+          <span class="badge" id="rounds-badge">—</span>
+        </header>
+        <div class="matches" id="rounds-list"></div>
+      </section>
+
+      <section class="card" id="finish-card" hidden>
+        <header class="card-head">
+          <h2>Итог захода</h2>
+          <span class="badge" id="finish-badge">—</span>
+        </header>
+        <div class="stats" id="finish-stats"></div>
+        <div class="matches" id="finish-rounds" style="margin-top: 14px;"></div>
+        <div class="row" style="margin-top: 14px;">
+          <button class="btn btn-primary" type="button" id="again">Ещё заход</button>
+          <button class="btn btn-ghost" type="button" id="to-lobby">Выйти в лобби</button>
+        </div>
+      </section>
+
+      <div class="row" id="leave-row">
+        <button class="btn btn-ghost" type="button" id="leave">Выйти в лобби</button>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script>
+    'use strict';
+
+    const PANEL_STATE_KEY = 'greenhouse.state.v1';
+    const CONN_KEY = 'greenhouse.games.conn.v1';
+    const AUTH_KEY = 'greenhouse.auth.v1';
+    const THEME_KEY = 'greenhouse.games.theme';
+    const GAME = '/api/games/songguess';
+
+    const REQUEST_TIMEOUT_MS = 10000;
+    const POLL_MS = 600;          // опрос захода во время отсчёта
+    const FORCE_GAP_MS = 350;     // «время вышло»: спрашиваем сервер ещё раз
+
+    const $ = (selector) => document.querySelector(selector);
+
+    let apiBase = '';
+    let connected = false;        // есть ли связь с сервером игры
+    let auth = { token: '', user: null };
+    let info = null;              // /status: темы, сложности, правила
+    let state = null;             // текущий заход
+    let category = '';            // выбранная тема
+    let difficulty = 'normal';    // выбранная сложность
+    let busy = false;
+
+    let pollTimer = 0;
+    let tickTimer = 0;
+    let polling = false;
+    let lastPollAt = 0;
+
+    let deadlineMs = 0;           // до какого момента отвечаем в раунде
+    let revealDeadlineMs = 0;     // сколько ещё висит разбор
+    let armedRound = '';          // для какого раунда поставлен таймер
+    let picked = null;            // нажатый вариант до ответа сервера
+
+    let clipKey = '';             // заход и раунд, для которых загружен фрагмент
+    let clipUrl = '';
+    let clipLength = 0;
+    let clipTimer = 0;
+    let clipBlocked = false;
+
+    let signature = {};           // что уже отрисовано: лишний раз не перерисовываем
+    let journalScope = 'mine';
+
+    /* ------------------------------- утилиты -------------------------------- */
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function toast(message, kind) {
+      const box = $('#toasts');
+      const node = document.createElement('div');
+      node.className = 'toast' + (kind ? ' ' + kind : '');
+      node.textContent = message;
+      box.appendChild(node);
+      setTimeout(() => {
+        node.classList.add('out');
+        setTimeout(() => node.remove(), 320);
+      }, 4600);
+    }
+
+    function readJson(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' ? value : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeJson(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    function show(selector, visible) {
+      const node = $(selector);
+      if (node) node.hidden = !visible;
+    }
+
+    function seconds1(value) {
+      return (Math.round(Number(value) * 10) / 10).toFixed(1).replace('.0', '');
+    }
+
+    /* Понятный текст ошибки: сетевые сбои и 429 объясняем по-человечески. */
+    function humanError(error) {
+      if (error && error.status === 429) {
+        return 'Слишком много действий за минуту — подождите немного';
+      }
+      const text = String((error && error.message) || '');
+      if (!text || /failed to fetch|networkerror|load failed|aborted/i.test(text)) {
+        return 'Сервер не отвечает — проверьте адрес в карточке сервера';
+      }
+      return text;
+    }
+
+    function stamp(value) {
+      const text = String(value || '');
+      const date = text ? new Date(text) : null;
+      if (!date || isNaN(date.getTime())) return '';
+      const pad = (number) => (number < 10 ? '0' + number : String(number));
+      return pad(date.getDate()) + '.' + pad(date.getMonth() + 1) + '.' + date.getFullYear()
+        + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+    }
+
+    /* ------------------------------ адрес сервера ---------------------------- */
+
+    const root = () => (apiBase || '').replace(/\/+$/, '');
+
+    function headers() {
+      const result = { 'Content-Type': 'application/json' };
+      if (auth.token) result.Authorization = 'Bearer ' + auth.token;
+      return result;
+    }
+
+    async function api(path, options = {}) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const response = await fetch(root() + path, {
+          method: options.method || 'GET',
+          headers: headers(),
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(data.error || ('Сервер ответил HTTP ' + response.status));
+          error.status = response.status;
+          throw error;
+        }
+        return data;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function setConnection(kind, text) {
+      const pill = $('#conn-pill');
+      pill.classList.toggle('online', kind === 'online');
+      pill.classList.toggle('err', kind === 'err');
+      $('#conn-text').textContent = text;
+    }
+
+    function storedConnection() {
+      const own = readJson(CONN_KEY) || {};
+      return {
+        apiBase: String(own.apiBase || '').trim(),
+        apiToken: String(own.apiToken || '').trim()
+      };
+    }
+
+    function panelConnection() {
+      const panel = readJson(PANEL_STATE_KEY) || {};
+      return {
+        apiBase: String(panel.apiBase || '').trim(),
+        apiToken: String(panel.apiToken || '').trim()
+      };
+    }
+
+    const trimBase = (value) => String(value || '').trim().replace(/\/+$/, '');
+
+    function apiCandidates() {
+      const fromLink = trimBase(new URLSearchParams(location.search).get('srv'));
+      if (fromLink) return { fixed: true, list: [fromLink] };
+      const list = [];
+      [storedConnection().apiBase, panelConnection().apiBase].forEach((value) => {
+        const item = trimBase(value);
+        if (item && !list.includes(item)) list.push(item);
+      });
+      return { fixed: false, list };
+    }
+
+    async function pingServer(base) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      try {
+        const response = await fetch(base + '/api/health', {
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        return response.ok || response.status === 401;
+      } catch (error) {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    /* Адрес и ключ, опубликованные на сайте при выгрузке: у туннеля меняется
+       поддомен, а этот файл обновляет серверная сторона. */
+    let publishedKey = '';
+    async function publishedApiBase() {
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
+      try {
+        const response = await fetch('../api-address.json', { cache: 'no-store' });
+        if (!response.ok) return '';
+        const data = await response.json();
+        publishedKey = String((data && data.apiKey) || '').trim();
+        return trimBase(data && data.apiBase);
+      } catch (error) {
+        return '';
+      }
+    }
+
+    async function resolveApiBase() {
+      const { fixed, list } = apiCandidates();
+      if (fixed) {
+        apiBase = list[0];
+        rememberServer(apiBase);
+        return apiBase;
+      }
+      const stored = storedConnection().apiBase;
+      const published = publishedApiBase();
+      for (const candidate of list) {
+        if (await pingServer(candidate)) {
+          apiBase = candidate;
+          if (candidate !== stored) toast('Адрес сервера взят из настроек панели теплицы');
+          return apiBase;
+        }
+      }
+      const fresh = await published;
+      if (fresh && fresh !== (list[0] || '')) {
+        if (list.length) toast('Адрес сервера обновлён: туннель перезапускался');
+        apiBase = fresh;
+        return apiBase;
+      }
+      apiBase = list[0] || fresh || '';
+      return apiBase;
+    }
+
+    function rememberServer(value) {
+      const own = storedConnection();
+      const panel = panelConnection();
+      writeJson(CONN_KEY, {
+        apiBase: value,
+        apiToken: own.apiToken || panel.apiToken || publishedKey || ''
+      });
+    }
+
+    /* --------------------------- вход в аккаунт ----------------------------- */
+
+    function loadAuth() {
+      const saved = readJson(AUTH_KEY);
+      auth = saved && saved.token
+        ? { token: saved.token, user: saved.user || null }
+        : { token: '', user: null };
+      renderUser();
+    }
+
+    function saveAuth() {
+      if (auth.token) {
+        writeJson(AUTH_KEY, { token: auth.token, user: auth.user });
+      } else {
+        try {
+          localStorage.removeItem(AUTH_KEY);
+        } catch (error) {
+          /* приватный режим: просто не запомним */
+        }
+      }
+      renderUser();
+    }
+
+    function renderUser() {
+      const name = auth.user ? auth.user.username : '';
+      $('#user-name').textContent = name || '—';
+      show('#user-pill', Boolean(name));
+      show('#logout', Boolean(auth.token));
+    }
+
+    function setAuthMode(form) {
+      const register = form !== 'login';
+      $('#auth-title').textContent = register ? 'Регистрация' : 'Вход в игру';
+      $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
+      $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
+      $('#auth-hint').textContent = register
+        ? 'Аккаунт нужен, чтобы заходы сохранялись за вами. Он же открывает панель теплицы.'
+        : 'Войдите тем же логином, что и в панели теплицы.';
+      show('#auth-confirm-field', register);
+      show('#auth-error', false);
+      $('#auth-submit').dataset.mode = register ? 'register' : 'login';
+    }
+
+    async function submitAuth() {
+      const name = $('#auth-user').value.trim();
+      const password = $('#auth-pass').value;
+      const confirm = $('#auth-confirm').value;
+      const register = $('#auth-submit').dataset.mode !== 'login';
+      const fail = (text) => {
+        const box = $('#auth-error');
+        box.textContent = text;
+        box.hidden = false;
+      };
+      show('#auth-error', false);
+      if (!name || !password) return fail('Заполните логин и пароль');
+      if (register && password !== confirm) return fail('Пароли не совпадают');
+      try {
+        const data = await api(register ? '/api/auth/register' : '/api/auth/login', {
+          method: 'POST',
+          body: { username: name, password: password }
+        });
+        auth = { token: data.token, user: data.user };
+        saveAuth();
+        $('#auth-pass').value = '';
+        $('#auth-confirm').value = '';
+        await boot();
+      } catch (error) {
+        fail(humanError(error));
+      }
+    }
+
+    /* ------------------------------- экраны --------------------------------- */
+
+    function render() {
+      /* Карточка сервера нужна ровно тогда, когда связи нет: без неё адрес негде поправить. */
+      show('#server-card', !connected);
+      show('#auth-card', !auth.token);
+      show('#lobby', Boolean(auth.token) && !state);
+      show('#game', Boolean(auth.token) && Boolean(state));
+      if (!auth.token) return;
+      if (state) renderGame();
+      else renderLobby();
+    }
+
+    function categoryBlock(key) {
+      return ((info && info.categories) || []).filter((item) => item.key === key)[0] || null;
+    }
+
+    function categoryLabel(key) {
+      const block = categoryBlock(key);
+      return block ? block.label : String(key || '');
+    }
+
+    function difficultyBlock(key) {
+      return ((info && info.difficulties) || []).filter((item) => item.key === key)[0] || null;
+    }
+
+    function difficultyLabel(key) {
+      const block = difficultyBlock(key);
+      return block ? block.label : String(key || '');
+    }
+
+    function pickedCategory() {
+      const block = categoryBlock(category);
+      if (block && block.ready) return block;
+      return ((info && info.categories) || []).filter((item) => item.ready)[0] || block || null;
+    }
+
+    function renderLobby() {
+      if (!info) return;
+      const blocks = info.categories || [];
+      const chosen = pickedCategory();
+      category = chosen ? chosen.key : '';
+      $('#theme-badge').textContent = info.playable + ' записей из ' + info.tracks;
+      $('#categories').innerHTML = blocks.map((block) => {
+        const classes = 'cat' + (block.key === category ? ' chosen' : '') + (block.ready ? '' : ' off');
+        const count = 'песен: ' + block.songs + ', с записью: ' + block.playable
+          + (block.ready ? ' — играть можно' : ' — для раунда нужно 4');
+        return '<button class="' + classes + '" type="button" data-cat="' + escapeHtml(block.key) + '"'
+          + (block.ready ? '' : ' disabled') + '>'
+          + '<span class="cat-label">' + escapeHtml(block.label) + '</span>'
+          + '<span class="cat-hint">' + escapeHtml(block.hint) + '</span>'
+          + '<span class="cat-count">' + escapeHtml(count) + '</span>'
+          + '</button>';
+      }).join('');
+
+      const problems = info.problems || [];
+      const note = $('#theme-note');
+      if (problems.length) {
+        note.innerHTML = '<b>Что мешает игре</b><br>'
+          + problems.map((text) => escapeHtml(text)).join('<br>')
+          + '<br>Записи кладут в <code>front/games/songguess/audio</code> (или ссылкой в базе):'
+          + '<code>py backend/seed_songguess.py --dsn "..." --audio C:\\music --category rusrap</code>'
+          + '<code>py backend/seed_songguess.py --dsn "..." --url "rusrap-имя-песни=https://адрес/запись.mp3"</code>';
+      } else {
+        note.innerHTML = 'Все темы с записями — можно играть. Новые записи кладут в '
+          + '<code>front/games/songguess/audio</code>'
+          + ' или прописывают ссылкой через <code>backend/seed_songguess.py</code>.';
+      }
+      note.hidden = false;
+
+      $('#difficulties').innerHTML = (info.difficulties || []).map((item) =>
+        '<button class="diff' + (item.key === difficulty ? ' chosen' : '') + '" type="button"'
+        + ' data-diff="' + escapeHtml(item.key) + '">'
+        + escapeHtml(item.label) + '</button>').join('');
+      $('#difficulty-badge').textContent = seconds1((difficultyBlock(difficulty) || {}).seconds) + ' с на ответ';
+      $('#rules-note').textContent = 'Пять раундов: слушаете фрагмент ('
+        + seconds1(info.slice_seconds) + ' с музыки) и выбираете название из четырёх. '
+        + 'Верный ответ — 100 очков плюс до 100 за скорость, после раунда — пять секунд разбора. '
+        + 'Не успели или промахнулись — раунд потерян.';
+
+      const start = $('#start-run');
+      start.disabled = !category || busy;
+      $('#start-hint').textContent = category
+        ? 'Играем: ' + categoryLabel(category) + ', ' + difficultyLabel(difficulty) + '.'
+        : 'Играть пока нечего: ни в одной теме нет четырёх песен с записью.';
+      start.hidden = false;
+
+      const admin = auth.user && auth.user.role === 'admin';
+      show('#journal-all', admin && journalScope !== 'all');
+      show('#journal-mine', admin && journalScope === 'all');
+      $('#journal-badge').textContent = journalScope === 'all' ? 'все игроки' : 'только мои';
+    }
+
+    function labelOf(text) {
+      return text ? escapeHtml(text) : '';
+    }
+
+    function renderMatches(node, matches, withName) {
+      if (!matches.length) {
+        node.innerHTML = '<p class="muted">' + escapeHtml(journalScope === 'all' && withName
+          ? 'Заходов пока нет.' : 'Заходов пока нет — сыграйте первый.') + '</p>';
+        return;
+      }
+      node.innerHTML = matches.map((row) => {
+        const score = Number(row.score) || 0;
+        const correct = Number(row.correct) || 0;
+        const rounds = Number(row.rounds) || 0;
+        const fastest = row.fastest != null && Number(row.fastest) > 0
+          ? ('лучший ответ ' + seconds1(row.fastest) + ' с')
+          : 'верных нет';
+        return '<div class="match">'
+          + '<div class="head">'
+          + '<span class="mode">' + labelOf(categoryLabel(row.category)) + ' · '
+          + labelOf(difficultyLabel(row.difficulty)) + ' · '
+          + seconds1(row.seconds) + ' с</span>'
+          + '<span class="score ' + (correct ? 'win' : 'lose') + '">' + score + ' очк.</span>'
+          + '</div>'
+          + '<div class="line">'
+          + '<span class="' + (correct ? 'ok' : 'no') + '">верных: ' + correct + ' из ' + rounds + '</span>'
+          + '<span>' + escapeHtml(fastest) + '</span>'
+          + '</div>'
+          + '<div class="line">'
+          + '<span>' + escapeHtml(stamp(row.played_at) || 'только что') + '</span>'
+          + (withName ? '<span>' + escapeHtml(row.username || '') + '</span>' : '')
+          + (row.detail ? '<span>' + escapeHtml(String(row.detail).slice(0, 90)) + '</span>' : '')
+          + '</div>'
+          + '</div>';
+      }).join('');
+    }
+
+    async function loadJournal() {
+      if (!auth.token) return;
+      const query = journalScope === 'all' ? '?limit=20&scope=all' : '?limit=20';
+      try {
+        const data = await api(GAME + '/matches' + query);
+        renderMatches($('#journal'), data.matches || [], journalScope === 'all');
+      } catch (error) {
+        if (error.status === 403) {
+          journalScope = 'mine';
+          $('#journal-badge').textContent = 'только мои';
+          show('#journal-all', false);
+          show('#journal-mine', false);
+          return;
+        }
+        $('#journal').innerHTML = '<p class="muted">' + escapeHtml(
+          'Журнал не загрузился: ' + humanError(error)) + '</p>';
+      }
+    }
+
+    /* -------------------------------- звук ---------------------------------- */
+
+    const audio = $('#clip');
+
+    function setClipText(text) {
+      $('#clip-state').textContent = text;
+    }
+
+    function stopClip() {
+      clearTimeout(clipTimer);
+      try {
+        audio.pause();
+      } catch (error) {
+        /* плеер мог быть ещё не готов */
+      }
+      audio.classList.remove('playing');
+    }
+
+    function releaseClip() {
+      stopClip();
+      if (clipUrl) {
+        URL.revokeObjectURL(clipUrl);
+        clipUrl = '';
+      }
+      try {
+        audio.removeAttribute('src');
+        audio.load();
+      } catch (error) {
+        /* плеер мог быть ещё не готов */
+      }
+      clipKey = '';
+    }
+
+    /* Фрагмент забираем сами: серверу нужен вход по аккаунту, а <audio> заголовок
+       Authorization не отправляет — поэтому играем из blob. */
+    function loadClip() {
+      if (!state || !state.clip) return;
+      const key = state.run + ':' + state.round;
+      if (key === clipKey) return;
+      clipKey = key;
+      stopClip();
+      clipLength = Number(state.clip.length) || 0;
+      audio.dataset.start = String(state.clip.start || 0);
+      audio.dataset.length = String(clipLength);
+      const url = root() + state.clip.url;
+      setClipText('готовим фрагмент…');
+      fetch(url, { headers: headers(), cache: 'no-store' })
+        .then((response) => {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          return response.blob();
+        })
+        .then((blob) => {
+          if (clipKey !== key) return;
+          if (clipUrl) URL.revokeObjectURL(clipUrl);
+          clipUrl = URL.createObjectURL(blob);
+          audio.src = clipUrl;
+          audio.load();
+          playClip();
+        })
+        .catch(() => {
+          if (clipKey !== key) return;
+          /* запасной путь: обычный адрес — годится, если запись отдаётся без входа */
+          audio.src = url;
+          audio.load();
+          setClipText('фрагмент не забрался — нажмите кнопку');
+        });
+    }
+
+    function playClip() {
+      if (!state || !state.clip) return;
+      const start = Number(audio.dataset.start || 0) || 0;
+      const length = Number(audio.dataset.length || 0) || 0;
+      const begin = () => {
+        try {
+          audio.currentTime = start;
+        } catch (error) {
+          /* запись ещё не готова — начнём с начала */
+        }
+        const promise = audio.play();
+        if (!promise || typeof promise.then !== 'function') {
+          setClipText('звучит…');
+          return;
+        }
+        promise.then(() => {
+          clipBlocked = false;
+          $('#clip-play').classList.remove('flash');
+          setClipText('звучит фрагмент' + (length ? ' (' + seconds1(length) + ' с)' : ''));
+          clearTimeout(clipTimer);
+          if (length) {
+            clipTimer = setTimeout(() => {
+              audio.pause();
+              setClipText('фрагмент прослушан — можно ещё раз');
+            }, length * 1000 + 150);
+          }
+        }).catch(() => {
+          clipBlocked = true;
+          $('#clip-play').classList.add('flash');
+          setClipText('браузер придержал звук — нажмите «Повторить фрагмент»');
+        });
+      };
+      if (audio.readyState >= 1) begin();
+      else audio.addEventListener('loadedmetadata', begin, { once: true });
+    }
+
+    audio.addEventListener('ended', () => setClipText('фрагмент прослушан — можно ещё раз'));
+
+    $('#clip-play').addEventListener('click', () => {
+      if (!state || !state.clip) return;
+      if (audio.paused) playClip();
+      else {
+        audio.pause();
+        setClipText('пауза — можно продолжить');
+      }
+    });
+
+    /* ------------------------------ заходы ---------------------------------- */
+
+    function stopPolling() {
+      clearInterval(pollTimer);
+      clearInterval(tickTimer);
+      pollTimer = 0;
+      tickTimer = 0;
+    }
+
+    function startPolling() {
+      stopPolling();
+      tickTimer = setInterval(tick, 200);
+      pollTimer = setInterval(() => { pollOnce(false); }, POLL_MS);
+      tick();
+    }
+
+    async function pollOnce(force) {
+      if (!state || polling) return;
+      const now = Date.now();
+      const gap = force ? FORCE_GAP_MS : POLL_MS - 60;
+      if (now - lastPollAt < gap) return;
+      lastPollAt = now;
+      polling = true;
+      try {
+        const data = await api(GAME + '/runs/' + encodeURIComponent(state.run));
+        if (data && data.state) applyState(data.state);
+      } catch (error) {
+        if (error.status === 429) {
+          toast('Слишком много обращений за минуту — подождите немного', 'warn');
+        } else if (error.status === 400 || error.status === 404) {
+          toast(humanError(error), 'err');
+          toLobby();
+        }
+      } finally {
+        polling = false;
+      }
+    }
+
+    function applyState(next) {
+      const previous = state;
+      state = next;
+      const key = next.run + ':' + next.round;
+
+      if (next.phase === 'round') {
+        if (armedRound !== key) {
+          armedRound = key;
+          deadlineMs = Date.now() + (Number(next.seconds_left) || 0) * 1000;
+          picked = null;
+          loadClip();
+        } else if (next.seconds_left != null) {
+          const drift = Math.abs((deadlineMs - Date.now()) / 1000 - Number(next.seconds_left));
+          if (drift > 1.5) deadlineMs = Date.now() + Number(next.seconds_left) * 1000;
+        }
+      } else if (next.phase === 'reveal') {
+        if (armedRound !== key) {
+          armedRound = key;
+          revealDeadlineMs = Date.now() + (Number(next.reveal_in) || 5) * 1000;
+        }
+        stopClip();
+      }
+
+      if (!previous || previous.phase !== next.phase || previous.round !== next.round) {
+        renderGame();
+      }
+      if (next.finished && (!previous || !previous.finished)) {
+        stopPolling();
+        releaseClip();
+        loadJournal();
+      }
+    }
+
+    async function startRun() {
+      const block = pickedCategory();
+      if (!block || !block.ready || busy) return;
+      busy = true;
+      $('#start-run').disabled = true;
+      try {
+        const data = await api(GAME + '/runs', {
+          method: 'POST',
+          body: { category: block.key, difficulty: difficulty }
+        });
+        releaseClip();
+        signature = {};
+        picked = null;
+        armedRound = '';
+        state = null;
+        applyState(data.state);
+        render();
+        startPolling();
+      } catch (error) {
+        toast(error.status === 429
+          ? 'Слишком много заходов за минуту — подождите немного'
+          : humanError(error), 'err');
+      } finally {
+        busy = false;
+        renderLobby();
+      }
+    }
+
+    function toLobby() {
+      stopPolling();
+      releaseClip();
+      state = null;
+      picked = null;
+      armedRound = '';
+      signature = {};
+      render();
+      loadJournal();
+    }
+
+    /* ------------------------------ отрисовка ------------------------------- */
+
+    function paintTimer(left, total) {
+      const share = total > 0 ? Math.max(0, Math.min(1, left / total)) : 0;
+      $('#timer-fill').style.width = (share * 100).toFixed(1) + '%';
+      const bar = $('#timer');
+      bar.classList.toggle('low', share <= 0.25);
+      bar.classList.toggle('calm', share > 0.25);
+    }
+
+    function renderTimer() {
+      if (!state) return;
+      const count = $('#count');
+      const total = Number(state.seconds) || 10;
+      let left = 0;
+      if (state.phase === 'round') {
+        left = Math.max(0, (deadlineMs - Date.now()) / 1000);
+        count.innerHTML = Math.max(0, Math.ceil(left)) + '<small> с</small>';
+        count.classList.toggle('low', left <= total * 0.25);
+        paintTimer(left, total);
+      } else if (state.phase === 'reveal') {
+        left = Math.max(0, (revealDeadlineMs - Date.now()) / 1000);
+        count.innerHTML = Math.ceil(left) + '<small> с</small>';
+        count.classList.remove('low');
+        paintTimer(left, Number(state.reveal_in) > 0 ? Math.max(Number(state.reveal_in), left) : 5);
+      } else {
+        count.textContent = '✓';
+        count.classList.remove('low');
+        paintTimer(0, total);
+      }
+    }
+
+    function renderStats() {
+      if (!state) return;
+      const rows = [
+        ['Очки', state.score],
+        ['Верных', state.correct + ' из ' + state.rounds_total],
+        ['Раунд', state.round + ' из ' + state.rounds_total],
+        ['Тема', state.category_label || categoryLabel(state.category)]
+      ];
+      $('#game-stats').innerHTML = rows.map(([name, value]) =>
+        '<span>' + escapeHtml(name) + ': <b>' + escapeHtml(String(value)) + '</b></span>').join('');
+    }
+
+    function renderOptions() {
+      if (!state) return;
+      const phase = state.phase;
+      const revealed = phase !== 'round';
+      const choice = state.choice !== null && state.choice !== undefined ? state.choice : picked;
+      /* Верный вариант берём только из разбора: во время отсчёта он не наш. */
+      const right = revealed ? state.correct_choice : null;
+      const key = [state.run, state.round, phase, choice, right, (state.options || []).join('|')].join('/');
+      if (signature.options === key) return;
+      signature.options = key;
+      $('#options').innerHTML = (state.options || []).map((title, index) => {
+        const classes = ['option'];
+        if (revealed && index === right) classes.push('right');
+        else if (revealed && index === choice) classes.push('wrong');
+        else if (!revealed && index === choice) classes.push('picked');
+        return '<button class="' + classes.join(' ') + '" type="button" data-choice="' + index + '"'
+          + (revealed ? ' disabled' : '') + '>'
+          + '<span class="key">' + (index + 1) + '</span>'
+          + '<span>' + escapeHtml(title) + '</span>'
+          + '</button>';
+      }).join('');
+    }
+
+    function renderReveal() {
+      if (!state) return;
+      const revealed = state.phase !== 'round' && state.phase !== 'finished';
+      show('#reveal-card', revealed);
+      if (!revealed) return;
+      const answer = state.answer || {};
+      const missed = Boolean(state.missed);
+      const win = !missed && state.points > 0;
+      const box = $('#reveal-box');
+      box.classList.toggle('win', win);
+      box.classList.toggle('lose', !win);
+      const points = Number(state.points) || 0;
+      $('#reveal-title').textContent = missed
+        ? 'Время вышло — раунд потерян'
+        : (win ? 'Верно! +' + points + ' очков' : 'Мимо — раунд потерян');
+      $('#reveal-name').textContent = (answer.artist ? answer.artist + ' — ' : '') + (answer.title || '—');
+      const attrs = [];
+      if (answer.year) attrs.push('год: ' + answer.year);
+      if (answer.source) attrs.push(answer.source);
+      if (state.category_label) attrs.push(state.category_label);
+      if (win) attrs.push('за скорость: ' + points + ' из ' + state.max_points);
+      $('#reveal-attrs').innerHTML = attrs.map((text) =>
+        '<span>' + escapeHtml(text) + '</span>').join('');
+      const next = state.round < state.rounds_total
+        ? 'Следующий раунд начнётся сам.'
+        : 'Сейчас покажем итог захода.';
+      $('#reveal-text').textContent = 'Разбор идёт пять секунд: что играло — выше. ' + next;
+    }
+
+    function historyRow(item) {
+      const way = item.missed ? 'не успел' : (item.correct ? 'верно' : 'мимо');
+      const cls = item.correct ? 'ok' : 'no';
+      return '<div class="match">'
+        + '<div class="head">'
+        + '<span class="mode">раунд ' + item.number + '</span>'
+        + '<span class="' + cls + '">' + escapeHtml(way) + '</span>'
+        + '</div>'
+        + '<div class="line"><span>' + escapeHtml((item.artist ? item.artist + ' — ' : '') + item.title)
+        + '</span><span>' + (item.points ? '+' + item.points + ' очк.' : '0 очк.') + '</span></div>'
+        + '<div class="line"><span>' + escapeHtml([item.year, item.source].filter(Boolean).join(' · '))
+        + '</span><span>' + escapeHtml(stamp(item.played_at) || '') + '</span></div>'
+        + '</div>';
+    }
+
+    function renderHistory() {
+      const history = (state && state.history) || [];
+      const visible = state && history.length > 0 && !state.finished;
+      show('#rounds-card', Boolean(visible));
+      if (!visible) return;
+      const key = history.map((item) => item.number + ':' + item.points + ':' + (item.correct ? 1 : 0)).join(',');
+      if (signature.history === key) return;
+      signature.history = key;
+      $('#rounds-badge').textContent = history.length + ' из ' + state.rounds_total;
+      $('#rounds-list').innerHTML = history.map(historyRow).join('');
+    }
+
+    function renderFinish() {
+      if (!state || !state.finished) {
+        show('#finish-card', false);
+        return;
+      }
+      show('#finish-card', true);
+      const correct = Number(state.correct) || 0;
+      const score = Number(state.score) || 0;
+      const fastest = state.fastest != null ? seconds1(state.fastest) + ' с' : '—';
+      $('#finish-badge').textContent = (state.category_label || '') + ' · ' + (state.difficulty_label || '');
+      $('#finish-stats').innerHTML = [
+        ['Очки', score],
+        ['Верных', correct + ' из ' + state.rounds_total],
+        ['Лучший ответ', fastest],
+        ['Тема', state.category_label || ''],
+        ['На ответ', seconds1(state.seconds) + ' с']
+      ].map(([name, value]) =>
+        '<span>' + escapeHtml(name) + ': <b>' + escapeHtml(String(value)) + '</b></span>').join('');
+      const key = state.run + ':finish';
+      if (signature.finish !== key) {
+        signature.finish = key;
+        $('#finish-rounds').innerHTML = (state.history || []).map(historyRow).join('')
+          || '<p class="muted">Раундов не было.</p>';
+      }
+    }
+
+    function renderGame() {
+      if (!state) return;
+      const phase = state.phase;
+      const finished = Boolean(state.finished) || phase === 'finished';
+      const total = Number(state.rounds_total) || 5;
+      show('#round-card', !finished);
+      show('#reveal-card', phase === 'reveal');
+      show('#leave-row', !finished);
+      show('#rounds-card', !finished && (state.history || []).length > 0);
+
+      $('#game-title').textContent = 'Раунд ' + Math.min(Number(state.round) || 1, total) + ' из ' + total;
+      $('#game-badge').textContent = (state.category_label || '') + ' · '
+        + (state.difficulty_label || '') + ' · ' + seconds1(state.seconds) + ' с';
+      renderStats();
+      renderTimer();
+      renderOptions();
+      renderReveal();
+      renderHistory();
+      renderFinish();
+
+      if (phase === 'round') {
+        $('#round-hint').textContent = clipBlocked
+          ? 'Звук не запустился сам: нажмите «Повторить фрагмент» — отсчёт идёт.'
+          : 'Слушайте фрагмент и выбирайте название: можно нажать кнопку или клавишу 1–4.';
+      } else if (phase === 'reveal') {
+        $('#round-hint').textContent = 'Разбор раунда: верный вариант подсвечен зелёным.';
+      }
+    }
+
+    function tick() {
+      if (!state) return;
+      renderTimer();
+      if (state.phase === 'round') {
+        const left = (deadlineMs - Date.now()) / 1000;
+        if (left <= 0.05) pollOnce(true);
+      } else if (state.phase === 'reveal') {
+        if ((revealDeadlineMs - Date.now()) / 1000 <= 0.05) pollOnce(true);
+      }
+    }
+
+    /* -------------------------------- ответы -------------------------------- */
+
+    async function answer(index) {
+      if (!state || state.phase !== 'round' || busy) return;
+      busy = true;
+      picked = index;
+      signature.options = '';
+      renderOptions();
+      stopClip();
+      try {
+        const data = await api(GAME + '/runs/' + encodeURIComponent(state.run) + '/answer', {
+          method: 'POST',
+          body: { choice: index }
+        });
+        applyState(data.state);
+      } catch (error) {
+        picked = null;
+        signature.options = '';
+        if (error.status === 429) {
+          toast('Слишком много действий за минуту — подождите секунду', 'warn');
+        } else {
+          toast(humanError(error), 'err');
+          await pollOnce(true);
+        }
+        renderOptions();
+      } finally {
+        busy = false;
+      }
+    }
+
+    /* ------------------------------- события -------------------------------- */
+
+    function bind() {
+      $('#auth-submit').addEventListener('click', submitAuth);
+      $('#auth-toggle').addEventListener('click', () => {
+        setAuthMode($('#auth-submit').dataset.mode === 'login' ? 'register' : 'login');
+      });
+      $('#auth-pass').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') submitAuth();
+      });
+      $('#auth-confirm').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') submitAuth();
+      });
+
+      $('#logout').addEventListener('click', () => {
+        auth = { token: '', user: null };
+        stopPolling();
+        releaseClip();
+        saveAuth();
+        state = null;
+        render();
+      });
+
+      $('#srv-save').addEventListener('click', async () => {
+        apiBase = trimBase($('#srv-input').value);
+        rememberServer(apiBase);
+        toast('Адрес сервера сохранён');
+        await boot();
+      });
+
+      $('#categories').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-cat]');
+        if (!button || button.disabled) return;
+        category = button.dataset.cat;
+        signature = {};
+        renderLobby();
+      });
+      $('#difficulties').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-diff]');
+        if (!button) return;
+        difficulty = button.dataset.diff;
+        renderLobby();
+      });
+      $('#start-run').addEventListener('click', startRun);
+      $('#again').addEventListener('click', () => {
+        const keepCat = state ? state.category : category;
+        const keepDiff = state ? state.difficulty : difficulty;
+        toLobby();
+        category = keepCat;
+        difficulty = keepDiff;
+        startRun();
+      });
+      $('#to-lobby').addEventListener('click', toLobby);
+      $('#leave').addEventListener('click', toLobby);
+      $('#journal-all').addEventListener('click', () => { journalScope = 'all'; renderLobby(); loadJournal(); });
+      $('#journal-mine').addEventListener('click', () => { journalScope = 'mine'; renderLobby(); loadJournal(); });
+
+      $('#options').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-choice]');
+        if (!button || button.disabled) return;
+        answer(Number(button.dataset.choice));
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (!state || state.phase !== 'round' || busy) return;
+        if (event.target && /INPUT|TEXTAREA/.test(event.target.tagName)) return;
+        const index = Number(event.key) - 1;
+        if (index >= 0 && index < (state.options || []).length) {
+          event.preventDefault();
+          answer(index);
+        }
+      });
+
+      $('#toggle-theme').addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        writeJson(THEME_KEY, { theme: next });
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && state) pollOnce(true);
+      });
+    }
+
+    /* ------------------------------- запуск --------------------------------- */
+
+    async function loadStatus() {
+      try {
+        info = await api(GAME + '/status');
+      } catch (error) {
+        connected = false;
+        setConnection('err', error.status === 429 ? 'слишком часто' : 'нет связи');
+        return false;
+      }
+      connected = true;
+      setConnection('online', 'сервер на связи');
+      renderLobby();
+      return true;
+    }
+
+    async function boot() {
+      const saved = readJson(THEME_KEY);
+      if (saved && saved.theme) document.documentElement.dataset.theme = saved.theme;
+      loadAuth();
+      if (!apiBase) apiBase = await resolveApiBase();
+      $('#srv-input').value = apiBase;
+      if (!(await loadStatus())) {
+        /* Пустой адрес — это тот же домен, с которого открыта страница: так игра
+           работает, когда страница лежит на самом сервере игры. */
+        setConnection('err', apiBase ? 'нет связи' : 'адрес не найден');
+        $('#server-badge').textContent = apiBase ? 'нет связи' : 'адрес не найден';
+        render();
+        return;
+      }
+      $('#server-badge').textContent = 'подключён';
+      if (!category) {
+        const first = pickedCategory();
+        category = first ? first.key : '';
+      }
+      render();
+      if (auth.token) loadJournal();
+    }
+
+    bind();
+    setAuthMode('register');
+    boot().catch(() => {
+      connected = false;
+      setConnection('err', 'нет связи');
+      render();
+    });
+  </script>
+</body>
+</html>

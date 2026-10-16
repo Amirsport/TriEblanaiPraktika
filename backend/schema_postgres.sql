@@ -255,3 +255,37 @@ CREATE TABLE IF NOT EXISTS dotadraft_heroes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_dotadraft_heroes_pos ON dotadraft_heroes (position, rating DESC);
+
+-- «Угадай песню за 10 секунд»: песни по темам (аниме, русский рэп, хип-хоп)
+-- и журнал заходов. Записи добавляет владелец сайта — файлами или ссылками.
+CREATE TABLE IF NOT EXISTS songguess_tracks (
+    id          TEXT PRIMARY KEY,
+    category    TEXT NOT NULL DEFAULT 'anime',
+    title       TEXT NOT NULL,
+    artist      TEXT NOT NULL DEFAULT '',
+    year        TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT '',
+    audio       TEXT NOT NULL DEFAULT '',
+    clip_start  DOUBLE PRECISION NOT NULL DEFAULT 0,
+    clip_length DOUBLE PRECISION NOT NULL DEFAULT 10,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_songguess_tracks_category ON songguess_tracks (category, title);
+
+CREATE TABLE IF NOT EXISTS songguess_runs (
+    id         BIGSERIAL PRIMARY KEY,
+    username   TEXT NOT NULL DEFAULT '',
+    user_id    BIGINT,
+    category   TEXT NOT NULL DEFAULT 'anime',
+    difficulty TEXT NOT NULL DEFAULT 'normal',
+    seconds    DOUBLE PRECISION NOT NULL DEFAULT 10,
+    rounds     INTEGER NOT NULL DEFAULT 0,
+    correct    INTEGER NOT NULL DEFAULT 0,
+    score      INTEGER NOT NULL DEFAULT 0,
+    fastest    DOUBLE PRECISION,
+    detail     TEXT NOT NULL DEFAULT '',
+    played_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_songguess_runs_user ON songguess_runs (user_id, id DESC);

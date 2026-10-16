@@ -113,6 +113,9 @@ backend/
   dotadraft.py             движок «322-0»: бюджет состава, герои по позициям, стадии
   dotadraft_data.py        пул игроков Streamers Battle 13 и герои Dota 2
   seed_dotadraft.py        наполнение базы пулом 322-0, правка цен и проверка набора
+  songguess.py             движок «Угадай песню»: темы, таймер, очки, разбор
+  songguess_data.py        126 песен трёх тем (аниме, русский рэп, хип-хоп)
+  seed_songguess.py        привязка записей к песням (файлы или ссылки), проверка набора
 ```
 
 Таблицы: `zones` (12 участков), `readings` (история показаний),
@@ -129,6 +132,8 @@ backend/
 `raporder_matches` (журнал партий «Рэп-хронологии»: режим, счёт, победитель),
 `dotadraft_players` (пул «322-0»: ник и стоимость в очках),
 `dotadraft_heroes` (герои «322-0»: имя, позиция 1–5 и игровая оценка),
+`songguess_tracks` (песни «Угадай песню»: тема, исполнитель, год и запись к ним),
+`songguess_runs` (журнал заходов «Угадай песню»: тема, таймер, счёт, разбор раундов),
 `device_commands` (очередь команд домашнему агенту, когда сервер стоит на VPS).
 
 Колонки, появившиеся после первых версий, сервер добавляет сам при запуске
@@ -623,11 +628,14 @@ python backend/seed_csdraft.py --dsn "postgresql://greenhouse:пароль@local
 
 Разметка, стили и скрипт страниц общие: они лежат в `front/games/draft/`
 (`index.html` — разметка, `draft.css` и `draft.js` — оформление и логика).
-Страница `/games/draft/` — хаб: игра выбирается внутри, выбор запоминается.
-Страницы отдельных игр той же разметкой задают свою игру до подключения
-скрипта (`window.DRAFT_GAME = 'valorant' | 'rl'`), поэтому поле выбора игры на
-них скрыто, а в `localStorage` выбор не пишется. **При правке разметки нужно
-поправить все три файла** — это отмечено комментарием в самих страницах.
+На витрине `/games/` у каждой игры **своя карточка**, поэтому в игру заходят
+напрямую, а не через выбор игры. Страница `/games/draft/` осталась прямым
+адресом на случай старых ссылок: там игра выбирается внутри и выбор
+запоминается. Страницы отдельных игр той же разметкой задают свою игру до
+подключения скрипта (`window.DRAFT_GAME = 'valorant' | 'rl'`), поэтому поле
+выбора игры на них скрыто, а в `localStorage` выбор не пишется. **При правке
+разметки нужно поправить все три файла** — это отмечено комментарием в самих
+страницах.
 
 Страница сама берёт подписи из ответа сервера (`GET /api/games/draft/games`),
 поэтому терминология у каждой игры своя: где-то «карты маппула», где-то «арены
@@ -726,6 +734,62 @@ python backend/seed_dotadraft.py --db data/greenhouse.sqlite3 --remove-hero magn
 влияют только на силу состава). Ники участников, Dota 2 и её герои —
 исторические названия и товарные знаки их владельцев; игра некоммерческая.
 
+##### Восьмая игра: Угадай песню за 10 секунд
+
+`front/games/songguess/index.html` — быстрая игра на слух: звучит короткий
+фрагмент, а на экране четыре названия песен. В отличие от «Аниме-сонглесса»,
+где раунд идёт 20 секунд и угадывается аниме, здесь **жёсткий таймер на ответ** —
+и это и есть выбор сложности: 5 секунд (блиц), 10 (обычная) или 15 (спокойная).
+
+- **Тема** выбирается в лобби: аниме-опенинги, русский рэп, зарубежный хип-хоп.
+  Набор — 126 песен ([`backend/songguess_data.py`](backend/songguess_data.py)).
+- **Заход** — пять раундов. Фрагмент музыки — до пяти секунд; очки: 100 за верный
+  ответ плюс до 100 за скорость (доля оставшегося времени). Промах или
+  просроченный таймер — раунд потерян, очков нет. После раунда пять секунд
+  разбора: видно название, исполнителя, год и откуда песня.
+- **Итог** уходит в журнал `songguess_runs`: тема, таймер, число верных, очки
+  и разбор по раундам. Свой журнал виден на странице игры, общий — в служебной
+  консоли (`GET /api/games/songguess/matches?scope=all`, только `admin`).
+
+Правильный вариант не показывается, пока раунд не закончился, а фрагмент отдаётся
+отдельным адресом `/api/games/songguess/runs/<id>/clip?round=N` — по имени файла
+песню тоже не угадать. Заходы живут в памяти процесса (TTL 30 минут, не больше
+400 за раз), перезапуск сервера их теряет.
+
+###### Записи песен добавляет владелец сайта
+
+В репозитории есть **только справочные сведения** (тема, название, исполнитель,
+год, сериал или источник) — сами записи защищены авторским правом. Песни лежат
+в таблице `songguess_tracks`, а записи привязывает
+[`backend/seed_songguess.py`](backend/seed_songguess.py); файлы копируются
+в свой каталог `front/games/songguess/audio` (он не общий с «Аниме-сонглессом»):
+
+```powershell
+# справочный набор в базу и что из него уже можно играть
+python backend/seed_songguess.py --dsn "postgresql://greenhouse:пароль@localhost:5432/greenhouse"
+python backend/seed_songguess.py --dsn "..." --list
+
+# свои записи: файлы копируются в front/games/songguess/audio и привязываются по имени
+python backend/seed_songguess.py --dsn "..." --audio "C:\music" --category anime --map music.json
+
+# или ссылкой, с точным местом фрагмента
+python backend/seed_songguess.py --dsn "..." --url "anime-again=https://example.org/song.mp3"
+python backend/seed_songguess.py --dsn "..." --start "anime-again=42" --length 5
+
+# проверить набор или отвязать неудачную запись
+python backend/seed_songguess.py --db data/greenhouse.sqlite3 --check
+python backend/seed_songguess.py --dsn "..." --clear-audio anime-again
+```
+
+Повторный запуск обновляет справочные сведения и **не затирает** привязанные
+записи, начало и длину фрагмента. Куда класть файлы и что нельзя выкладывать —
+в [`front/games/songguess/audio/README.md`](front/games/songguess/audio/README.md).
+
+**Тема играбельна, только если в ней не меньше четырёх песен с записью** — иначе
+для раунда не хватит вариантов. Пока записей нет, карточка темы выключена, а
+страница честно пишет, сколько записей не хватает и какой командой их добавить:
+синтетических «заглушек» в игре нет.
+
 #### REST API
 
 | Метод | Путь | Назначение |
@@ -819,6 +883,12 @@ python backend/seed_dotadraft.py --db data/greenhouse.sqlite3 --remove-hero magn
 | POST | `/api/games/dota322/runs/<id>/play` | играть текущую стадию турнира (Bearer) |
 | POST | `/api/games/dota322/runs/<id>/boost` | `{"index":0}` — выбрать усиление после стадии (Bearer) |
 | GET | `/api/games/dota322/matches?limit=&scope=` | журнал прогонов «322-0»: свои; `scope=all` — только `admin` (Bearer) |
+| GET | `/api/games/songguess/status` | состояние набора «Угадай песню»: песни, записи, темы, таймеры, что мешает игре |
+| POST | `/api/games/songguess/runs` | `{"category":"anime\|rusrap\|hiphop","difficulty":"blitz\|normal\|calm"}` — начать заход (Bearer) |
+| GET | `/api/games/songguess/runs/<id>` | состояние захода (Bearer) |
+| POST | `/api/games/songguess/runs/<id>/answer` | `{"choice":0..3}` — ответ на раунд (Bearer) |
+| GET | `/api/games/songguess/runs/<id>/clip?round=` | фрагмент текущего раунда (Bearer) |
+| GET | `/api/games/songguess/matches?limit=&scope=&category=` | журнал заходов: свои; `scope=all` — только `admin` (Bearer) |
 | POST | `/api/device/sync` | показания домашнего агента → в ответ очередь команд (только устройство-токен) |
 | POST | `/api/device/ack` | `{"applied":[1,2],"errors":{"3":"текст"}}` — агент подтверждает команды (только устройство-токен) |
 | GET | `/api/device/status` | состояние канала «сервер ↔ дом» (только устройство-токен) |
@@ -1206,8 +1276,9 @@ Apache. Поэтому заголовки задаёт файл [`front/.htacces
 [`front/games/draft/index.html`](front/games/draft/index.html),
 [`front/games/valorant/index.html`](front/games/valorant/index.html),
 [`front/games/rl/index.html`](front/games/rl/index.html),
-[`front/games/raporder/index.html`](front/games/raporder/index.html) и
-[`front/games/dota322/index.html`](front/games/dota322/index.html),
+[`front/games/raporder/index.html`](front/games/raporder/index.html),
+[`front/games/dota322/index.html`](front/games/dota322/index.html) и
+[`front/games/songguess/index.html`](front/games/songguess/index.html),
 а также в ссылках на общие для драфт-игр `draft.css` и `draft.js`
 в [`front/games/draft/index.html`](front/games/draft/index.html),
 [`front/games/valorant/index.html`](front/games/valorant/index.html) и

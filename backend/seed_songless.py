@@ -25,7 +25,8 @@
 
 Имя файла сшивается с названием аниме без учёта регистра и расширения:
 «наруто.mp3» попадёт в «Наруто». Если имена не совпадают, задайте соответствия
-файлом --map: {"файл.mp3": "Название аниме"}.
+файлом --map: {"файл.mp3": "Название аниме"} — ключом может быть имя файла
+с расширением или без.
 """
 from __future__ import annotations
 
@@ -91,7 +92,9 @@ def attach_audio(db, folder: pathlib.Path, mapping: Dict[str, str], dry_run: boo
     for path in sorted(folder.iterdir()):
         if not path.is_file() or path.suffix.lower() not in AUDIO_SUFFIXES:
             continue
-        target = mapping.get(normalize(path.stem)) or tracks.get(normalize(path.stem))
+        # Ключом в --map может быть имя файла как с расширением, так и без него.
+        target = (mapping.get(normalize(path.stem)) or mapping.get(normalize(path.name))
+                  or tracks.get(normalize(path.stem)))
         if not target:
             print(f"  пропуск: {path.name} — нет аниме с таким названием "
                   f"(добавьте пару в --map)")

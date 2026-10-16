@@ -300,6 +300,38 @@ CREATE TABLE IF NOT EXISTS dotadraft_heroes (
     updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_dotadraft_heroes_pos ON dotadraft_heroes (position, rating DESC);
+
+-- «Угадай песню за 10 секунд»: песни по темам (аниме, русский рэп, хип-хоп)
+-- и журнал заходов. Записи добавляет владелец сайта — файлами или ссылками;
+-- пока записи нет, раунд на песне не строится.
+CREATE TABLE IF NOT EXISTS songguess_tracks (
+    id          TEXT    PRIMARY KEY,
+    category    TEXT    NOT NULL DEFAULT 'anime',
+    title       TEXT    NOT NULL,
+    artist      TEXT    NOT NULL DEFAULT '',
+    year        TEXT    NOT NULL DEFAULT '',
+    source      TEXT    NOT NULL DEFAULT '',
+    audio       TEXT    NOT NULL DEFAULT '',
+    clip_start  REAL    NOT NULL DEFAULT 0,
+    clip_length REAL    NOT NULL DEFAULT 10,
+    updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_songguess_tracks_category ON songguess_tracks (category, title);
+CREATE TABLE IF NOT EXISTS songguess_runs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT    NOT NULL DEFAULT '',
+    user_id    INTEGER,
+    category   TEXT    NOT NULL DEFAULT 'anime',
+    difficulty TEXT    NOT NULL DEFAULT 'normal',
+    seconds    REAL    NOT NULL DEFAULT 10,
+    rounds     INTEGER NOT NULL DEFAULT 0,
+    correct    INTEGER NOT NULL DEFAULT 0,
+    score      INTEGER NOT NULL DEFAULT 0,
+    fastest    REAL,
+    detail     TEXT    NOT NULL DEFAULT '',
+    played_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_songguess_runs_user ON songguess_runs (user_id, id DESC);
 """
 
 # Колонки, появившиеся после первых версий базы: на старых базах их догоняет
@@ -431,6 +463,36 @@ def _dotadraft_player(row: Dict[str, Any]) -> Dict[str, Any]:
     data["id"] = str(data.get("id") or "")
     data["nickname"] = str(data.get("nickname") or "")
     data["cost"] = int(data.get("cost") or 0)
+    return data
+
+
+def _songguess_track(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Песня «Угадай песню за 10 секунд»: тема, название, исполнитель, запись."""
+    data = dict(row)
+    data["id"] = str(data.get("id") or "")
+    data["category"] = str(data.get("category") or "")
+    data["title"] = str(data.get("title") or "")
+    data["artist"] = str(data.get("artist") or "")
+    data["year"] = str(data.get("year") or "")
+    data["source"] = str(data.get("source") or "")
+    data["audio"] = str(data.get("audio") or "")
+    data["clip_start"] = float(data.get("clip_start") or 0)
+    data["clip_length"] = float(data.get("clip_length") or 0)
+    return data
+
+
+def _songguess_run(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Строка журнала заходов «Угадай песню за 10 секунд»."""
+    data = dict(row)
+    data["id"] = int(data.get("id") or 0)
+    data["user_id"] = int(data["user_id"]) if data.get("user_id") is not None else None
+    data["category"] = str(data.get("category") or "")
+    data["difficulty"] = str(data.get("difficulty") or "")
+    data["seconds"] = float(data.get("seconds") or 0)
+    for key in ("rounds", "correct", "score"):
+        data[key] = int(data.get(key) or 0)
+    data["fastest"] = float(data["fastest"]) if data.get("fastest") is not None else None
+    data["detail"] = str(data.get("detail") or "")
     return data
 
 
@@ -1272,6 +1334,143 @@ class Database:
         with self.connect() as db:
             cursor = db.execute("DELETE FROM dotadraft_heroes WHERE id = ?", (str(hero_id),))
             return cursor.rowcount > 0
+
+    # ----------------------------------- «Угадай песню за 10 секунд» (песни)
+    def songguess_track_count(self, category: Optional[str] = None) -> int:
+        with self.connect() as db:
+            if category:
+                row = db.execute("SELECT COUNT(*) AS n FROM songguess_tracks WHERE category = ?",
+                                 (str(category),)).fetchone()
+            else:
+                row = db.execute("SELECT COUNT(*) AS n FROM songguess_tracks").fetchone()
+        return int(row["n"])
+
+    def songguess_tracks(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Песни одной темы (или всех): источник правды для движка игры."""
+        with self.connect() as db:
+            if category:
+                rows = db.execute(
+                    "SELECT * FROM songguess_tracks WHERE category = ? ORDER BY title, artist",
+                    (str(category),)).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM songguess_tracks ORDER BY category, title, artist").fetchall()
+        return [_songguess_track(dict(row)) for row in rows]
+
+    def songguess_save_tracks(self, rows: Iterable[Dict[str, Any]]) -> int:
+        """Добавляет песни и обновляет справочные сведения уже известных.
+
+        Запись (audio), начало и длина фрагмента при повторном наполнении
+        не трогаются: это то, что владелец сайта настраивает под свою версию
+        песни, и затирать это нельзя.
+        """
+        saved = 0
+        with self.connect() as db:
+            for row in rows:
+                track_id = str(row.get("id") or "").strip()
+                if not track_id:
+                    continue
+                db.execute(
+                    "INSERT INTO songguess_tracks (id, category, title, artist, year, source,"
+                    " audio, clip_start, clip_length, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET category = excluded.category, "
+                    "title = excluded.title, artist = excluded.artist, year = excluded.year, "
+                    "source = excluded.source, updated_at = excluded.updated_at",
+                    (
+                        track_id,
+                        str(row.get("category") or "anime"),
+                        str(row.get("title") or track_id),
+                        str(row.get("artist") or ""),
+                        str(row.get("year") or ""),
+                        str(row.get("source") or ""),
+                        str(row.get("audio") or ""),
+                        float(row.get("clip_start") or 0),
+                        float(row.get("clip_length") or DEFAULT_CLIP_LENGTH),
+                        _now(),
+                    ),
+                )
+                saved += 1
+        return saved
+
+    def songguess_set_audio(self, track_id: str, audio: str,
+                            clip_start: Optional[float] = None,
+                            clip_length: Optional[float] = None) -> bool:
+        """Привязывает запись к песне; пустая строка — снова «без записи»."""
+        fields = ["audio = ?", "updated_at = ?"]
+        values: List[Any] = [str(audio), _now()]
+        if clip_start is not None:
+            fields.append("clip_start = ?")
+            values.append(float(clip_start))
+        if clip_length is not None:
+            fields.append("clip_length = ?")
+            values.append(float(clip_length))
+        values.append(str(track_id))
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE songguess_tracks SET " + ", ".join(fields) + " WHERE id = ?",
+                tuple(values),
+            )
+            return cursor.rowcount > 0
+
+    def songguess_delete_track(self, track_id: str) -> bool:
+        """Убирает песню из набора (например, чтобы удалить лишнюю строку)."""
+        with self.connect() as db:
+            cursor = db.execute("DELETE FROM songguess_tracks WHERE id = ?", (str(track_id),))
+            return cursor.rowcount > 0
+
+    def songguess_add_run(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Пишет заход в журнал: кто играл, в какой теме и с каким счётом."""
+        with self.connect() as db:
+            entry_id = db.execute(
+                "INSERT INTO songguess_runs (username, user_id, category, difficulty, seconds,"
+                " rounds, correct, score, fastest, detail, played_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(record.get("username") or ""),
+                    record.get("user_id"),
+                    str(record.get("category") or "anime"),
+                    str(record.get("difficulty") or "normal"),
+                    float(record.get("seconds") or 0),
+                    int(record.get("rounds") or 0),
+                    int(record.get("correct") or 0),
+                    int(record.get("score") or 0),
+                    float(record["fastest"]) if record.get("fastest") is not None else None,
+                    str(record.get("detail") or ""),
+                    _now(),
+                ),
+            ).lastrowid
+            row = db.execute("SELECT * FROM songguess_runs WHERE id = ?", (entry_id,)).fetchone()
+        return _songguess_run(dict(row))
+
+    def songguess_matches(self, user_id: Optional[int] = None, limit: int = 50,
+                          category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Журнал заходов: свои или все подряд (для администратора), по теме или всем."""
+        size = max(1, min(int(limit), 500))
+        where: List[str] = []
+        values: List[Any] = []
+        if category:
+            where.append("category = ?")
+            values.append(str(category))
+        if user_id is not None:
+            where.append("user_id = ?")
+            values.append(int(user_id))
+        condition = f" WHERE {' AND '.join(where)}" if where else ""
+        with self.connect() as db:
+            rows = db.execute(
+                f"SELECT * FROM songguess_runs{condition} ORDER BY id DESC LIMIT ?",
+                (*values, size),
+            ).fetchall()
+        return [_songguess_run(dict(row)) for row in rows]
+
+    def songguess_run_count(self, category: Optional[str] = None) -> int:
+        with self.connect() as db:
+            if category:
+                row = db.execute("SELECT COUNT(*) AS n FROM songguess_runs WHERE category = ?",
+                                 (str(category),)).fetchone()
+            else:
+                row = db.execute("SELECT COUNT(*) AS n FROM songguess_runs").fetchone()
+        return int(row["n"])
 
     # ------------------------------------------- «Рэп-хронология» (порядок лет)
     def raporder_track_count(self) -> int:
