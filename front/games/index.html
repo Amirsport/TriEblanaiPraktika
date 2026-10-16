@@ -24,6 +24,13 @@
     button.status-pill:hover { color: var(--text); border-color: var(--accent); }
     a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
 
+    /* Три показателя витрины — всегда в одном ряду: в main.css .kpis рассчитан
+       на четыре карточки панели и сворачивается в две. */
+    .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    @media (max-width: 560px) {
+      .kpis { grid-template-columns: minmax(0, 1fr); }
+    }
+
     .games-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
 
     .game {
@@ -416,14 +423,29 @@
       document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
     }
 
+    /* Тема хранится тем же ключом и в том же виде, что на страницах игр
+       (`{"theme":"dark"}`), иначе они не увидели бы выбор витрины. Строку от
+       прошлых версий страницы тоже понимаем, сразу перезаписав её объектом. */
+    function storedTheme() {
+      const own = localStorage.getItem(THEME_KEY);
+      if (own) {
+        const parsed = readJson(THEME_KEY);
+        if (parsed && typeof parsed.theme === 'string') return parsed.theme;
+        try {
+          localStorage.setItem(THEME_KEY, JSON.stringify({ theme: own }));
+        } catch (error) {
+          /* приватный режим — обойдёмся без перезаписи */
+        }
+        return own;
+      }
+      const panel = readJson(PANEL_STATE_KEY) || {};
+      return typeof panel.theme === 'string' ? panel.theme : '';
+    }
+
     function initTheme() {
       let theme = '';
       try {
-        theme = localStorage.getItem(THEME_KEY) || '';
-        if (!theme) {
-          const panel = JSON.parse(localStorage.getItem('greenhouse.state.v1') || '{}');
-          theme = (panel && panel.theme) || '';
-        }
+        theme = storedTheme();
       } catch (error) {
         theme = '';
       }
@@ -432,7 +454,7 @@
         const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
         applyTheme(next);
         try {
-          localStorage.setItem(THEME_KEY, next);
+          localStorage.setItem(THEME_KEY, JSON.stringify({ theme: next }));
         } catch (error) {
           /* приватный режим — тема просто не сохранится */
         }
