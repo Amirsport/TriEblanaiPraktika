@@ -101,6 +101,46 @@
     .player-row .ovr { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
     .player-row.taken { opacity: 0.55; }
 
+    /* Пак: сверху три карты, ниже пятёрка игроков. */
+    .pack-hint { display: block; font-size: 12.5px; color: var(--text-dim); margin-bottom: 10px; }
+    .pack-maps { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 18px; }
+    .map-card {
+      display: flex; flex-direction: column; gap: 8px; padding: 10px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--surface-solid); font-family: inherit; color: var(--text); cursor: pointer;
+    }
+    .map-card:hover:not([disabled]) { border-color: var(--accent); }
+    .map-card.mine { border-color: var(--accent); background: var(--accent-soft); }
+    .map-card[disabled] { opacity: 0.55; cursor: default; }
+    .map-card__name { font-size: 13.5px; font-weight: 600; text-align: center; }
+
+    .pack-players { display: grid; gap: 12px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .player-card {
+      display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 8px;
+      border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--surface-solid); font-family: inherit; color: var(--text); cursor: pointer;
+    }
+    .player-card:hover:not([disabled]) { border-color: var(--accent); }
+    .player-card.taken, .player-card[disabled] { opacity: 0.5; cursor: default; }
+    .player-card__role { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--accent); font-weight: 600; }
+    .player-card__name { font-size: 13.5px; font-weight: 600; text-align: center; line-height: 1.2; word-break: break-word; }
+    .player-card__rating { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .player-card__stats { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; text-align: center; }
+    .player-card__action { font-size: 11.5px; color: var(--text-dim); }
+
+    /* Фото игрока или карты: пока картинки нет, показываются инициалы. */
+    .photo { position: relative; display: block; width: 100%; overflow: hidden; border-radius: 8px; background: var(--surface); }
+    .photo::before {
+      content: attr(data-letter); position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; color: var(--text-dim); letter-spacing: 1px;
+    }
+    .photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+    .photo--player { aspect-ratio: 4 / 5; font-size: 26px; }
+    .photo--map { aspect-ratio: 16 / 10; font-size: 20px; }
+    .pack-note { font-size: 11.5px; margin: 14px 0 0; }
+    .pack-note a { color: var(--accent); }
+
     .stat-row { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
     .stat-row b { color: var(--text); font-variant-numeric: tabular-nums; }
 
@@ -131,6 +171,8 @@
       .brand-text h1 { font-size: 18px; }
       .player-row { grid-template-columns: 56px 1fr auto; }
       .player-row .stats { display: none; }
+      .pack-players { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .player-card__stats { display: none; }
     }
   </style>
 </head>
@@ -278,11 +320,14 @@
           <h2 id="pack-team">—</h2>
           <span class="badge" id="pack-meta">—</span>
         </header>
-        <div class="field" style="margin-bottom: 14px;">
-          <span>Карты маппула <b>— одну из них можно забрать в свой пул</b></span>
-          <div class="maps" id="pack-maps"></div>
+        <div class="field">
+          <span class="pack-hint">Карты состава — <b>одну из них можно забрать в свой пул</b>, на остальных состав играть не умеет</span>
+          <div class="pack-maps" id="pack-maps"></div>
         </div>
-        <div class="players" id="pack-players"></div>
+        <div class="pack-players" id="pack-players"></div>
+        <p class="muted pack-note">Фото игроков и карт —
+          <a href="https://liquipedia.net/counterstrike" target="_blank" rel="noopener">Liquipedia</a>
+          (CC-BY-SA 3.0), права принадлежат их авторам.</p>
         <div class="row" id="role-chooser" hidden></div>
       </section>
 
@@ -363,6 +408,23 @@
       return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
         { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
       ));
+    }
+
+    // Имя файла для фото: так же приводятся имена в _fetch_player_images.py.
+    function photoKey(text) {
+      return String(text == null ? '' : text).toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+
+    // Фото игрока или карты из front/games/csdraft/img; без файла — инициалы.
+    function photoTag(kind, name, extraClass, alt) {
+      const key = photoKey(name);
+      const letter = escapeHtml(String(name).replace(/[^0-9A-Za-zА-Яа-я]/g, '').slice(0, 2).toUpperCase());
+      return '<span class="photo photo--' + kind + (extraClass ? ' ' + extraClass : '')
+        + '" data-letter="' + letter + '" aria-hidden="true">'
+        + (key ? '<img src="img/' + kind + 's/' + key + '.jpg" alt="' + escapeHtml(alt)
+          + '" loading="lazy" onerror="this.remove()">' : '')
+        + '</span>';
     }
 
     function toast(message, kind) {
@@ -796,25 +858,29 @@
         $('#pack-maps').innerHTML = packing.maps.map((name) => {
           const mine = run.pool.includes(name);
           const full = run.pool.length >= run.pool_limit;
-          return '<button type="button" class="map-chip' + (mine ? ' mine' : '') + '" data-map="'
-            + escapeHtml(name) + '"' + (mine || full ? ' disabled' : '') + '>'
-            + escapeHtml(name) + (mine ? ' ✓' : '') + '</button>';
+          return '<button type="button" class="map-card' + (mine ? ' mine' : '') + '" data-map="'
+            + escapeHtml(name) + '" title="Забрать карту в свой пул"'
+            + (mine || full ? ' disabled' : '') + '>'
+            + photoTag('map', name, null, name)
+            + '<span class="map-card__name">' + escapeHtml(name) + (mine ? ' ✓' : '') + '</span></button>';
         }).join('');
 
         const taken = Object.values(run.squad).filter(Boolean)
           .map((player) => player.name.toLowerCase());
         $('#pack-players').innerHTML = packing.players.map((player) => {
           const isTaken = taken.includes(player.name.toLowerCase());
-          return '<div class="player-row' + (isTaken ? ' taken' : '') + '">'
-            + '<span class="role-tag">' + escapeHtml(player.role_label) + '</span>'
-            + '<span class="who">' + escapeHtml(player.name) + '</span>'
-            + '<span class="stats">AIM ' + num(player.aim) + ' · CLUTCH ' + num(player.clutch)
-            + ' · IMP ' + num(player.impact) + '</span>'
-            + '<span class="row" style="gap:10px;justify-content:flex-end;">'
-            + '<span class="ovr">' + num(player.ovr) + '</span>'
-            + '<button type="button" class="btn btn-sm ' + (isTaken ? 'btn-ghost' : 'btn-primary')
-            + '" data-player="' + escapeHtml(player.name) + '"' + (isTaken ? ' disabled' : '') + '>'
-            + (isTaken ? 'в составе' : 'Взять') + '</button></span></div>';
+          const stats = 'AIM ' + num(player.aim) + ' · CLUTCH ' + num(player.clutch)
+            + ' · IMP ' + num(player.impact);
+          return '<button type="button" class="player-card' + (isTaken ? ' taken' : '') + '"'
+            + ' data-player="' + escapeHtml(player.name) + '" title="' + stats + '"'
+            + (isTaken ? ' disabled' : '') + '>'
+            + '<span class="player-card__role">' + escapeHtml(player.role_label) + '</span>'
+            + photoTag('player', player.name, null, player.name)
+            + '<span class="player-card__name">' + escapeHtml(player.name) + '</span>'
+            + '<span class="player-card__rating">' + num(player.ovr) + '</span>'
+            + '<span class="player-card__stats">' + stats + '</span>'
+            + '<span class="player-card__action">' + (isTaken ? 'в составе' : 'Взять') + '</span>'
+            + '</button>';
         }).join('');
       }
 
