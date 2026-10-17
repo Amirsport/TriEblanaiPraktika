@@ -54,16 +54,20 @@ API (JSON):
     DELETE /api/secret/data/<id>         (admin) удалить запись
 
 Игры (Bearer-токен аккаунта, без общего ключа):
-    GET  /api/games/narutodle/characters           набор персонажей и графы сравнения
+    GET  /api/games/narutodle/characters           набор персонажей, графы и режимы
     GET  /api/games/narutodle/portrait/<id>        портрет персонажа (картинка, кэшируется)
     GET  /api/games/narutodle/matches?limit=&scope= журнал матчей: свои или все (admin)
-    POST /api/games/narutodle/rooms                создать комнату дуэли
-    POST /api/games/narutodle/rooms/<код>/join     войти вторым игроком
+    POST /api/games/narutodle/rooms                создать комнату-лобби до 6 игроков
+    POST /api/games/narutodle/rooms/<код>/join     занять место в лобби
+    POST /api/games/narutodle/rooms/<код>/leave    выйти из комнаты
+    POST /api/games/narutodle/rooms/<код>/mode     {"mode":"duel|race|teams"} — режим (хозяин)
+    POST /api/games/narutodle/rooms/<код>/start    начать игру (хозяин)
+    POST /api/games/narutodle/rooms/<код>/lobby    вернуться в лобби после партии
     GET  /api/games/narutodle/rooms/<код>          состояние комнаты (опрос страницей)
-    GET  /api/games/narutodle/rooms/<код>/watch    наблюдение за дуэлью (обе таблицы)
+    GET  /api/games/narutodle/rooms/<код>/watch    наблюдение за комнатой
     POST /api/games/narutodle/rooms/<код>/guess    {"name":"..."} догадка
-    POST /api/games/narutodle/rooms/<код>/giveup   сдаться в раунде
-    POST /api/games/narutodle/rooms/<код>/rematch  новый раунд
+    POST /api/games/narutodle/rooms/<код>/giveup   сдаться
+    POST /api/games/narutodle/rooms/<код>/rematch  новая партия
 
 Игры «Аниме-сонглесс» (тоже по аккаунту):
     GET  /api/games/songless/status                 сколько треков и что можно играть
@@ -170,7 +174,12 @@ try:  # запуск как модуль: python -m backend.server
         hero_rows as dotadraft_hero_rows,
         player_rows as dotadraft_player_rows,
     )
-    from .narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError
+    from .narutodle import (
+        MAX_ATTEMPTS as NARUTODLE_MAX_ATTEMPTS,
+        MAX_PLAYERS as NARUTODLE_MAX_PLAYERS,
+        Narutodle,
+        NarutodleError,
+    )
     from .narutodle_data import attribute_list, seed_rows
     from .raporder import (
         ANSWER_SECONDS as RAP_ANSWER_SECONDS,
@@ -245,7 +254,12 @@ except ImportError:  # запуск как файл: python backend/server.py
         hero_rows as dotadraft_hero_rows,
         player_rows as dotadraft_player_rows,
     )
-    from narutodle import MAX_ATTEMPTS, Narutodle, NarutodleError  # type: ignore
+    from narutodle import (  # type: ignore
+        MAX_ATTEMPTS as NARUTODLE_MAX_ATTEMPTS,
+        MAX_PLAYERS as NARUTODLE_MAX_PLAYERS,
+        Narutodle,
+        NarutodleError,
+    )
     from narutodle_data import attribute_list, seed_rows  # type: ignore
     from raporder import (  # type: ignore
         ANSWER_SECONDS as RAP_ANSWER_SECONDS,
@@ -611,13 +625,15 @@ class Application:
         )
 
     def _log_narutodle_match(self, record: Dict[str, Any]) -> None:
-        """Пишет итог раунда в журнал матчей и в общий журнал событий."""
+        """Пишет итог партии в журнал матчей и в общий журнал событий."""
         entry = self.db.narutodle_add_match(record)
         winner = entry.get("winner_name") or "никто"
+        players = entry.get("players") or ""
         self.db.add_log(
-            f"Narutodle: матч #{entry['id']} в комнате {entry['room']}, раунд "
-            f"{entry['round_number']} — победил {winner} "
-            f"({entry['winner_attempts']} попыток против {entry['loser_attempts']})",
+            f"Narutodle: партия #{entry['id']} в комнате {entry['room']}, "
+            f"режим «{entry.get('mode') or 'duel'}» — победил {winner}"
+            f" ({players or 'без доски'}; попыток: {entry['winner_attempts']} "
+            f"против {entry['loser_attempts']})",
             "info",
         )
 
@@ -1260,7 +1276,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------- игры: Narutodle
     def _handle_games_api(self, method: str, path: str) -> None:
-        """Дуэль «Narutodle»: комнаты, попытки, итог раунда.
+        """«Narutodle»: комнаты до шести игроков, лобби и три режима игры.
 
         Вход — по аккаунту панели (Bearer), общий API-ключ здесь не спрашивается:
         ссылку-приглашение пересылают другу, и ключ в ней был бы утечкой.
@@ -1304,7 +1320,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({
                     "characters": app.narutodle.catalog(),
                     "attributes": attribute_list(),
-                    "max_attempts": MAX_ATTEMPTS,
+                    "max_attempts": NARUTODLE_MAX_ATTEMPTS,
+                    "max_players": NARUTODLE_MAX_PLAYERS,
+                    "modes": app.narutodle.modes(),
                 })
 
             # Портрет открыт без входа: это картинка из того же открытого каталога.
@@ -1337,14 +1355,15 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST" and path == f"{prefix}/rooms":
                 if not app.allow_game_action(client):
                     return self._error("Слишком много комнат за минуту — подождите немного", 429)
-                return self._json({"state": app.narutodle.create(user)}, 201)
+                mode = str(self._body().get("mode") or "duel")
+                return self._json({"state": app.narutodle.create(user, mode)}, 201)
 
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})", path)
             if method == "GET" and match:
                 return self._json({"state": app.narutodle.state(match.group(1), user)})
 
             # Наблюдение: пускает любого вошедшего, участник получает member=true
-            # и уходит в обычную дуэль. Поле живёт на опросе, поэтому без лимита.
+            # и уходит в свою комнату. Поле живёт на опросе, поэтому без лимита.
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/watch", path)
             if method == "GET" and match:
                 return self._json({"state": app.narutodle.watch(match.group(1), user)})
@@ -1354,6 +1373,23 @@ class Handler(BaseHTTPRequestHandler):
                 if not app.allow_game_action(client):
                     return self._error("Слишком много попыток войти — подождите минуту", 429)
                 return self._json({"state": app.narutodle.join(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/leave", path)
+            if method == "POST" and match:
+                return self._json({"state": app.narutodle.leave(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/mode", path)
+            if method == "POST" and match:
+                mode = str(self._body().get("mode") or "")
+                return self._json({"state": app.narutodle.set_mode(match.group(1), user, mode)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/start", path)
+            if method == "POST" and match:
+                return self._json({"state": app.narutodle.start(match.group(1), user)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/lobby", path)
+            if method == "POST" and match:
+                return self._json({"state": app.narutodle.to_lobby(match.group(1), user)})
 
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/guess", path)
             if method == "POST" and match:

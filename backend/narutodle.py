@@ -1,20 +1,27 @@
 # -*- coding: utf-8 -*-
-"""Дуэль «Narutodle»: одна загадка на двоих, побеждает тот, кто угадает первым.
+"""«Narutodle»: комната до шести игроков и три режима игры.
 
 Правила:
-    * комната создаётся по коду приглашения и ждёт второго игрока;
-    * обоим загадан один и тот же персонаж, у каждого своя таблица попыток;
-    * решивший первым забирает раунд; сдавшийся отдаёт раунд сопернику;
-    * после раунда видно ответ и обе таблицы, дальше — новый раунд.
-    * за дуэлью можно наблюдать: зритель видит обе таблицы, но не загадку.
+    * комната открывается по коду приглашения и вмещает до шести игроков;
+    * в лобби видно, кто пришёл, кто хозяин и сколько мест свободно; хозяин
+      выбирает режим и запускает игру — начать можно с любым числом игроков;
+    * «Дуэль»: один общий персонаж, кто угадает его первым, тот и забирает
+      раунд; после итога можно сыграть следующий;
+    * «Гонка»: у всех один и тот же набор из пяти персонажей, у каждого своя
+      доска подсказок; побеждает тот, кто первым закроет все пять;
+    * «Команды»: игроки делятся на две команды, набор из пяти персонажей у
+      обеих одинаковый, а доска у команды общая — подсказки видят все её
+      игроки. Побеждает команда, которая первой закроет весь набор;
+    * за комнатой можно наблюдать: зритель видит доски, но не загадки, пока
+      игра не закончилась.
 
 Комнаты живут в памяти процесса: это партии на несколько минут, переживать
 перезапуск сервера им не нужно. Доступ к комнатам закрыт аккаунтом панели,
 поэтому модуль оперирует уже проверенными пользователями.
 
 Набор персонажей модуль получает готовым списком — его читает сервер из таблицы
-narutodle_characters, поэтому набор правится в базе, а не в коде. Итог каждого
-раунда уходит в переданный обработчик (сервер пишет его в журнал матчей).
+narutodle_characters, поэтому набор правится в базе, а не в коде. Итог каждой
+партии уходит в переданный обработчик (сервер пишет его в журнал матчей).
 """
 from __future__ import annotations
 
@@ -45,11 +52,28 @@ except ImportError:  # запуск как файл: python backend/server.py
 
 # Заброшенная комната живёт два часа, потом исчезает вместе с историей.
 ROOM_TTL_SECONDS = 2 * 60 * 60
-# Потолок попыток в раунде: защита от перебора всего списка персонажей.
+# Потолок попыток на доску: защита от перебора всего списка персонажей.
 MAX_ATTEMPTS = 80
 # Одновременных комнат на сервере — с запасом для домашнего использования.
 MAX_ROOMS = 200
-MAX_PLAYERS = 2
+# За одним столом — до шести игроков, как в лобби на странице игры.
+MAX_PLAYERS = 6
+# Сколько персонажей нужно закрыть в «Гонке» и «Командах».
+RACE_TARGETS = 5
+
+MODES: tuple = ("duel", "race", "teams")
+MODE_LABELS: Dict[str, str] = {
+    "duel": "Дуэль",
+    "race": "Гонка",
+    "teams": "Команды",
+}
+MODE_HINTS: Dict[str, str] = {
+    "duel": "Один общий персонаж: кто угадает первым, тот и победил.",
+    "race": "Пять персонажей у всех одинаковые: кто первым закроет все пять, тот и победил.",
+    "teams": "Две команды, одинаковый набор из пяти персонажей и общая доска у команды.",
+}
+TEAM_KEYS = ("a", "b")
+TEAM_NAMES: Dict[str, str] = {"a": "Команда A", "b": "Команда B"}
 
 # Без похожих символов (I/1, O/0): код диктуют голосом и вводят руками.
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -113,7 +137,7 @@ def compare_order(key: str, guess: Any, target: Any) -> str:
 
 
 class Narutodle:
-    """Комнаты дуэли: создание, вход, попытки, итог раунда."""
+    """Комнаты игры: лобби, режимы, попытки и итог партии."""
 
     def __init__(self, characters: Optional[List[Dict[str, Any]]] = None,
                  rng: Optional[random.Random] = None,
@@ -124,10 +148,11 @@ class Narutodle:
         self._rng = rng or random.Random()
         self._on_finish = on_finish
         # Источник набора (обычно таблица в базе) — набор перечитывается
-        # перед каждым новым раундом, поэтому правки видны без перезапуска.
+        # перед каждой новой партией, поэтому правки видны без перезапуска.
         self._provider = provider
         self.reload_characters(characters)
 
+    # ------------------------------------------------------------------ данные
     def reload_characters(self, characters: Optional[List[Dict[str, Any]]] = None) -> int:
         """Берёт набор персонажей и пересобирает поиск по имени."""
         self._characters = [dict(character) for character in (characters or CHARACTERS)]
@@ -171,6 +196,11 @@ class Narutodle:
             for character in self._characters
         ]
 
+    def modes(self) -> List[Dict[str, str]]:
+        """Режимы для выбора в лобби: ключ, название и подсказка."""
+        return [{"key": key, "label": MODE_LABELS[key], "hint": MODE_HINTS[key]}
+                for key in MODES]
+
     # ------------------------------------------------------------ служебное
     def _cleanup(self, now: float) -> None:
         """Убирает комнаты, в которые давно никто не заходил (вызывать под замком)."""
@@ -185,16 +215,17 @@ class Narutodle:
             if code not in self._rooms:
                 return code
 
-    def _pick_target(self, exclude: Optional[str] = None) -> Dict[str, Any]:
-        """Случайный персонаж; в новом раунде — не тот же, что был."""
-        pool = [character for character in self._characters if character["name"] != exclude]
-        return self._rng.choice(pool or self._characters)
-
     def _room(self, code: str) -> Dict[str, Any]:
         room = self._rooms.get((code or "").strip().upper())
         if not room:
             raise NarutodleError("Комната не найдена — проверьте код приглашения")
         return room
+
+    @staticmethod
+    def _ordered(room: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Игроки в порядке входа: первый пришёл — первым в списке."""
+        return [room["players"][player_id] for player_id in room["order"]
+                if player_id in room["players"]]
 
     def _player(self, room: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
         player = room["players"].get(user["id"])
@@ -202,233 +233,292 @@ class Narutodle:
             raise NarutodleError("Вы не участник этой комнаты")
         return player
 
-    def _rival(self, room: Dict[str, Any], user_id: int) -> Optional[Dict[str, Any]]:
-        for player_id, player in room["players"].items():
-            if player_id != user_id:
-                return player
-        return None
+    @staticmethod
+    def _new_player(user: Dict[str, Any], now: float) -> Dict[str, Any]:
+        return {
+            "id": user["id"],
+            "name": user["username"],
+            "joined": now,
+            "team": None,
+            "ready": False,
+            "gave_up": False,
+        }
 
-    def _score(self, room: Dict[str, Any], user_id: int) -> Dict[str, int]:
-        """Счёт по раундам: победы каждого участника."""
-        mine = rival = 0
-        for result in room["history"]:
-            if result["winner"] == user_id:
-                mine += 1
-            elif result["winner"] is not None:
-                rival += 1
-        return {"you": mine, "rival": rival, "rounds": len(room["history"])}
+    @staticmethod
+    def _new_group(key: str, name: str, team: Optional[str]) -> Dict[str, Any]:
+        return {"key": key, "name": name, "team": team,
+                "attempts": [], "found": [], "finished_at": None}
 
-    def _start_round(self, room: Dict[str, Any], now: float,
-                     exclude: Optional[str] = None) -> None:
-        target = self._pick_target(exclude)
-        room["round"] = {
-            "number": room["round"]["number"] + 1 if room.get("round") else 1,
-            "target": target,
+    def _group_key(self, room: Dict[str, Any], player: Dict[str, Any]) -> str:
+        """Ключ доски: у команд общая доска, у остальных — своя."""
+        match = room.get("match")
+        if match and match["mode"] == "teams":
+            return str(player.get("team") or "")
+        return str(player["id"])
+
+    def _group_for(self, room: Dict[str, Any], player: Dict[str, Any]
+                   ) -> Optional[Dict[str, Any]]:
+        match = room.get("match")
+        if not match:
+            return None
+        return match["groups"].get(self._group_key(room, player))
+
+    # --------------------------------------------------------------- команды
+    def _assign_teams(self, room: Dict[str, Any]) -> None:
+        """Делит игроков на две команды по очереди входа (первый — в A)."""
+        for index, player in enumerate(self._ordered(room)):
+            player["team"] = TEAM_KEYS[index % len(TEAM_KEYS)]
+
+    def _team_members(self, room: Dict[str, Any], team: str) -> List[Dict[str, Any]]:
+        return [player for player in self._ordered(room) if player.get("team") == team]
+
+    # ---------------------------------------------------------------- партия
+    def _start_match(self, room: Dict[str, Any], now: float) -> None:
+        """Разыгрывает новый набор и открывает партию в выбранном режиме."""
+        mode = room["mode"]
+        self.refresh()
+        count = 1 if mode == "duel" else RACE_TARGETS
+        if len(self._characters) < count:
+            raise NarutodleError(f"В наборе меньше {count} персонажей — этот режим не запустить")
+        targets = self._rng.sample(self._characters, count)
+        groups: Dict[str, Dict[str, Any]] = {}
+        if mode == "teams":
+            for team in TEAM_KEYS:
+                if self._team_members(room, team):
+                    groups[team] = self._new_group(team, TEAM_NAMES[team], team)
+        else:
+            for player in self._ordered(room):
+                groups[str(player["id"])] = self._new_group(
+                    str(player["id"]), player["name"], player.get("team"))
+        previous = room.get("match") or {}
+        room["match_count"] = int(room.get("match_count") or 0) + 1
+        room["match"] = {
+            "number": room["match_count"],
+            "mode": mode,
+            "targets": [dict(target) for target in targets],
+            "groups": groups,
             "winner": None,
+            "draw": False,
             "finished": False,
             "reason": None,
             "started": now,
+            "ended": None,
         }
-        for player in room["players"].values():
-            player["attempts"] = []
-            player["solved_in"] = None
-            player["gave_up"] = False
-            player["ready"] = False
-        # Отметки готовности относятся к прошлому раунду: новый начинается с нуля.
+        room["status"] = "playing"
         room["ready"] = set()
+        for player in room["players"].values():
+            player["ready"] = False
+            player["gave_up"] = False
         room["updated"] = now
 
-    def _finish_round(self, room: Dict[str, Any], now: float,
-                      winner_id: Optional[int], reason: str, answer: bool = True) -> None:
-        round_ = room["round"]
-        round_["finished"] = True
-        round_["winner"] = winner_id
-        round_["reason"] = reason
+    def _finish_match(self, room: Dict[str, Any], now: float, reason: str) -> None:
+        match = room["match"]
+        match["finished"] = True
+        match["ended"] = now
+        match["reason"] = reason
+        room["status"] = "finished"
+        room["ready"] = set()
+        for player in room["players"].values():
+            player["ready"] = False
         room["history"].append({
-            "round": round_["number"],
-            "winner": winner_id,
-            "winner_name": (room["players"][winner_id]["name"] if winner_id in room["players"] else None),
+            "number": match["number"],
+            "mode": match["mode"],
             "reason": reason,
-            "target": public_character(round_["target"]) if answer else None,
-            "attempts": {player["name"]: len(player["attempts"])
-                         for player in room["players"].values()},
+            "winner_name": (match["groups"][match["winner"]]["name"]
+                            if match.get("winner") else None),
+            "targets": [str(target["name"]) for target in match["targets"]],
+            "groups": [
+                {"name": group["name"],
+                 "found_count": len(group["found"]),
+                 "total": len(match["targets"]),
+                 "seconds": (round(group["finished_at"] - match["started"], 1)
+                             if group["finished_at"] else None)}
+                for group in match["groups"].values()
+            ],
         })
+        room["history"] = room["history"][-20:]
         room["updated"] = now
-        self._log_match(room, winner_id, reason)
+        self._log_match(room, reason)
 
-    def _log_match(self, room: Dict[str, Any], winner_id: Optional[int],
-                   reason: str) -> None:
-        """Передаёт итог раунда наружу — сервер пишет его в журнал матчей.
+    def _log_match(self, room: Dict[str, Any], reason: str) -> None:
+        """Передаёт итог партии наружу — сервер пишет его в журнал матчей.
 
-        Ошибка журнала не должна ломать партию: раунд уже закончился, игроки
+        Ошибка журнала не должна ломать партию: партия уже закончилась, игроки
         видят результат, поэтому сбой записи только отмечаем в stderr.
         """
         if not self._on_finish:
             return
-        players = list(room["players"].values())
+        match = room["match"]
+        players = self._ordered(room)
+        winner = match["groups"].get(match.get("winner") or "")
+        winner_player = None
+        if winner and winner.get("team"):
+            members = [player for player in players if player.get("team") == winner["team"]]
+            winner_player = members[0] if members else None
+        elif winner:
+            winner_player = next(
+                (player for player in players if str(player["id"]) == winner["key"]), None)
+        others = [group for key, group in match["groups"].items()
+                  if key != (match.get("winner") or "")]
         first = players[0] if players else {"id": None, "name": ""}
         second = players[1] if len(players) > 1 else {"id": None, "name": ""}
-        winner = room["players"].get(winner_id) if winner_id is not None else None
-        loser = next((player for player in players if player["id"] != winner_id), None)
-        round_ = room["round"]
         try:
             self._on_finish({
                 "room": room["code"],
-                "round_number": round_["number"],
-                "target": str(round_["target"]["name"]),
+                "round_number": match["number"],
+                "mode": match["mode"],
+                "target": "; ".join(str(target["name"]) for target in match["targets"]),
+                "players": "; ".join(
+                    f"{group['name']}: {len(group['found'])}/{len(match['targets'])}"
+                    for group in match["groups"].values()),
+                "player_ids": [player["id"] for player in players],
                 "player1_id": first.get("id"),
                 "player1_name": str(first.get("name") or ""),
                 "player2_id": second.get("id"),
                 "player2_name": str(second.get("name") or ""),
-                "winner_id": winner["id"] if winner else None,
+                "winner_id": winner_player["id"] if winner_player else None,
                 "winner_name": str(winner["name"]) if winner else "",
-                "loser_name": str(loser["name"]) if loser else "",
+                "loser_name": str(others[0]["name"]) if others else "",
                 "winner_attempts": len(winner["attempts"]) if winner else 0,
-                "loser_attempts": len(loser["attempts"]) if loser else 0,
+                "loser_attempts": max((len(group["attempts"]) for group in others), default=0),
                 "reason": reason,
             })
         except Exception as exc:  # noqa: BLE001
-            sys.stderr.write(f"  журнал матчей недоступен: {exc}\n")
+            sys.stderr.write(f"  не удалось записать итог партии в журнал: {exc}\n")
 
-    # ------------------------------------------------------------- состояние
-    def state(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
-        """Состояние комнаты по коду — то, что видит игрок."""
-        with self._lock:
-            self._cleanup(time.time())
-            return self._payload(self._room(code), user)
+    # ---------------------------------------------------------------- вывод
+    @staticmethod
+    def _group_public(match: Dict[str, Any], group: Dict[str, Any],
+                      mine: bool) -> Dict[str, Any]:
+        """Доска группы: чужие подсказки открываются только после итога."""
+        reveal = mine or match["finished"]
+        return {
+            "key": group["key"],
+            "name": group["name"],
+            "team": group.get("team"),
+            "mine": mine,
+            "found": list(group["found"]) if reveal else None,
+            "found_count": len(group["found"]),
+            "total": len(match["targets"]),
+            "attempts": group["attempts"] if reveal else None,
+            "finished": bool(group["finished_at"]),
+            "seconds": (round(group["finished_at"] - match["started"], 1)
+                        if group["finished_at"] else None),
+        }
 
-    def watch(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
-        """Состояние комнаты глазами зрителя: обе таблицы, загадка — только в итоге.
+    def _payload(self, room: Dict[str, Any], user: Dict[str, Any],
+                 watcher: bool = False) -> Dict[str, Any]:
+        """Публичное состояние комнаты с точки зрения игрока или зрителя."""
+        now = time.time()
+        match = room.get("match")
+        ordered = self._ordered(room)
+        you = room["players"].get(user["id"])
+        mine_key = self._group_key(room, you) if (you and match) else None
+        is_host = room.get("host") == user["id"]
 
-        Зрителем может быть любой вошедший в аккаунт: по ссылке-приглашению
-        человек сам выбирает, играть ему или смотреть. Участник комнаты тоже
-        может смотреть, но тогда ответ помечен `member` — страница отправит его
-        в обычную дуэль.
-        """
-        with self._lock:
-            self._cleanup(time.time())
-            return self._watch_payload(self._room(code), user)
-
-    def _watch_payload(self, room: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
-        """Публичное состояние комнаты для наблюдателя.
-
-        Отличие от `_payload` в том, что «моей» стороны здесь нет: отдаются
-        обе таблицы попыток, чтобы за дуэлью было интересно следить. Загадка
-        при этом остаётся закрытой до конца раунда — иначе зритель просто
-        выкрикнул бы ответ игрокам.
-        """
-        round_ = room["round"]
-        finished = round_["finished"]
-        waiting = len(room["players"]) < MAX_PLAYERS
-        status = "finished" if finished else ("waiting" if waiting else "playing")
-
-        players: List[Dict[str, Any]] = []
-        for player in room["players"].values():
-            wins = sum(1 for result in room["history"] if result["winner"] == player["id"])
-            players.append({
+        players_public = []
+        for player in ordered:
+            group = match["groups"].get(self._group_key(room, player)) if match else None
+            players_public.append({
                 "id": player["id"],
                 "name": player["name"],
-                "wins": wins,
-                "guess_count": len(player["attempts"]),
-                "solved_in": player["solved_in"],
-                "gave_up": player["gave_up"],
-                "ready": bool(finished and player["id"] in room["ready"]),
-                "attempts": player["attempts"],
+                "you": player["id"] == user["id"],
+                "host": player["id"] == room.get("host"),
+                "team": player.get("team"),
+                "team_label": TEAM_NAMES.get(player.get("team") or "", ""),
+                "ready": player["id"] in room["ready"],
+                "gave_up": bool(player["gave_up"]),
+                "found_count": len(group["found"]) if group else 0,
+                "finished": bool(group and group["finished_at"]),
             })
 
-        winner = room["players"].get(round_["winner"]) if finished and round_["winner"] else None
-        return {
-            "code": room["code"],
-            "status": status,
-            "round": round_["number"],
-            "watching": True,
-            "member": user["id"] in room["players"],
-            "players": players,
-            "rounds": len(room["history"]),
-            "winner_name": str(winner["name"]) if winner else None,
-            "draw": bool(finished and round_["winner"] is None),
-            "finish_reason": round_["reason"],
-            "answer": public_character(round_["target"]) if finished else None,
-            "history": [
-                {"round": item["round"],
-                 "winner_name": item["winner_name"],
-                 "attempts": item["attempts"],
-                 "target": item["target"]["name"] if item["target"] else None}
-                for item in room["history"]
-            ],
-            "updated": round(room["updated"], 3),
-        }
+        match_public = None
+        you_public = None
+        if match:
+            groups = []
+            for key, group in match["groups"].items():
+                groups.append(self._group_public(
+                    match, group, bool(you and key == mine_key)))
+            my_group = match["groups"].get(mine_key) if you else None
+            match_public = {
+                "number": match["number"],
+                "mode": match["mode"],
+                "mode_label": MODE_LABELS.get(match["mode"], match["mode"]),
+                "targets_total": len(match["targets"]),
+                "finished": match["finished"],
+                "reason": match["reason"],
+                "draw": bool(match["draw"]),
+                "winner": ({"key": match["winner"],
+                            "name": match["groups"][match["winner"]]["name"],
+                            "mine": bool(mine_key and match["winner"] == mine_key)}
+                           if match.get("winner") else None),
+                "elapsed": round((match["ended"] or now) - match["started"], 1),
+                "groups": groups,
+                "answers": ([public_character(target) for target in match["targets"]]
+                            if match["finished"] else None),
+            }
+            if you:
+                you_public = {
+                    "id": you["id"],
+                    "name": you["name"],
+                    "ready": you["id"] in room["ready"],
+                    "gave_up": bool(you["gave_up"]),
+                    "team": you.get("team"),
+                    "team_label": TEAM_NAMES.get(you.get("team") or "", ""),
+                    "group": mine_key,
+                    "found": list(my_group["found"]) if my_group else [],
+                    "found_count": len(my_group["found"]) if my_group else 0,
+                    "total": len(match["targets"]),
+                    "attempts": my_group["attempts"] if my_group else [],
+                    "finished": bool(my_group and my_group["finished_at"]),
+                }
 
-    def _payload(self, room: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
-        """Публичное состояние комнаты с точки зрения одного игрока.
-
-        Загадка не попадает в ответ, пока раунд не закончился, а таблица
-        соперника скрыта до итога — иначе подсказки утекали бы сопернику.
-        """
-        viewer = self._player(room, user)
-        rival = self._rival(room, user["id"])
-        round_ = room["round"]
-        finished = round_["finished"]
-        waiting = len(room["players"]) < MAX_PLAYERS
-
-        if finished:
-            status = "finished"
-        elif waiting:
-            status = "waiting"
-        else:
-            status = "playing"
-
-        winner = None
-        if finished:
-            if round_["winner"] is None:
-                winner = "draw"
-            else:
-                winner = "you" if round_["winner"] == user["id"] else "rival"
-
-        # Готовность к новому раунду: свой флаг и соперника — по ним страница
-        # показывает «ждём соперника» вместо кнопки «Ещё раунд».
-        ready = {"you": user["id"] in room["ready"] and finished,
-                 "rival": bool(rival) and rival["id"] in room["ready"] and finished}
+        teams = [
+            {"key": team, "label": TEAM_NAMES[team],
+             "members": [player["name"] for player in self._team_members(room, team)]}
+            for team in TEAM_KEYS
+        ] if room["mode"] == "teams" else []
 
         return {
             "code": room["code"],
-            "status": status,
-            "round": round_["number"],
-            "ready": ready,
-            "you": {
-                "name": viewer["name"],
-                "attempts": viewer["attempts"],
-                "guess_count": len(viewer["attempts"]),
-                "solved_in": viewer["solved_in"],
-                "gave_up": viewer["gave_up"],
-            },
-            "rival": None if not rival else {
-                "name": rival["name"],
-                "guess_count": len(rival["attempts"]),
-                "solved_in": rival["solved_in"],
-                "gave_up": rival["gave_up"],
-                # чужую таблицу открываем только после итога раунда
-                "attempts": rival["attempts"] if finished else None,
-            },
-            "winner": winner,
-            "finish_reason": round_["reason"],
-            "answer": public_character(round_["target"]) if finished else None,
-            "score": self._score(room, user["id"]),
-            "history": [
-                {"round": item["round"],
-                 "winner": ("you" if item["winner"] == user["id"]
-                            else ("draw" if item["winner"] is None else "rival")),
-                 "winner_name": item["winner_name"],
-                 "attempts": item["attempts"],
-                 "target": item["target"]["name"] if item["target"] else None}
-                for item in room["history"]
-            ],
+            "status": room["status"],
+            "mode": room["mode"],
+            "mode_label": MODE_LABELS.get(room["mode"], room["mode"]),
+            "modes": self.modes(),
+            "capacity": MAX_PLAYERS,
+            "free": max(0, MAX_PLAYERS - len(ordered)),
+            "players_count": len(ordered),
+            "host_name": (room["players"][room["host"]]["name"]
+                          if room.get("host") in room["players"] else ""),
+            "is_host": is_host,
+            "watching": watcher,
+            "member": bool(you),
+            "you": you_public,
+            "players": players_public,
+            "teams": teams,
+            "match": match_public,
+            "history": list(room["history"]),
             "updated": round(room["updated"], 3),
         }
 
-    # ------------------------------------------------------------- команды
-    def create(self, user: Dict[str, Any]) -> Dict[str, Any]:
-        """Создаёт комнату: игрок становится первым участником и ждёт соперника."""
+    def state(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Состояние комнаты для участника: его доска плюс сводка по другим."""
+        with self._lock:
+            room = self._room(code)
+            self._player(room, user)
+            return self._payload(room, user)
+
+    def watch(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Наблюдение: любой вошедший, участник получает member=true."""
+        with self._lock:
+            room = self._room(code)
+            return self._payload(room, user, watcher=True)
+
+    # --------------------------------------------------------------- действия
+    def create(self, user: Dict[str, Any], mode: str = "duel") -> Dict[str, Any]:
+        """Создаёт комнату-лобби: хозяин ждёт остальных, до шести игроков."""
+        if mode not in MODES:
+            raise NarutodleError("Неизвестный режим игры")
         now = time.time()
         with self._lock:
             self._cleanup(now)
@@ -440,33 +530,107 @@ class Narutodle:
                 "code": code,
                 "created": now,
                 "updated": now,
-                "players": {user["id"]: {
-                    "id": user["id"], "name": user["username"],
-                    "attempts": [], "solved_in": None, "gave_up": False, "ready": False,
-                }},
-                "history": [],
-                "round": None,
+                "host": user["id"],
+                "mode": mode,
+                "status": "lobby",
+                "players": {user["id"]: self._new_player(user, now)},
+                "order": [user["id"]],
                 "ready": set(),
+                "match": None,
+                "history": [],
             }
-            self._start_round(room, now)
+            self._assign_teams(room)
             self._rooms[code] = room
             return self._payload(room, user)
 
     def join(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
-        """Входит в комнату вторым игроком (повторный вход ничего не ломает)."""
+        """Занимает свободное место в лобби (повторный вход ничего не ломает)."""
         now = time.time()
         with self._lock:
             self._cleanup(now)
             room = self._room(code)
             if user["id"] not in room["players"]:
+                if room["status"] != "lobby":
+                    raise NarutodleError("Игра уже началась — можно смотреть или дождаться новой")
                 if len(room["players"]) >= MAX_PLAYERS:
-                    raise NarutodleError("В комнате уже двое игроков")
-                if room["history"] or room["round"]["number"] > 1:
-                    raise NarutodleError("Дуэль в этой комнате уже началась")
-                room["players"][user["id"]] = {
-                    "id": user["id"], "name": user["username"],
-                    "attempts": [], "solved_in": None, "gave_up": False, "ready": False,
-                }
+                    raise NarutodleError(f"Все {MAX_PLAYERS} мест заняты — можно смотреть")
+                room["players"][user["id"]] = self._new_player(user, now)
+                room["order"].append(user["id"])
+                self._assign_teams(room)
+            room["updated"] = now
+            return self._payload(room, user)
+
+    def leave(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Выходит из комнаты; если шла партия — сначала засчитывается сдача."""
+        now = time.time()
+        with self._lock:
+            room = self._room(code)
+            self._player(room, user)
+            if room["status"] == "playing" and not self._player(room, user)["gave_up"]:
+                self._give_up_locked(room, user, now)
+            room["players"].pop(user["id"], None)
+            if user["id"] in room["order"]:
+                room["order"].remove(user["id"])
+            room["ready"].discard(user["id"])
+            if not room["players"]:
+                self._rooms.pop(room["code"], None)
+                return {"code": room["code"], "status": "closed", "closed": True}
+            if room.get("host") == user["id"]:
+                room["host"] = room["order"][0]
+            self._assign_teams(room)
+            room["updated"] = now
+            return {"code": room["code"], "status": room["status"],
+                    "left": True, "closed": False}
+
+    def set_mode(self, code: str, user: Dict[str, Any], mode: str) -> Dict[str, Any]:
+        """Хозяин выбирает режим; меняется только в лобби."""
+        if mode not in MODES:
+            raise NarutodleError("Неизвестный режим игры")
+        now = time.time()
+        with self._lock:
+            room = self._room(code)
+            self._player(room, user)
+            if user["id"] != room.get("host"):
+                raise NarutodleError("Режим выбирает хозяин комнаты")
+            if room["status"] != "lobby":
+                raise NarutodleError("Режим можно менять только в лобби")
+            room["mode"] = mode
+            self._assign_teams(room)
+            room["updated"] = now
+            return self._payload(room, user)
+
+    def start(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Хозяин запускает игру — с любым числом игроков, от одного."""
+        now = time.time()
+        with self._lock:
+            room = self._room(code)
+            self._player(room, user)
+            if user["id"] != room.get("host"):
+                raise NarutodleError("Игру запускает хозяин комнаты")
+            if room["status"] != "lobby":
+                raise NarutodleError("Игра уже идёт")
+            if room["mode"] == "teams":
+                present = {player.get("team") for player in self._ordered(room)}
+                if len(present) < 2 or not all(present):
+                    raise NarutodleError(
+                        "Для режима «Команды» нужны игроки в обеих командах — позовите ещё кого-нибудь")
+            self._start_match(room, now)
+            return self._payload(room, user)
+
+    def to_lobby(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Возвращает комнату в лобби после партии: режим снова можно менять."""
+        now = time.time()
+        with self._lock:
+            room = self._room(code)
+            self._player(room, user)
+            if room["status"] == "playing":
+                raise NarutodleError("Сначала доиграйте партию")
+            room["status"] = "lobby"
+            room["match"] = None
+            room["ready"] = set()
+            for player in room["players"].values():
+                player["ready"] = False
+                player["gave_up"] = False
             room["updated"] = now
             return self._payload(room, user)
 
@@ -477,92 +641,132 @@ class Narutodle:
             self._cleanup(now)
             room = self._room(code)
             player = self._player(room, user)
-            round_ = room["round"]
-
-            if round_["finished"]:
-                raise NarutodleError("Раунд закончен — начните новый")
-            if len(room["players"]) < MAX_PLAYERS:
-                raise NarutodleError("Соперник ещё не подключился")
+            match = room.get("match")
+            if not match:
+                raise NarutodleError("Партия ещё не началась")
+            if room["status"] == "finished":
+                raise NarutodleError("Партия закончена — начните новую")
+            if room["status"] != "playing":
+                raise NarutodleError("Партия ещё не началась")
+            group = self._group_for(room, player)
+            if not group:
+                raise NarutodleError("Вашей доски в этой партии нет")
+            if group["finished_at"]:
+                raise NarutodleError("Вы уже закрыли свой набор")
             if player["gave_up"]:
-                raise NarutodleError("Вы сдались в этом раунде")
-            if len(player["attempts"]) >= MAX_ATTEMPTS:
-                raise NarutodleError(f"Больше {MAX_ATTEMPTS} попыток за раунд не бывает")
+                raise NarutodleError("Вы сдались в этой партии")
+            if len(group["attempts"]) >= MAX_ATTEMPTS:
+                raise NarutodleError(f"Больше {MAX_ATTEMPTS} попыток за партию не бывает")
 
             character = self.find_character(name)
             if not character:
                 raise NarutodleError("Такого персонажа нет в наборе — выберите из подсказки")
+            if any(found.casefold() == character["name"].casefold()
+                   for found in group["found"]):
+                raise NarutodleError(f"{character['name']} уже найден")
 
-            target = round_["target"]
+            # Подсказки ведут к первому незакрытому персонажу, но засчитывается
+            # любой из оставшихся: набор можно закрывать в любом порядке.
+            remaining = [target for target in match["targets"]
+                         if target["name"] not in group["found"]]
+            hint_target = remaining[0]
             result = [
                 {
                     "key": attribute["key"],
                     "value": character[attribute["key"]],
                     "state": compare_attribute(attribute["key"],
                                                character[attribute["key"]],
-                                               target[attribute["key"]],
+                                               hint_target[attribute["key"]],
                                                bool(attribute.get("multi"))),
                     # Стрелка «нужная арка раньше/позже» — пустая строка, когда
                     # подсказка не нужна (графа не упорядочена или совпала).
                     "hint": compare_order(attribute["key"],
                                           character[attribute["key"]],
-                                          target[attribute["key"]]),
+                                          hint_target[attribute["key"]]),
                 }
                 for attribute in attribute_list()
             ]
-            correct = character["name"] == target["name"]
-            player["attempts"].append({
+            correct = any(target["name"] == character["name"] for target in remaining)
+            group["attempts"].append({
                 "name": character["name"],
                 "result": result,
                 "correct": correct,
+                "by": player["name"],
             })
-            if correct and player["solved_in"] is None:
-                player["solved_in"] = len(player["attempts"])
-                self._finish_round(room, now, user["id"], "solved")
+            if correct:
+                group["found"].append(character["name"])
+                if len(group["found"]) >= len(match["targets"]):
+                    group["finished_at"] = now
+                    match["winner"] = group["key"]
+                    self._finish_match(room, now, "solved")
 
             room["updated"] = now
             return self._payload(room, user)
 
     def give_up(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
-        """Сдаётся: раунд забирает соперник."""
+        """Сдача: в дуэли отдаёт партию остальным, в командах — команду."""
         now = time.time()
         with self._lock:
             self._cleanup(now)
             room = self._room(code)
-            player = self._player(room, user)
-            round_ = room["round"]
-
-            if round_["finished"]:
-                raise NarutodleError("Раунд уже закончился")
-            others = [other for other_id, other in room["players"].items()
-                      if other_id != user["id"]]
-            if not others:
-                raise NarutodleError("Соперник ещё не подключился")
-            player["gave_up"] = True
-            self._finish_round(room, now, others[0]["id"], "gave_up")
-            room["updated"] = now
+            self._player(room, user)
+            if room["status"] != "playing":
+                raise NarutodleError("Партия ещё не началась")
+            self._give_up_locked(room, user, now)
             return self._payload(room, user)
 
-    def rematch(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
-        """Игрок готов к новому раунду; раунд начинается, когда готовы оба.
+    def _give_up_locked(self, room: Dict[str, Any], user: Dict[str, Any],
+                        now: float) -> None:
+        """Общая логика сдачи (вызывать под замком)."""
+        match = room["match"]
+        player = self._player(room, user)
+        if player["gave_up"]:
+            raise NarutodleError("Вы уже сдались")
+        player["gave_up"] = True
+        if match["mode"] == "teams":
+            mate_groups = self._team_members(room, player.get("team") or "")
+            if all(mate["gave_up"] for mate in mate_groups):
+                group = match["groups"].get(player.get("team") or "")
+                if group and not group["finished_at"]:
+                    group["finished_at"] = now
+                others = [other for key, other in match["groups"].items()
+                          if key != player.get("team")]
+                if others:
+                    match["winner"] = others[0]["key"]
+                else:
+                    match["draw"] = True
+                self._finish_match(room, now, "gave_up")
+            return
 
-        Иначе выходило так: один нажал «Ещё раунд» и уже угадывает, пока второй
-        дочитывает итог прошлого. Теперь нажатие — это только «готов», а загадка
-        выдаётся, когда отметились оба участника.
+        group = self._group_for(room, player)
+        if group and not group["finished_at"]:
+            group["finished_at"] = now
+        active = [item for item in match["groups"].values() if not item["finished_at"]]
+        if len(active) == 1:
+            match["winner"] = active[0]["key"]
+            self._finish_match(room, now, "gave_up")
+        elif not active:
+            match["draw"] = True
+            self._finish_match(room, now, "gave_up")
+
+    def rematch(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Игрок готов к новой партии; она начинается, когда готовы все.
+
+        Иначе выходило бы так: один нажал «Ещё игру» и уже угадывает, пока
+        остальные дочитывают итог. Теперь нажатие — это только «готов».
         """
         now = time.time()
         with self._lock:
             self._cleanup(now)
             room = self._room(code)
             player = self._player(room, user)
-            if not room["round"]["finished"]:
-                raise NarutodleError("Раунд ещё идёт")
+            if room["status"] != "finished":
+                raise NarutodleError("Партия ещё идёт")
             room["ready"].add(user["id"])
             player["ready"] = True
             present = set(room["players"])
-            # Раунд на двоих: ждём всех, кто сидит в комнате, и только вдвоём.
-            if len(present) >= MAX_PLAYERS and present <= room["ready"]:
-                self.refresh()
-                self._start_round(room, now, exclude=room["round"]["target"]["name"])
+            if present and present <= room["ready"]:
+                self._start_match(room, now)
             room["updated"] = now
             return self._payload(room, user)
 
@@ -572,15 +776,20 @@ class Narutodle:
             self._cleanup(time.time())
             return {
                 "rooms": len(self._rooms),
-                "rounds": sum(len(room["history"]) for room in self._rooms.values()),
+                "matches": sum(len(room["history"]) for room in self._rooms.values()),
                 "players": sum(len(room["players"]) for room in self._rooms.values()),
             }
 
 
 __all__ = [
     "MAX_ATTEMPTS",
+    "MAX_PLAYERS",
+    "MODES",
+    "MODE_HINTS",
+    "MODE_LABELS",
     "Narutodle",
     "NarutodleError",
+    "RACE_TARGETS",
     "ROOM_TTL_SECONDS",
     "compare_attribute",
 ]

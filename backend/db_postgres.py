@@ -790,17 +790,24 @@ class PostgresDatabase:
             return cursor.rowcount > 0
 
     def narutodle_add_match(self, record: Dict[str, Any]) -> Dict[str, Any]:
-        """Пишет матч в журнал и возвращает строку с присвоенным идентификатором."""
+        """Пишет партию в журнал и возвращает строку с присвоенным идентификатором."""
+        player_ids = [int(value) for value in (record.get("player_ids") or [])
+                      if value is not None]
+        ids_text = "," + ",".join(str(value) for value in player_ids) + "," if player_ids else ""
         with self.connect() as db:
             row = db.execute(
-                "INSERT INTO narutodle_matches (room, round_number, target, player1_id, "
-                "player1_name, player2_id, player2_name, winner_id, winner_name, loser_name, "
-                "winner_attempts, loser_attempts, reason, played_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *",
+                "INSERT INTO narutodle_matches (room, round_number, mode, target, players, "
+                "player_ids, player1_id, player1_name, player2_id, player2_name, winner_id, "
+                "winner_name, loser_name, winner_attempts, loser_attempts, reason, played_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "RETURNING *",
                 (
                     str(record.get("room") or ""),
                     int(record.get("round_number") or 1),
+                    str(record.get("mode") or "duel"),
                     str(record.get("target") or ""),
+                    str(record.get("players") or ""),
+                    ids_text,
                     record.get("player1_id"),
                     str(record.get("player1_name") or ""),
                     record.get("player2_id"),
@@ -826,8 +833,9 @@ class PostgresDatabase:
                 ).fetchall()
             else:
                 rows = db.execute(
-                    "SELECT * FROM narutodle_matches WHERE player1_id = %s OR player2_id = %s "
-                    "ORDER BY id DESC LIMIT %s", (int(user_id), int(user_id), size)
+                    "SELECT * FROM narutodle_matches WHERE player_ids LIKE %s "
+                    "OR player1_id = %s OR player2_id = %s ORDER BY id DESC LIMIT %s",
+                    (f"%,{int(user_id)},%", int(user_id), int(user_id), size),
                 ).fetchall()
         return [_match(row) for row in rows]
 

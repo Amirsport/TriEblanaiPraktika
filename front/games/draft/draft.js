@@ -1031,7 +1031,7 @@ async function boot() {
 /* -------------------------------- тема ---------------------------------- */
 
 function applyTheme(saved) {
-  document.documentElement.dataset.theme = saved && saved.theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = saved && saved.theme === 'light' ? 'light' : 'dark';
 }
 
 function toggleTheme() {

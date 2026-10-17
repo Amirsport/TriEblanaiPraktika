@@ -14,7 +14,7 @@ const MAX_POINTS = 60;
 const STATE_SYNC_MS = 10000;
 // Версия ссылок на assets: поднимайте вместе с VERSION в service-worker.js
 // и ссылками в index.html — хостинг кэширует .js/.css на 45 дней.
-const ASSET_VERSION = '21';
+const ASSET_VERSION = '22';
 
 const MODE_NAMES = { auto: 'Авто', eco: 'Эко', boost: 'Интенсив', manual: 'Ручной' };
 
@@ -28,7 +28,7 @@ const ZONE_COUNT = 12;
 
 const DEFAULTS = {
   view: 'dashboard',
-  theme: 'light',
+  theme: 'dark',
   mode: 'auto',
   target: 55,
   tank: 78,

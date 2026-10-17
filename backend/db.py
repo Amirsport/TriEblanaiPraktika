@@ -164,13 +164,19 @@ CREATE TABLE IF NOT EXISTS narutodle_characters (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_narutodle_characters_name ON narutodle_characters(name);
 
--- Журнал матчей: кто играл, чем закончилось и с какого раза.
+-- Журнал партий: кто играл, чем закончилось и с какого раза.
+-- mode — режим («duel», «race», «teams»), players — доски с результатом,
+-- player_ids — все участники (через запятую, с запятыми по краям): по нему
+-- партия находится в «Моих матчах», даже когда игроков больше двух.
 -- Ссылок на users нет намеренно: история матчей должна переживать удаление аккаунта.
 CREATE TABLE IF NOT EXISTS narutodle_matches (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     room            TEXT    NOT NULL DEFAULT '',
     round_number    INTEGER NOT NULL DEFAULT 1,
+    mode            TEXT    NOT NULL DEFAULT 'duel',
     target          TEXT    NOT NULL DEFAULT '',
+    players         TEXT    NOT NULL DEFAULT '',
+    player_ids      TEXT    NOT NULL DEFAULT '',
     player1_id      INTEGER,
     player1_name    TEXT    NOT NULL DEFAULT '',
     player2_id      INTEGER,
@@ -350,6 +356,9 @@ LATE_COLUMNS: Tuple[Tuple[str, str, str], ...] = (
     ("csdraft_packs", "game", "TEXT NOT NULL DEFAULT 'cs'"),
     ("csdraft_runs", "game", "TEXT NOT NULL DEFAULT 'cs'"),
     ("dotadraft_players", "position", "INTEGER NOT NULL DEFAULT 0"),
+    ("narutodle_matches", "mode", "TEXT NOT NULL DEFAULT 'duel'"),
+    ("narutodle_matches", "players", "TEXT NOT NULL DEFAULT ''"),
+    ("narutodle_matches", "player_ids", "TEXT NOT NULL DEFAULT ''"),
 )
 
 # Индексы, которые зависят от поздних колонок: создаются после миграции, иначе
@@ -1022,17 +1031,23 @@ class Database:
             return cursor.rowcount > 0
 
     def narutodle_add_match(self, record: Dict[str, Any]) -> Dict[str, Any]:
-        """Пишет матч в журнал и возвращает строку с присвоенным идентификатором."""
+        """Пишет партию в журнал и возвращает строку с присвоенным идентификатором."""
+        player_ids = [int(value) for value in (record.get("player_ids") or [])
+                      if value is not None]
+        ids_text = "," + ",".join(str(value) for value in player_ids) + "," if player_ids else ""
         with self.connect() as db:
             entry_id = db.execute(
-                "INSERT INTO narutodle_matches (room, round_number, target, player1_id, "
-                "player1_name, player2_id, player2_name, winner_id, winner_name, loser_name, "
-                "winner_attempts, loser_attempts, reason, played_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO narutodle_matches (room, round_number, mode, target, players, "
+                "player_ids, player1_id, player1_name, player2_id, player2_name, winner_id, "
+                "winner_name, loser_name, winner_attempts, loser_attempts, reason, played_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     str(record.get("room") or ""),
                     int(record.get("round_number") or 1),
+                    str(record.get("mode") or "duel"),
                     str(record.get("target") or ""),
+                    str(record.get("players") or ""),
+                    ids_text,
                     record.get("player1_id"),
                     str(record.get("player1_name") or ""),
                     record.get("player2_id"),
@@ -1059,8 +1074,9 @@ class Database:
                 ).fetchall()
             else:
                 rows = db.execute(
-                    "SELECT * FROM narutodle_matches WHERE player1_id = ? OR player2_id = ? "
-                    "ORDER BY id DESC LIMIT ?", (int(user_id), int(user_id), size)
+                    "SELECT * FROM narutodle_matches WHERE player_ids LIKE ? "
+                    "OR player1_id = ? OR player2_id = ? ORDER BY id DESC LIMIT ?",
+                    (f"%,{int(user_id)},%", int(user_id), int(user_id), size),
                 ).fetchall()
         return [_match(dict(row)) for row in rows]
 

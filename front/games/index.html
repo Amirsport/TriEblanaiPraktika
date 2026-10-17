@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light" data-palette="red">
+<html lang="ru" data-theme="dark" data-palette="red">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -137,10 +137,11 @@
          description — описание; пустая строка показывает заглушку «Описание появится позже»;
          href        — путь к странице игры; пока не задан, кнопка неактивна. */
     const GAMES = [
-      { id: 'narutodle', title: 'Narutodle: дуэль', icon: '🌀',
-        description: 'Дуэль на двоих: один персонаж на двоих игроков, побеждает тот, '
-          + 'кто угадает первым. Подсказки — пол, деревня, клан, стихии, кеккей генкай '
-          + 'и другие графы. Нужен аккаунт: соперника приглашайте ссылкой.',
+      { id: 'narutodle', title: 'Narutodle: игра на шестерых', icon: '🌀',
+        description: 'Комната до шести игроков и три режима: дуэль за одного общего '
+          + 'персонажа, гонка на пять персонажей и игра командами с общей доской. '
+          + 'Подсказки — пол, деревня, клан, стихии, кеккей генкай и другие графы. '
+          + 'Нужен аккаунт: друзей приглашайте ссылкой.',
         href: 'narutodle/' },
       { id: 'animesongless', title: 'Аниме-сонглесс', icon: '🎧',
         description: 'Угадайте аниме по фрагменту опенинга: четыре варианта, один верный. '
@@ -420,7 +421,7 @@
     }
 
     function applyTheme(theme) {
-      document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+      document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
     }
 
     /* Тема хранится тем же ключом и в том же виде, что на страницах игр

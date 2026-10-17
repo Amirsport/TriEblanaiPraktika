@@ -1,26 +1,25 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="light" data-palette="red">
+<html lang="ru" data-theme="dark" data-palette="red">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Narutodle — дуэль · Умная AI-Теплица</title>
+  <title>Narutodle — угадай персонажа · Умная AI-Теплица</title>
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#c5342b">
+  <meta name="theme-color" content="#141a16">
   <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
   <link rel="stylesheet" href="../../css/main.css?v=21">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* Дуэль Narutodle: та же тема, что у панели, в красной палитре
-       (data-palette="red" выше). Здесь — раскладка страницы.
+    /* Narutodle: комната до шести игроков. Палитра та же, что у панели
+       (data-palette="red"), тема по умолчанию тёмная — как и на всём сайте.
 
        Ссылка-приглашение выглядит так:
          .../games/narutodle/?srv=<адрес API>&room=<КОД>
        Адрес сервера подставляется в настройки подключения автоматически,
        поэтому приглашённому не нужно ничего настраивать руками. API-ключ
-       в ссылку не попадает: игровой раздел пускает по аккаунту, а ключ
-       в адресе был бы утечкой. */
+       в ссылку не попадает: игровой раздел пускает по аккаунту. */
 
     .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
     button.status-pill { font-family: inherit; cursor: pointer; }
@@ -48,6 +47,80 @@
     .lobby-actions { display: flex; gap: 10px; flex-wrap: wrap; }
     .lobby-actions .btn { flex: 1 1 200px; }
 
+    /* ---------- лобби комнаты: как в списке игроков на скриншоте ---------- */
+    .room-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 4px;
+    }
+    .tabs { display: flex; gap: 18px; }
+    .tab {
+      padding: 4px 0; border: 0; background: transparent; cursor: pointer;
+      font: inherit; font-size: 12px; font-weight: 700; letter-spacing: 1.1px;
+      text-transform: uppercase; color: var(--text-dim);
+      border-bottom: 2px solid transparent;
+    }
+    .tab.on { color: var(--text); border-bottom-color: var(--text); }
+    .slot-counter { font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--text-dim); }
+
+    .room-list { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+    .room-row {
+      display: grid; grid-template-columns: 26px 46px minmax(0, 1fr) auto;
+      gap: 14px; align-items: center;
+      padding: 10px 16px; border-radius: 16px;
+      border: 1px solid var(--border); background: var(--surface-solid);
+    }
+    /* Своя строка подсвечена так же, как в лобби на скриншоте. */
+    .room-row.you { border-color: rgba(122, 170, 60, 0.55); background: rgba(96, 128, 44, 0.28); }
+    .room-row .place {
+      font-size: 13px; font-weight: 700; color: var(--accent);
+      font-variant-numeric: tabular-nums; text-align: center;
+    }
+    .room-row .who { min-width: 0; }
+    .room-row .who b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .room-row .who span {
+      display: block; font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase;
+      color: var(--text-dim); margin-top: 2px;
+    }
+    .room-row .star { color: #ffd75e; font-size: 15px; }
+    .room-row.free {
+      grid-template-columns: 46px minmax(0, 1fr); cursor: pointer;
+      border-style: dashed; background: transparent; color: var(--text-dim);
+    }
+    .room-row.free .plus {
+      width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+      background: var(--accent-soft); color: var(--text); font-size: 20px; line-height: 1;
+      margin-left: 6px;
+    }
+    .room-row.free b { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+
+    .user-avatar {
+      display: inline-grid; place-items: center; flex: 0 0 auto;
+      width: 46px; height: 46px; border-radius: 50%; overflow: hidden;
+      color: #fff; font-weight: 700; font-size: 16px; letter-spacing: 0.5px;
+    }
+
+    .teams-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 6px; }
+    .team-card {
+      padding: 12px 14px; border-radius: 16px;
+      border: 1px solid var(--border); background: var(--surface-solid);
+    }
+    .team-card.mine { border-color: var(--accent); }
+    .team-card h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.6px; text-transform: uppercase; }
+    .team-card ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
+    .team-card li { margin: 3px 0; }
+
+    .mode-picker { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-top: 8px; }
+    .mode-card {
+      text-align: left; padding: 10px 12px; border-radius: 14px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface-solid);
+      color: var(--text); font: inherit;
+    }
+    .mode-card b { display: block; font-size: 14px; }
+    .mode-card span { display: block; font-size: 12px; color: var(--text-dim); margin-top: 4px; line-height: 1.35; }
+    .mode-card.on { border-color: var(--accent); background: var(--accent-soft); }
+    .mode-card:disabled { cursor: default; opacity: 0.7; }
+
+    /* ---------- партия ---------- */
     .players { display: flex; gap: 10px; flex-wrap: wrap; }
     .player {
       display: flex; align-items: center; gap: 10px;
@@ -57,6 +130,25 @@
     }
     .player.mine { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
     .player small { color: var(--text-dim); }
+
+    .progress { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+    .p-card {
+      padding: 10px 12px; border-radius: 14px;
+      border: 1px solid var(--border); background: var(--surface-solid);
+    }
+    .p-card.mine { border-color: var(--accent); background: var(--accent-soft); }
+    .p-card.done { border-color: rgba(122, 170, 60, 0.7); }
+    .p-card .p-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .p-card .p-head b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .p-card .p-head span { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+    .p-card .p-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 8px; }
+    .p-card .p-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+    .p-card .p-state { margin-top: 6px; font-size: 11.5px; color: var(--text-dim); }
+    .p-card .p-found { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+    .p-card .p-chip {
+      font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
+      border: 1px solid var(--border); color: var(--text-dim);
+    }
 
     .guess-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     .guess-form label { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; }
@@ -77,12 +169,10 @@
       color: var(--text); font: inherit; font-size: 15.5px; text-align: left; cursor: pointer;
     }
     .combo-item:hover, .combo-item.active { background: var(--accent-soft); }
-    /* Портрет в карточке крупнее, чем в таблице: по нему выбирают персонажа. */
     .combo-item .avatar { width: 42px; height: 42px; border-radius: 12px; font-size: 15px; }
     .combo-empty { padding: 10px; font-size: 13.5px; color: var(--text-dim); text-align: center; }
 
-    /* Стихии показываем знаком стихии на её цвете: 火 風 水 土 雷. Слово
-       остаётся в подсказке, поэтому графа читается и без знания знаков. */
+    /* Стихии показываем знаком стихии на её цвете: 火 風 水 土 雷. */
     .nature { display: inline-flex; gap: 4px; flex-wrap: wrap; vertical-align: middle; }
     .nature-chip {
       display: inline-grid; place-items: center; width: 22px; height: 22px;
@@ -90,6 +180,7 @@
       color: #fff; background: #7a6a5f;
       font-family: 'Noto Sans JP', 'Yu Gothic', 'Meiryo', 'MS Gothic', sans-serif;
     }
+    .nature-chip.small { width: 18px; height: 18px; border-radius: 6px; font-size: 11px; }
 
     .board-wrap { overflow-x: auto; }
     .board { border-collapse: separate; border-spacing: 6px; width: 100%; min-width: 700px; }
@@ -102,7 +193,7 @@
       border: 1px solid var(--border); background: var(--surface-solid); white-space: nowrap;
     }
     .board td.who { font-weight: 600; }
-    /* Стрелка-подсказка у «первой арки»: куда смотреть — раньше или позже. */
+    .board td .by { display: block; font-size: 10.5px; font-weight: 500; color: var(--text-dim); }
     .board td .hint-arrow {
       margin-left: 7px; font-size: 14px; font-weight: 700; line-height: 1;
       color: var(--text);
@@ -114,8 +205,6 @@
     .board tr.correct td.who { color: #2f7d32; }
     [data-theme="dark"] .board tr.correct td.who { color: #7ddc8b; }
 
-    /* Аватар рисуем сами: инициалы на цвете деревни. Если в базе указана
-       картинка персонажа, показываем её вместо аватара. */
     .who-line { display: flex; align-items: center; gap: 8px; }
     .avatar {
       display: inline-grid; place-items: center; flex: 0 0 auto;
@@ -127,14 +216,34 @@
 
     .portrait { display: flex; align-items: center; gap: 14px; }
 
+    .result { padding: 16px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface-solid); }
+    .result.win { border-color: rgba(122, 170, 60, 0.7); background: rgba(96, 128, 44, 0.22); }
+    .result.lose { border-color: rgba(197, 52, 43, 0.55); background: rgba(197, 52, 43, 0.12); }
+    .result h2 { margin: 0 0 10px; }
+    .answer-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    .answer-card {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      padding: 10px 12px; border-radius: 14px;
+      border: 1px solid var(--border); background: var(--surface-solid);
+    }
+    .answer-card .answer-name { font-weight: 700; font-size: 15px; }
+    .answer-attrs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .attr-card {
+      display: flex; flex-direction: column; gap: 2px; min-width: 96px;
+      padding: 6px 10px; border-radius: 10px;
+      border: 1px solid var(--border); background: var(--surface-main);
+    }
+    .attr-card i { font-style: normal; font-size: 10.5px; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-dim); }
+    .attr-card b { font-size: 12.5px; font-weight: 600; }
+
     .matches { width: 100%; border-collapse: collapse; font-size: 13px; }
     .matches th {
       text-align: left; padding: 4px 8px; font-size: 11.5px; font-weight: 600;
       color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px;
     }
-    .matches td { padding: 8px; border-top: 1px solid var(--border); }
+    .matches td { padding: 8px; border-top: 1px solid var(--border); vertical-align: top; }
     .matches td.res { font-weight: 600; }
-    .matches tr.win td.res { color: #2f9a43; }
+    .matches tr.win td.res { color: #58b368; }
     .matches tr.lose td.res { color: var(--danger); }
     .matches .dim { color: var(--text-dim); }
 
@@ -144,69 +253,43 @@
     .legend .l-near  { background: rgba(229, 167, 44, 0.85); }
     .legend .l-miss  { background: rgba(130, 130, 140, 0.55); }
 
-    .result {
-      display: flex; flex-direction: column; gap: 12px;
-      padding: 18px; border-radius: var(--radius-sm);
-      border-left: 4px solid var(--accent); background: var(--surface);
-      backdrop-filter: blur(14px); box-shadow: var(--shadow);
+    .waiting {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--text-dim);
     }
-    .result.win  { border-left-color: #2f9a43; }
-    .result.lose { border-left-color: var(--danger); }
-    .result h2 { font-family: 'Playfair Display', Georgia, serif; font-size: 21px; }
-    .answer-name { font-size: 17px; font-weight: 600; }
-
-    /* Графы ответа — ровной сеткой: карточки одной ширины, подпись сверху,
-       значение снизу. «Таблетки» разной длины делали строку рваной. На широком
-       экране четыре колонки (семь граф ложатся как 4 + 3), на узком — две. */
-    .answer-attrs { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    @media (min-width: 720px) {
-      .answer-attrs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    }
-    .answer-attrs .attr-card {
-      display: flex; flex-direction: column; gap: 3px; min-width: 0;
-      padding: 9px 12px; border-radius: 12px; background: var(--accent-soft);
-    }
-    .answer-attrs .attr-card i {
-      font-style: normal; font-size: 11px; letter-spacing: 0.3px;
-      text-transform: uppercase; color: var(--text-dim);
-    }
-    .answer-attrs .attr-card b { font-size: 13.5px; font-weight: 600; overflow-wrap: anywhere; }
-
-    .waiting { display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 13.5px; }
     .spinner {
-      width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto;
-      border: 2px solid var(--accent-soft); border-top-color: var(--accent);
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2px solid var(--border); border-top-color: var(--accent);
       animation: spin 0.9s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    @media (max-width: 560px) {
+    .hint-line { font-size: 12.5px; color: var(--text-dim); margin: 8px 0 0; }
+    .history-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--text-dim); }
+    .history-list li { margin: 3px 0; }
+
+    @media (max-width: 620px) {
       .brand-text h1 { font-size: 18px; }
-      .code-value { font-size: 24px; letter-spacing: 4px; }
+      .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
+      .user-pill { max-width: 130px; }
+      .user-pill span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .room-row { grid-template-columns: 22px 40px minmax(0, 1fr) auto; gap: 10px; padding: 9px 12px; }
+      .room-row.free { grid-template-columns: 40px minmax(0, 1fr); }
     }
   </style>
 </head>
 <body>
 
-  <!-- Декоративный фон -->
-  <div class="bg-orbs" aria-hidden="true">
-    <span class="orb orb-1"></span>
-    <span class="orb orb-2"></span>
-    <span class="orb orb-3"></span>
-  </div>
-
   <div class="app">
 
-    <!-- ===== Шапка ===== -->
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
         <div class="brand-text">
-          <h1>Narutodle: дуэль</h1>
-          <p>Один персонаж на двоих · кто угадает первым</p>
+          <h1>Narutodle</h1>
+          <p>Комната до шести игроков: дуэль, гонка на пять персонажей или игра командами</p>
         </div>
       </div>
-
       <div class="topbar-actions">
         <button class="status-pill" type="button" id="conn-pill" title="Состояние подключения к серверу">
           <span class="dot"></span>
@@ -222,16 +305,13 @@
       </div>
     </header>
 
-    <!-- ===== Адрес сервера (нужен, если он не пришёл в ссылке) ===== -->
+    <!-- ===== Адрес сервера ===== -->
     <section class="card" id="server-card" hidden>
       <header class="card-head">
-        <h2>Сервер дуэли</h2>
+        <h2>Сервер игры</h2>
         <span class="badge" id="server-badge">не подключён</span>
       </header>
-      <p class="muted">
-        Игра идёт на сервере теплицы. Обычно адрес приходит в ссылке-приглашении,
-        но его можно вписать и руками.
-      </p>
+      <p class="muted">Адрес берётся из ссылки-приглашения или настроек панели. Если не подставился — впишите руками.</p>
       <label class="field">
         <span>Адрес API</span>
         <input type="text" id="srv-input" placeholder="https://ваш-адрес-сервера" autocomplete="off" spellcheck="false">
@@ -239,14 +319,13 @@
       <div class="row">
         <button class="btn btn-primary" type="button" id="srv-save">Подключиться</button>
       </div>
-      <p class="muted">Пустой адрес — обращения к тому же домену, с которого открыта страница.</p>
     </section>
 
     <!-- ===== Вход и регистрация ===== -->
     <section class="card auth-card" id="auth-card" hidden>
       <h2 id="auth-title">Регистрация</h2>
       <p class="muted" id="auth-hint">
-        Аккаунт нужен, чтобы соперник видел, с кем играет. Он же открывает панель теплицы.
+        Аккаунт нужен, чтобы другие игроки видели, с кем играют. Он же открывает панель теплицы.
       </p>
       <label class="field">
         <span>Логин</span>
@@ -268,7 +347,7 @@
     <!-- ===== Выбор по ссылке-приглашению: играть или смотреть ===== -->
     <section class="card auth-card" id="choice-card" hidden>
       <header class="card-head">
-        <h2>Вас пригласили в дуэль</h2>
+        <h2>Вас пригласили в игру</h2>
         <span class="badge" id="choice-code">----</span>
       </header>
       <p class="muted" id="choice-hint">
@@ -281,15 +360,16 @@
       </div>
     </section>
 
-    <!-- ===== Лобби ===== -->
+    <!-- ===== Начало: создать комнату или войти по коду ===== -->
     <section class="card" id="lobby" hidden>
       <header class="card-head">
-        <h2>Начать дуэль</h2>
-        <span class="badge" id="lobby-badge">на двоих</span>
+        <h2>Начать игру</h2>
+        <span class="badge">до 6 игроков</span>
       </header>
       <p class="muted">
-        Создайте комнату и отправьте другу ссылку — он попадёт сразу в вашу дуэль.
-        Либо введите код, который прислали вам.
+        Создайте комнату и отправьте друзьям ссылку — они попадут сразу в ваше лобби.
+        Либо введите код, который прислали вам. Начать можно с любым числом игроков,
+        от одного до шести.
       </p>
       <div class="lobby-actions">
         <button class="btn btn-primary" type="button" id="create-room">Создать комнату</button>
@@ -305,59 +385,75 @@
       <p class="muted" id="lobby-hint"></p>
     </section>
 
-    <!-- ===== Ожидание соперника ===== -->
-    <section class="card" id="wait-card" hidden>
-      <header class="card-head">
-        <h2>Комната создана</h2>
-        <span class="badge" id="wait-round">раунд 1</span>
-      </header>
-      <div class="code-box">
+    <!-- ===== Лобби комнаты ===== -->
+    <section class="card" id="room" hidden>
+      <div class="room-head">
+        <div class="tabs">
+          <button class="tab on" type="button" id="tab-players">Игроки</button>
+          <button class="tab" type="button" id="tab-teams">Команды</button>
+        </div>
+        <span class="slot-counter" id="slot-counter">1/6</span>
+      </div>
+
+      <div id="players-pane">
+        <div class="room-list" id="room-list"></div>
+      </div>
+
+      <div id="teams-pane" hidden>
+        <div class="teams-grid" id="teams-grid"></div>
+      </div>
+
+      <div class="code-box" style="margin-top: 16px;">
         <div>
           <div class="muted" style="font-size: 12.5px;">Код комнаты</div>
-          <div class="code-value" id="wait-code">----</div>
+          <div class="code-value" id="room-code-value">----</div>
         </div>
-        <button class="btn btn-primary" type="button" id="copy-code">Скопировать код</button>
-      </div>
-      <label class="field link-box">
-        <span>Ссылка-приглашение <b>— адрес сервера уже внутри</b></span>
-        <input type="text" id="invite-link" readonly>
-      </label>
-      <div class="row">
+        <button class="btn btn-ghost" type="button" id="copy-code">Скопировать код</button>
         <button class="btn btn-ghost" type="button" id="copy-link">Скопировать ссылку</button>
-        <button class="btn btn-ghost" type="button" id="leave-wait">Закрыть комнату</button>
       </div>
-      <p class="waiting">
-        <span class="spinner"></span>
-        <span>Ждём соперника — раунд начнётся сразу после его входа. По этой же ссылке заходят и смотреть</span>
-      </p>
+      <label class="field link-box" style="margin-top: 12px;">
+        <span>Ссылка-приглашение <b>— адрес сервера уже внутри</b></span>
+        <input type="text" id="room-link" readonly>
+      </label>
+
+      <div class="field" style="margin-top: 18px;">
+        <span>Режим игры <b id="mode-owner">— выбирает хозяин</b></span>
+        <div class="mode-picker" id="mode-picker"></div>
+      </div>
+
+      <div class="row" style="margin-top: 16px;">
+        <button class="btn btn-primary" type="button" id="start-game">Начать игру</button>
+        <button class="btn btn-ghost" type="button" id="leave-room">Выйти из комнаты</button>
+        <button class="btn btn-primary" type="button" id="room-join" hidden>Занять место</button>
+        <button class="btn btn-ghost" type="button" id="room-watch-exit" hidden>Выйти из наблюдения</button>
+      </div>
+      <p class="muted" id="room-hint"></p>
+      <div id="room-history" hidden style="margin-top: 12px;">
+        <div class="muted" style="font-size: 12.5px;">Прошлые партии в комнате</div>
+        <ul class="history-list" id="room-history-list"></ul>
+      </div>
     </section>
 
-    <!-- ===== Дуэль ===== -->
+    <!-- ===== Партия (и наблюдение) ===== -->
     <section class="stack" id="game" hidden>
       <section class="card">
         <header class="card-head">
-          <h2>Раунд <span id="game-round">1</span></h2>
-          <span class="badge" id="game-score">счёт 0 : 0</span>
+          <h2 id="game-title">Партия</h2>
+          <span class="badge" id="game-mode">—</span>
         </header>
-
-        <div class="players">
-          <div class="player mine">
-            <span aria-hidden="true">🎮</span>
-            <span><b id="me-name">—</b><br><small id="me-state">попыток: 0</small></span>
-          </div>
-          <div class="player">
-            <span aria-hidden="true">⚔️</span>
-            <span><b id="rival-name">—</b><br><small id="rival-state">попыток: 0</small></span>
-          </div>
-          <div class="player">
-            <span aria-hidden="true">🔑</span>
-            <span>комната <b id="game-code">----</b></span>
-          </div>
+        <div class="stat-row">
+          <span>Комната <b id="game-room">----</b></span>
+          <span id="game-timer-wrap">Время <b id="game-timer">0:00</b></span>
+          <span id="game-watch-wrap" hidden>Наблюдение</span>
         </div>
+        <p class="muted" id="game-rules"></p>
 
-        <form class="guess-form" id="guess-form" autocomplete="off">
+        <div class="progress" id="game-progress"></div>
+        <div class="players" id="game-players" style="margin-top: 12px;"></div>
+
+        <form class="guess-form" id="guess-form" autocomplete="off" style="margin-top: 16px;">
           <label>
-            <span class="muted" style="font-size: 13px;">Ваша догадка</span>
+            <span class="muted" style="font-size: 13px;" id="guess-label">Ваша догадка</span>
             <span class="combo">
               <input type="text" id="guess-input" placeholder="Начните вводить имя персонажа"
                      autocomplete="off" spellcheck="false" role="combobox" aria-expanded="false"
@@ -369,48 +465,43 @@
         </form>
         <p class="muted" id="guess-hint"></p>
 
-        <div class="legend">
+        <div class="legend" style="margin-top: 10px;">
           <span><i class="l-match"></i>совпало</span>
           <span><i class="l-near"></i>похоже</span>
           <span><i class="l-miss"></i>не совпало</span>
         </div>
 
-        <div class="board-wrap">
-          <table class="board" id="my-board"></table>
+        <div class="board-wrap" style="margin-top: 10px;">
+          <table class="board" id="game-board"></table>
         </div>
 
-        <div class="row">
-          <button class="btn btn-ghost" type="button" id="give-up">Сдаться в раунде</button>
-          <button class="btn btn-primary" type="button" id="rematch" hidden>Ещё раунд</button>
+        <div class="row" style="margin-top: 14px;">
+          <button class="btn btn-ghost" type="button" id="give-up">Сдаться</button>
+          <button class="btn btn-primary" type="button" id="rematch" hidden>Ещё игра</button>
+          <button class="btn btn-ghost" type="button" id="to-lobby-btn" hidden>В лобби</button>
+          <button class="btn btn-ghost" type="button" id="watch-exit" hidden>Выйти из наблюдения</button>
+          <button class="btn btn-primary" type="button" id="watch-play" hidden>Занять место</button>
+        </div>
+        <p class="muted" id="game-hint"></p>
+      </section>
+
+      <section class="card" id="result-card" hidden>
+        <header class="card-head">
+          <h2 id="result-title">Итог партии</h2>
+          <span class="badge" id="result-badge">—</span>
+        </header>
+        <div class="result" id="result-box">
+          <p class="muted" id="result-text"></p>
+          <div class="answer-list" id="result-answers"></div>
         </div>
       </section>
 
-      <section class="stack" id="result-card" hidden>
-        <div class="result" id="result">
-          <h2 id="result-title">Раунд завершён</h2>
-          <div class="portrait">
-            <span id="result-avatar"></span>
-            <div>
-              <div class="muted" style="font-size: 12.5px;">Это был</div>
-              <div class="answer-name" id="result-name">—</div>
-            </div>
-          </div>
-          <div class="answer-attrs" id="result-attrs"></div>
-          <p class="muted" id="result-text"></p>
-          <div class="row">
-            <button class="btn btn-primary" type="button" id="rematch-2">Ещё раунд</button>
-          </div>
-        </div>
-
-        <div class="card" id="rival-card" hidden>
-          <header class="card-head">
-            <h2>Ходы соперника</h2>
-            <span class="badge" id="rival-badge">—</span>
-          </header>
-          <div class="board-wrap">
-            <table class="board" id="rival-board"></table>
-          </div>
-        </div>
+      <section class="card" id="rivals-card" hidden>
+        <header class="card-head">
+          <h2>Доски игроков</h2>
+          <span class="badge" id="rivals-badge">—</span>
+        </header>
+        <div id="rivals"></div>
       </section>
     </section>
 
@@ -429,71 +520,6 @@
       </div>
     </section>
 
-    <!-- ===== Наблюдение за дуэлью ===== -->
-    <section class="stack" id="watch" hidden>
-      <section class="card">
-        <header class="card-head">
-          <h2>Наблюдение</h2>
-          <span class="badge" id="watch-status">—</span>
-        </header>
-        <p class="muted" id="watch-hint"></p>
-        <div class="row">
-          <button class="btn btn-primary" type="button" id="watch-play" hidden>Занять место в дуэли</button>
-          <button class="btn btn-ghost" type="button" id="watch-exit">Выйти из наблюдения</button>
-        </div>
-      </section>
-
-      <div class="stack">
-        <section class="card">
-          <header class="card-head">
-            <h2 id="watch-name-1">—</h2>
-            <span class="badge" id="watch-badge-1">—</span>
-          </header>
-          <div class="board-wrap">
-            <table class="board" id="watch-board-1"></table>
-          </div>
-        </section>
-        <section class="card" id="watch-card-2">
-          <header class="card-head">
-            <h2 id="watch-name-2">соперник ещё не вошёл</h2>
-            <span class="badge" id="watch-badge-2">—</span>
-          </header>
-          <div class="board-wrap">
-            <table class="board" id="watch-board-2"></table>
-          </div>
-        </section>
-      </div>
-
-      <section class="stack" id="watch-result" hidden>
-        <div class="result" id="watch-result-box">
-          <h2 id="watch-result-title">Раунд завершён</h2>
-          <div class="portrait">
-            <span id="watch-result-avatar"></span>
-            <div>
-              <div class="muted" style="font-size: 12.5px;">Это был</div>
-              <div class="answer-name" id="watch-result-name">—</div>
-            </div>
-          </div>
-          <div class="answer-attrs" id="watch-result-attrs"></div>
-          <p class="muted" id="watch-result-text"></p>
-        </div>
-      </section>
-
-      <section class="card" id="watch-history" hidden>
-        <header class="card-head">
-          <h2>Раунды дуэли</h2>
-          <span class="badge" id="watch-history-badge">—</span>
-        </header>
-        <div class="board-wrap">
-          <table class="matches" id="watch-history-table"></table>
-        </div>
-      </section>
-    </section>
-
-    <footer class="footer">
-      <span>narutodle · дуэль на двоих · по ссылке можно играть или смотреть</span>
-      <span id="clock">—</span>
-    </footer>
   </div>
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
@@ -501,35 +527,34 @@
   <script>
     'use strict';
 
-    /* Настройки подключения — те же, что у страницы игр: адрес берётся из
-       ссылки (?srv=), иначе из своих сохранённых настроек, иначе из настроек
-       панели теплицы. API-ключ игре не нужен (играет аккаунт), но хранится
-       рядом с адресом, чтобы не теряться при сохранении. */
     const PANEL_STATE_KEY = 'greenhouse.state.v1';
     const CONN_KEY = 'greenhouse.games.conn.v1';
     const AUTH_KEY = 'greenhouse.auth.v1';
     const THEME_KEY = 'greenhouse.games.theme';
     const GAME = '/api/games/narutodle';
 
-    const POLL_PLAYING_MS = 1200;   // идёт раунд: чаще, чтобы видеть соперника
-    const POLL_FINISHED_MS = 3000;  // после итога: реже, но ловим чужой реванш
+    const POLL_PLAYING_MS = 1200;   // идёт партия: чаще, чтобы видеть прогресс
+    const POLL_LOBBY_MS = 1500;     // лобби: ждём новых игроков
+    const POLL_FINISHED_MS = 2500;  // после итога: реже, но ловим чужой реванш
     const REQUEST_TIMEOUT_MS = 8000;
+    const COMBO_LIMIT = 30;
 
     const $ = (selector) => document.querySelector(selector);
 
-    let apiBase = '';   // адрес сервера дуэли
+    let apiBase = '';
     let auth = { token: '', user: null };
-    let catalog = { characters: [], attributes: [], max_attempts: 60 };
-    let characterIndex = new Map();  // name -> {color, image} для аватаров
+    let catalog = { characters: [], attributes: [], max_attempts: 60, modes: [] };
+    let characterIndex = new Map();
     let matches = [];                // мои матчи из журнала
-    let loadedRound = 0;             // раунд, для которого уже обновили журнал
-    let state = null;   // состояние комнаты с сервера
-    let watchState = null;  // состояние комнаты глазами зрителя
-    let mode = 'player';    // 'player' — играю, 'watch' — смотрю со стороны
+    let loadedMatch = 0;             // партия, для которой уже обновили журнал
+    let state = null;                // состояние комнаты (игрок)
+    let watchState = null;           // состояние комнаты (зритель)
+    let mode = 'player';             // 'player' — играю, 'watch' — смотрю
     let pollTimer = null;
-    let busy = false;   // запрос уже в пути
-
-    const MAX_PLAYERS = 2;
+    let busy = false;
+    let comboShown = [];
+    let comboActive = -1;
+    let hints = null;                // подсказки игры (берём из состояния комнаты)
 
     /* ------------------------------- утилиты -------------------------------- */
 
@@ -584,6 +609,11 @@
       }
     }
 
+    const clockText = (seconds) => {
+      const total = Math.max(0, Math.round(Number(seconds) || 0));
+      return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+    };
+
     /* ------------------------------ сеть ------------------------------------ */
 
     const root = () => (apiBase || '').replace(/\/+$/, '');
@@ -622,10 +652,6 @@
       if (badge) badge.textContent = text;
     }
 
-    /* Адрес приходит в ссылке-приглашении: тогда настраивать ничего не нужно.
-       Если ссылки нет, берём свой сохранённый адрес, а если и его нет — тот,
-       что указан в настройках панели теплицы. Так игроку не приходится
-       вводить адрес заново на каждом устройстве. */
     function storedConnection() {
       const own = readJson(CONN_KEY) || {};
       return {
@@ -644,8 +670,6 @@
 
     const trimBase = (value) => String(value || '').trim().replace(/\/+$/, '');
 
-    /* Список адресов, которые стоит попробовать. Адрес из ссылки — закон:
-       комната живёт именно на том сервере, с которого пришло приглашение. */
     function apiCandidates() {
       const fromLink = trimBase(new URLSearchParams(location.search).get('srv'));
       if (fromLink) return { fixed: true, list: [fromLink] };
@@ -657,7 +681,6 @@
       return { fixed: false, list };
     }
 
-    /* Короткая проверка адреса: 401 тоже значит «сервер жив, он закрыт ключом». */
     async function pingServer(base) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 2500);
@@ -675,9 +698,6 @@
       }
     }
 
-    /* Адрес и ключ панели, опубликованные на сайте при выгрузке: поддомен
-       туннеля меняется при перезапуске, поэтому копия в браузере может
-       устареть, а этот файл обновляет серверная сторона. */
     let publishedKey = '';
     async function publishedApiBase() {
       if (location.protocol !== 'http:' && location.protocol !== 'https:') return '';
@@ -692,17 +712,14 @@
       }
     }
 
-    /* Туннель меняет имя при перезапуске, поэтому сохранённый адрес может
-       устареть: пробуем по очереди всё, что знаем, и берём живой. */
     async function resolveApiBase() {
       const { fixed, list } = apiCandidates();
       if (fixed) {
         apiBase = list[0];
+        rememberServer(apiBase);
         return apiBase;
       }
-      const stored = trimBase(storedConnection().apiBase);
-      /* Файл сайта тянем сразу: если сохранённый адрес мёртв, ждать впустую
-         не придётся. */
+      const stored = storedConnection().apiBase;
       const published = publishedApiBase();
       for (const candidate of list) {
         if (await pingServer(candidate)) {
@@ -721,9 +738,6 @@
       return apiBase;
     }
 
-    /* Адрес помним вместе с ключом панели: игры ключ не спрашивают, но он
-       нужен странице игровой комнаты, а терять его при сохранении нельзя.
-       Своего ключа может не быть — тогда берём опубликованный на сайте. */
     function rememberServer(value) {
       const own = storedConnection();
       const panel = panelConnection();
@@ -733,7 +747,10 @@
       });
     }
 
-    const roomFromLink = () => (new URLSearchParams(location.search).get('room') || '').toUpperCase();
+    const roomFromLink = () => {
+      const value = new URLSearchParams(location.search).get('room');
+      return value ? String(value).toUpperCase().slice(0, 4) : '';
+    };
 
     function inviteLink(code) {
       const params = new URLSearchParams();
@@ -772,13 +789,13 @@
       show('#logout', Boolean(auth.token));
     }
 
-    function setAuthMode(mode) {
-      const register = mode !== 'login';
+    function setAuthMode(form) {
+      const register = form !== 'login';
       $('#auth-title').textContent = register ? 'Регистрация' : 'Вход в игру';
       $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
       $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
       $('#auth-hint').textContent = register
-        ? 'Аккаунт нужен, чтобы соперник видел, с кем играет. Он же открывает панель теплицы.'
+        ? 'Аккаунт нужен, чтобы другие игроки видели, с кем играют. Он же открывает панель теплицы.'
         : 'Войдите тем же логином, что и в панели теплицы.';
       show('#auth-confirm-field', register);
       show('#auth-error', false);
@@ -786,7 +803,7 @@
     }
 
     async function submitAuth() {
-      const mode = $('#auth-card').dataset.mode === 'login' ? 'login' : 'register';
+      const form = $('#auth-card').dataset.mode === 'login' ? 'login' : 'register';
       const username = ($('#auth-user').value || '').trim();
       const password = $('#auth-pass').value || '';
       const fail = (message) => {
@@ -796,15 +813,16 @@
       };
 
       if (!username || !password) return fail('Заполните логин и пароль');
-      if (mode === 'register' && password !== $('#auth-confirm').value) return fail('Пароли не совпадают');
+      if (form === 'register' && password !== $('#auth-confirm').value) return fail('Пароли не совпадают');
 
       const button = $('#auth-submit');
       button.disabled = true;
       try {
-        const data = await api('/api/auth/' + mode, { method: 'POST', body: { username, password } });
+        const data = await api('/api/auth/' + form, { method: 'POST', body: { username, password } });
         auth = { token: data.token, user: data.user };
         saveAuth();
-        toast(mode === 'register' ? 'Аккаунт создан — можно играть' : 'С возвращением, ' + (data.user && data.user.username));
+        toast(form === 'register' ? 'Аккаунт создан — можно играть'
+          : 'С возвращением, ' + (data.user && data.user.username));
         show('#auth-card', false);
         await afterAuth();
       } catch (error) {
@@ -824,12 +842,22 @@
       watchState = null;
       mode = 'player';
       matches = [];
-      loadedRound = 0;
+      loadedMatch = 0;
       stopPolling();
-      show('#matches-card', false);
-      show('#watch', false);
-      show('#choice-card', false);
+      hideAll();
       showAuth('register');
+    }
+
+    /* Сессия истекла: сервер больше не узнаёт токен. Возвращает true, только
+       если дело действительно в 401 — остальные ошибки показывает вызывающий. */
+    function sessionExpired(error) {
+      if (!error || error.status !== 401 || !auth.token) return false;
+      stopPolling();
+      auth = { token: '', user: null };
+      saveAuth();
+      toast('Сессия истекла — войдите заново', 'warn');
+      showAuth('login');
+      return true;
     }
 
     /* ------------------------------ отрисовка ------------------------------- */
@@ -839,8 +867,6 @@
       const item = characterIndex.get(String(name || '').toLowerCase()) || {};
       const image = String(item.image || '');
       const color = String(item.color || '#8a5a3c');
-      // Портрет отдаёт сам сервер игры: путь /api/... ведёт на его адрес,
-      // а путь к файлу на сайте (portraits/...) остаётся как есть.
       const src = image.startsWith('/api/') ? root() + image : image;
       const inner = src
         ? `<img src="${escapeHtml(src)}" alt="" loading="lazy">`
@@ -856,6 +882,21 @@
       return (first + second).toUpperCase();
     }
 
+    /* Аватар игрока: у аккаунтов картинок нет, поэтому инициалы на цвете,
+       который получается из ника — у каждого игрока свой и постоянный. */
+    const USER_COLORS = ['#7a5c3e', '#3f6f5a', '#6b4a7a', '#8a4a3a', '#4a5f8a', '#6f6a3a'];
+
+    function userColor(name) {
+      let hash = 0;
+      for (const char of String(name || '')) hash = (hash * 31 + char.charCodeAt(0)) % 9973;
+      return USER_COLORS[hash % USER_COLORS.length];
+    }
+
+    function userAvatar(name, extra = '') {
+      return '<span class="user-avatar' + (extra ? ' ' + extra : '') + '" style="background: '
+        + escapeHtml(userColor(name)) + '">' + escapeHtml(initialsOf(name)) + '</span>';
+    }
+
     function whenText(iso) {
       const date = new Date(iso || '');
       if (Number.isNaN(date.getTime())) return '—';
@@ -866,8 +907,6 @@
 
     /* ----------------------------- стихии ---------------------------------- */
 
-    /* Стихия показывается знаком на своём цвете: так таблица читается быстрее
-       слов. Название стихии остаётся в title, поэтому смысл не теряется. */
     const NATURES = {
       'огонь': { sign: '火', color: '#c0392b', label: 'Огонь' },
       'ветер': { sign: '風', color: '#2f9e7a', label: 'Ветер' },
@@ -877,29 +916,27 @@
       'неизвестно': { sign: '?', color: '#7a6a5f', label: 'Неизвестно' }
     };
 
-    function natureChip(value) {
+    function natureChip(value, extra = '') {
       const text = String(value == null ? '' : value).trim();
       const item = NATURES[text.toLowerCase()]
         || { sign: '?', color: '#7a6a5f', label: text || 'нет' };
-      return '<span class="nature-chip" style="background: ' + item.color + '" title="'
-        + escapeHtml(item.label) + '">' + item.sign + '</span>';
+      return '<span class="nature-chip' + (extra ? ' ' + extra : '') + '" style="background: '
+        + item.color + '" title="' + escapeHtml(item.label) + '">' + item.sign + '</span>';
     }
 
-    function natureHtml(values) {
+    function natureHtml(values, extra = '') {
       const list = Array.isArray(values) ? values : [values];
       const filled = list.filter((item) => String(item == null ? '' : item).trim() !== '');
       if (!filled.length) return '<span class="muted">—</span>';
-      return '<span class="nature">' + filled.map(natureChip).join('') + '</span>';
+      return '<span class="nature">'
+        + filled.map((item) => natureChip(item, extra)).join('') + '</span>';
     }
 
-    /* Значение графы для таблицы и разбора: стихии — знаками, остальное текстом. */
     function attributeValueHtml(attribute, value) {
       if (attribute && attribute.key === 'nature') return natureHtml(value);
       return escapeHtml(Array.isArray(value) ? value.join(', ') : value);
     }
 
-    /* Разбор ответа: ровная сетка «графа — значение». Раньше это были
-       «таблетки» разной ширины, и строка выглядела рваной. */
     function answerAttrsHtml(answer) {
       if (!answer) return '';
       return catalog.attributes.map((attribute) => {
@@ -909,9 +946,6 @@
       }).join('');
     }
 
-    /* Стрелка после первой арки: подсказка, в какую сторону искать загадку.
-       Раньше — вниз, позже — вверх (стрелка показывает, где искать, а не куда
-       двигаться по списку). Пусто, когда арка угадана или подсказку дать нельзя. */
     function hintHtml(hint) {
       if (hint !== 'earlier' && hint !== 'later') return '';
       const earlier = hint === 'earlier';
@@ -920,7 +954,8 @@
         + (earlier ? '↓' : '↑') + '</span>';
     }
 
-    function renderAttempts(table, attempts) {
+    function renderAttempts(table, attempts, options = {}) {
+      if (!table) return;
       if (!attempts || !attempts.length || !catalog.attributes.length) {
         table.innerHTML = '';
         return;
@@ -934,14 +969,59 @@
           return '<td class="' + row.state + '"><span class="cell-value">' + shown
             + '</span>' + hintHtml(row.hint) + '</td>';
         }).join('');
+        const author = options.showAuthor && attempt.by
+          ? '<span class="by">' + escapeHtml(attempt.by) + '</span>' : '';
         return '<tr class="' + (attempt.correct ? 'correct' : '') + '">'
           + '<td class="who"><span class="who-line">' + avatarHtml(attempt.name)
-          + escapeHtml(attempt.name) + '</span></td>' + cells + '</tr>';
+          + escapeHtml(attempt.name) + '</span>' + author + '</td>' + cells + '</tr>';
       }).join('');
       table.innerHTML = '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody>';
     }
 
-    /* -------------------------------- матчи --------------------------------- */
+    /* -------------------------------- экраны -------------------------------- */
+
+    function hideAll() {
+      ['#lobby', '#room', '#game', '#choice-card'].forEach(
+        (selector) => show(selector, false));
+      show('#result-card', false);
+      show('#rivals-card', false);
+      $('#matches-card').hidden = true;
+    }
+
+    function showAuth(form) {
+      setAuthMode(form);
+      hideAll();
+      show('#auth-card', true);
+      $('#auth-user').focus();
+    }
+
+    async function showLobbyScreen() {
+      mode = 'player';
+      state = null;
+      watchState = null;
+      stopPolling();
+      hideAll();
+      show('#lobby', true);
+      show('#matches-card', matches.length > 0);
+      history.replaceState(null, '', location.pathname);
+    }
+
+    /* --------------------------- состояние пула ------------------------------ */
+
+    async function loadCatalog() {
+      try {
+        catalog = await api(GAME + '/characters');
+        characterIndex = new Map(
+          (catalog.characters || []).map((item) => [String(item.name).toLowerCase(), item]));
+        hideCombo();
+        return true;
+      } catch (error) {
+        console.warn('Не удалось получить набор персонажей:', error);
+        return false;
+      }
+    }
+
+    /* ------------------------------- журнал --------------------------------- */
 
     const myId = () => (auth.user ? auth.user.id : null);
 
@@ -973,115 +1053,302 @@
         const result = draw ? 'ничья' : (win ? 'победа' : 'поражение');
         const mine = win ? match.winner_attempts : match.loser_attempts;
         const theirs = win ? match.loser_attempts : match.winner_attempts;
-        const opponent = match.player1_id === myId() ? match.player2_name : match.player1_name;
+        const modeName = modeLabel(match.mode);
+        const rivals = String(match.players || '')
+          .split(';').map((part) => part.trim()).filter(Boolean)
+          .filter((part) => !part.startsWith(String(match.winner_name || '\u0000')));
         return '<tr class="' + (draw ? '' : (win ? 'win' : 'lose')) + '">'
           + '<td class="dim">#' + escapeHtml(match.id) + '</td>'
           + '<td class="dim">' + escapeHtml(whenText(match.played_at)) + '</td>'
-          + '<td>' + escapeHtml(opponent || '—') + '</td>'
+          + '<td class="dim">' + escapeHtml(modeName) + '</td>'
           + '<td class="res">' + result + '</td>'
+          + '<td>' + escapeHtml(match.winner_name || '—') + '</td>'
+          + '<td class="dim">' + escapeHtml(rivals.join(', ') || '—') + '</td>'
           + '<td class="dim">' + mine + ' : ' + theirs + '</td>'
-          + '<td class="dim">раунд ' + escapeHtml(match.round_number) + '</td>'
-          + '<td><span class="who-line">' + avatarHtml(match.target)
-          + escapeHtml(match.target) + '</span></td>'
+          + '<td><span class="who-line">' + escapeHtml(match.target || '—') + '</span></td>'
           + '</tr>';
       }).join('');
-      $('#matches-table').innerHTML = '<thead><tr><th>Матч</th><th>Когда</th><th>Соперник</th>'
-        + '<th>Итог</th><th>Ходы</th><th>Раунд</th><th>Персонаж</th></tr></thead>'
-        + '<tbody>' + rows + '</tbody>';
+      $('#matches-table').innerHTML = '<thead><tr><th>Матч</th><th>Когда</th><th>Режим</th>'
+        + '<th>Итог</th><th>Победитель</th><th>Соперники</th><th>Ходы</th>'
+        + '<th>Персонажи</th></tr></thead><tbody>' + rows + '</tbody>';
     }
 
-    function renderResult() {
-      const winner = state.winner;
-      const box = $('#result');
-      box.className = 'result' + (winner === 'you' ? ' win' : (winner === 'rival' ? ' lose' : ''));
-      $('#result-title').textContent = winner === 'you' ? 'Раунд ваш!'
-        : (winner === 'rival' ? 'Раунд за соперником' : 'Ничья');
-      $('#result-name').textContent = state.answer ? state.answer.name : '—';
-      $('#result-avatar').innerHTML = state.answer ? avatarHtml(state.answer.name, 'avatar-lg') : '';
-      $('#result-attrs').innerHTML = answerAttrsHtml(state.answer);
-      $('#result-text').textContent = state.finish_reason === 'gave_up'
-        ? 'Раунд закончился сдачей одного из игроков.'
-        : 'Попыток: у вас ' + state.you.guess_count + ', у соперника '
-          + (state.rival ? state.rival.guess_count : 0) + '.';
+    function modeLabel(key) {
+      const found = (catalog.modes || []).find((item) => item.key === key);
+      if (found) return found.label;
+      return key === 'race' ? 'Гонка' : (key === 'teams' ? 'Команды' : 'Дуэль');
+    }
 
-      const rivalAttempts = state.rival && state.rival.attempts;
-      show('#rival-card', Boolean(rivalAttempts && rivalAttempts.length));
-      if (rivalAttempts && rivalAttempts.length) {
-        $('#rival-badge').textContent = state.rival.name + ' · попыток: ' + state.rival.guess_count;
-        renderAttempts($('#rival-board'), rivalAttempts);
+    /* ------------------------------- лобби ---------------------------------- */
+
+    let roomTab = 'players';
+
+    function setRoomTab(tab) {
+      roomTab = tab === 'teams' ? 'teams' : 'players';
+      $('#tab-players').classList.toggle('on', roomTab === 'players');
+      $('#tab-teams').classList.toggle('on', roomTab === 'teams');
+      show('#players-pane', roomTab === 'players');
+      show('#teams-pane', roomTab === 'teams');
+    }
+
+    function renderLobbyScreen() {
+      const data = state;
+      if (!data) return;
+      $('#slot-counter').textContent = data.players_count + '/' + data.capacity;
+      $('#room-code-value').textContent = data.code;
+      $('#room-link').value = inviteLink(data.code);
+
+      const rows = data.players.map((player, index) => {
+        const stateText = player.host ? 'хозяин комнаты'
+          : (player.ready ? 'готов к игре' : 'в ожидании');
+        const star = player.host ? '<span class="star" title="Хозяин комнаты">✦</span>' : '';
+        return '<div class="room-row' + (player.you ? ' you' : '') + '">'
+          + '<span class="place">' + (index + 1) + '</span>'
+          + userAvatar(player.name)
+          + '<span class="who"><b>' + escapeHtml(player.name) + '</b>'
+          + '<span>' + escapeHtml(stateText) + '</span></span>'
+          + star + '</div>';
+      }).join('');
+      const freeRow = data.free > 0
+        ? '<div class="room-row free" id="free-slot"><span class="plus">+</span>'
+          + '<b>Свободно мест: ' + data.free + '</b></div>'
+        : '';
+      $('#room-list').innerHTML = rows + freeRow;
+      const freeSlot = $('#free-slot');
+      if (freeSlot) {
+        freeSlot.title = 'Отправьте друзьям ссылку или код комнаты';
+        freeSlot.addEventListener('click', () => copyText(inviteLink(data.code), 'Ссылка скопирована'));
       }
+
+      const teams = data.teams.length ? data.teams : [
+        { key: 'a', label: 'Команда A', members: [] },
+        { key: 'b', label: 'Команда B', members: [] }
+      ];
+      const myTeam = data.you ? data.you.team : null;
+      $('#teams-grid').innerHTML = data.mode !== 'teams'
+        ? '<p class="muted" style="margin:0;">Команды появятся, если хозяин выберет режим «Команды»: '
+          + 'игроки делятся на две команды по очереди входа.</p>'
+        : teams.map((team) => (
+          '<div class="team-card' + (myTeam === team.key ? ' mine' : '') + '">'
+          + '<h3>' + escapeHtml(team.label) + (myTeam === team.key ? ' · ваша' : '') + '</h3>'
+          + (team.members.length
+            ? '<ul>' + team.members.map((name) => '<li>' + escapeHtml(name) + '</li>').join('') + '</ul>'
+            : '<p class="muted" style="margin:0;">Пока никого</p>')
+          + '</div>'
+        )).join('');
+
+      const isHost = data.is_host;
+      show('#start-game', true);
+      show('#leave-room', true);
+      show('#room-join', false);
+      show('#room-watch-exit', false);
+      $('#mode-owner').textContent = isHost ? 'выбираете вы' : 'выбирает ' + (data.host_name || 'хозяин');
+      $('#mode-picker').innerHTML = data.modes.map((item) => (
+        '<button type="button" class="mode-card' + (item.key === data.mode ? ' on' : '') + '"'
+        + ' data-mode="' + escapeHtml(item.key) + '"' + (isHost ? '' : ' disabled') + '>'
+        + '<b>' + escapeHtml(item.label) + '</b><span>' + escapeHtml(item.hint) + '</span></button>'
+      )).join('');
+
+      const bothTeams = data.teams.length === 2 && data.teams.every((team) => team.members.length);
+      const canStart = data.mode !== 'teams' || bothTeams;
+      const startButton = $('#start-game');
+      startButton.disabled = !isHost || !canStart;
+      startButton.textContent = isHost ? 'Начать игру' : 'Ждём хозяина';
+      $('#room-hint').textContent = !isHost
+        ? 'Игру запускает ' + (data.host_name || 'хозяин') + ': можно начинать с любым числом игроков.'
+        : (data.mode === 'teams' && !bothTeams
+          ? 'В режиме «Команды» нужны игроки в обеих командах — позовите ещё кого-нибудь.'
+          : 'Можно начинать с любым числом игроков: ' + data.players_count + ' уже в комнате.');
+
+      show('#room-history', data.history.length > 0);
+      if (data.history.length) {
+        $('#room-history-list').innerHTML = data.history.slice().reverse().map((item) => (
+          '<li>Партия ' + item.number + ' · ' + escapeHtml(modeLabel(item.mode)) + ' — '
+          + escapeHtml(item.winner_name || 'ничья') + ' (' + escapeHtml(
+            item.groups.map((group) => group.name + ': ' + group.found_count + '/'
+              + group.total).join(', ')) + ')</li>'
+        )).join('');
+      }
+      setRoomTab(roomTab);
     }
 
-    function renderGame() {
-      const finished = state.status === 'finished';
+    /* ------------------------------- партия --------------------------------- */
 
-      $('#game-round').textContent = state.round;
-      $('#game-code').textContent = state.code;
-      $('#game-score').textContent = 'счёт ' + state.score.you + ' : ' + state.score.rival;
-      $('#me-name').textContent = state.you.name;
-      $('#me-state').textContent = 'попыток: ' + state.you.guess_count;
-      $('#rival-name').textContent = state.rival ? state.rival.name : 'соперник ещё не вошёл';
-      $('#rival-state').textContent = state.rival ? 'попыток: ' + state.rival.guess_count : '';
+    function renderMatch(data, watching) {
+      const match = data.match;
+      if (!match) return;
+      const you = data.you;
+      const finished = match.finished;
+      const mineGroup = you
+        ? (match.groups.find((group) => group.mine) || null) : null;
+      hints = data;
 
-      renderAttempts($('#my-board'), state.you.attempts);
+      $('#game-title').textContent = 'Партия ' + match.number;
+      $('#game-mode').textContent = match.mode_label + ' · ' + data.code;
+      $('#game-room').textContent = data.code;
+      $('#game-timer').textContent = clockText(match.elapsed);
+      show('#game-watch-wrap', Boolean(watching));
+      $('#game-rules').textContent = match.mode === 'duel'
+        ? 'Один общий персонаж: кто угадает первым, тот и побеждает.'
+        : (match.mode === 'race'
+          ? 'Пять персонажей у всех одинаковые: кто первым закроет все пять, тот и побеждает.'
+          : 'Две команды и одинаковый набор из пяти персонажей: доска у команды общая, побеждает та, что закроет набор первой.');
 
-      show('#guess-form', !finished);
-      show('#give-up', !finished);
-      show('#rematch', finished);
-      $('#guess-submit').disabled = finished;
-
-      /* Новый раунд начинается, когда готовы оба игрока: нажавший видит
-         ожидание, а не поле для догадки, иначе он угадывал бы один. */
-      const ready = state.ready || { you: false, rival: false };
-      renderRematch(ready);
-      $('#guess-hint').textContent = finished
-        ? (ready.you
-            ? 'Ждём соперника: раунд начнётся, когда он тоже нажмёт «Ещё раунд».'
-            : (ready.rival
-                ? 'Соперник уже готов — нажмите «Ещё раунд», и раунд начнётся.'
-                : 'Раунд закончен — можно начать новый.'))
-        : ('В наборе ' + catalog.characters.length + ' персонажей: подсказка появится при вводе.');
-
-      if (finished) {
-        renderResult();
-        show('#result-card', true);
-        if (loadedRound !== state.round) {
-          loadedRound = state.round;
-          loadMatches();
+      $('#game-progress').innerHTML = match.groups.map((group) => {
+        const share = group.total ? (group.found_count / group.total) * 100 : 0;
+        const chips = (group.found || []).map((name) => (
+          '<span class="p-chip">' + escapeHtml(name) + '</span>'
+        )).join('');
+        const closed = group.finished && group.found_count >= group.total;
+        const winner = Boolean(match.finished && match.winner && match.winner.key === group.key);
+        let stateText;
+        if (winner) {
+          stateText = match.targets_total === 1 ? 'угадал первым' : 'набор закрыт · победа';
+        } else if (closed) {
+          stateText = 'набор закрыт';
+        } else if (group.finished) {
+          stateText = 'сдался';
+        } else {
+          stateText = group.attempts === null ? 'доска скрыта' : 'ищет';
         }
+        return '<div class="p-card' + (group.mine ? ' mine' : '')
+          + (group.finished ? ' done' : '') + '">'
+          + '<div class="p-head"><b>' + escapeHtml(group.name) + '</b>'
+          + '<span>' + group.found_count + '/' + group.total + '</span></div>'
+          + '<div class="p-bar"><i style="width: ' + share.toFixed(1) + '%"></i></div>'
+          + '<div class="p-state">' + escapeHtml(stateText)
+          + (group.seconds !== null && group.seconds !== undefined
+            ? ' · ' + clockText(group.seconds) : '') + '</div>'
+          + (chips ? '<div class="p-found">' + chips + '</div>' : '')
+          + '</div>';
+      }).join('');
+
+      const list = data.players.map((player) => {
+        const bits = [];
+        if (match.mode === 'teams' && player.team_label) bits.push(player.team_label);
+        bits.push('найдено ' + player.found_count);
+        if (player.gave_up) bits.push('сдался');
+        if (player.ready) bits.push('готов');
+        return '<div class="player' + (player.you ? ' mine' : '') + '">'
+          + userAvatar(player.name)
+          + '<span><b>' + escapeHtml(player.name) + '</b><br><small>'
+          + escapeHtml(bits.join(' · ')) + '</small></span></div>';
+      }).join('');
+      $('#game-players').innerHTML = list + '<div class="player"><span>🔑</span><span>комната <b>'
+        + escapeHtml(data.code) + '</b></span></div>';
+
+      const canGuess = Boolean(you) && !watching && !finished && !you.gave_up && !you.finished;
+      show('#guess-form', canGuess);
+      show('#give-up', canGuess);
+      $('#guess-submit').disabled = !canGuess;
+      $('#guess-label').textContent = match.mode === 'teams'
+        ? 'Догадка команды — подсказку увидят все её игроки'
+        : 'Ваша догадка';
+
+      const attempts = you ? you.attempts : (match.groups[0] ? match.groups[0].attempts : null);
+      renderAttempts($('#game-board'), attempts, { showAuthor: match.mode === 'teams' });
+
+      if (canGuess) {
+        const left = (match.targets_total || 1) - (you.found_count || 0);
+        $('#guess-hint').textContent = match.targets_total > 1
+          ? 'Осталось найти: ' + left + ' из ' + match.targets_total + '. '
+            + 'Подсказки ведут к первому незакрытому персонажу набора.'
+          : 'В наборе ' + catalog.characters.length + ' персонажей: подсказка появится при вводе.';
+      } else if (you && you.gave_up) {
+        $('#guess-hint').textContent = 'Вы сдались в этой партии.';
+      } else if (you && you.finished) {
+        $('#guess-hint').textContent = 'Вы закрыли свой набор — ждём остальных.';
+      } else if (finished) {
+        $('#guess-hint').textContent = 'Партия закончена — можно сыграть ещё или вернуться в лобби.';
       } else {
-        show('#result-card', false);
+        $('#guess-hint').textContent = watching ? 'Идёт партия: доски откроются после итога.' : '';
+      }
+
+      /* Итог партии. */
+      show('#result-card', finished);
+      if (finished) {
+        const winner = match.winner;
+        const mine = Boolean(winner && winner.mine);
+        $('#result-box').className = 'result' + (match.draw ? '' : (mine ? ' win' : ' lose'));
+        $('#result-title').textContent = match.draw ? 'Ничья'
+          : (winner ? 'Победила ' + winner.name : 'Партия закончена');
+        $('#result-badge').textContent = match.reason === 'gave_up' ? 'сдача' : 'набор закрыт';
+        const seconds = match.groups
+          .filter((group) => group.seconds !== null && group.found_count >= group.total)
+          .map((group) => group.name + ' — ' + clockText(group.seconds)).join(', ');
+        $('#result-text').textContent = (match.draw
+          ? 'Все сдались — победителя нет. '
+          : '') + (seconds ? 'Время: ' + seconds + '. ' : '')
+          + (match.mode === 'duel' ? 'Загадка была такой:' : 'Набор был таким:');
+        $('#result-answers').innerHTML = (match.answers || []).map((answer) => (
+          '<div class="answer-card">' + avatarHtml(answer.name, 'avatar-lg')
+          + '<div><div class="answer-name">' + escapeHtml(answer.name) + '</div>'
+          + '<div class="answer-attrs">' + answerAttrsHtml(answer) + '</div></div></div>'
+        )).join('');
+      }
+
+      /* Чужие доски: после итога показываем каждую. */
+      const rivals = finished
+        ? match.groups.filter((group) => !group.mine && group.attempts && group.attempts.length)
+        : [];
+      show('#rivals-card', rivals.length > 0);
+      if (rivals.length) {
+        $('#rivals-badge').textContent = 'доск: ' + rivals.length;
+        $('#rivals').innerHTML = rivals.map((group) => (
+          '<div style="margin-bottom: 14px;"><div class="who-line" style="margin-bottom: 6px;">'
+          + userAvatar(group.name) + '<b>' + escapeHtml(group.name) + '</b>'
+          + '<span class="muted">· найдено ' + group.found_count + '/' + group.total + '</span></div>'
+          + '<div class="board-wrap"><table class="board" id="rival-board-' + escapeHtml(group.key)
+          + '"></table></div></div>'
+        )).join('');
+        rivals.forEach((group) => {
+          renderAttempts($('#rival-board-' + group.key.replace(/[^A-Za-z0-9_-]/g, '')),
+            group.attempts, { showAuthor: match.mode === 'teams' });
+        });
+      }
+
+      /* Кнопки после итога и наблюдение. */
+      const ready = Boolean(you && you.ready);
+      show('#rematch', finished && Boolean(you) && !watching);
+      show('#to-lobby-btn', finished && Boolean(you) && !watching);
+      show('#watch-exit', Boolean(watching));
+      show('#watch-play', Boolean(watching) && data.status === 'lobby');
+      const button = $('#rematch');
+      if (button) {
+        button.disabled = ready;
+        button.textContent = ready ? 'Ждём остальных…' : 'Ещё игра';
+      }
+      if (finished && you) {
+        const readyCount = data.players.filter((player) => player.ready).length;
+        $('#game-hint').textContent = ready
+          ? 'Готовы ' + readyCount + ' из ' + data.players_count
+            + ': партия начнётся, когда отметятся все.'
+          : 'Новая партия начнётся, когда все нажмут «Ещё игра».';
+      } else if (watching) {
+        $('#game-hint').textContent = data.status === 'lobby'
+          ? 'Комната ждёт игроков — можно занять свободное место.'
+          : 'Вы наблюдаете за партией: доски откроются после итога.';
+      } else {
+        $('#game-hint').textContent = '';
+      }
+
+      if (finished && loadedMatch !== match.number) {
+        loadedMatch = match.number;
+        loadMatches();
       }
     }
 
-    /* Кнопки «Ещё раунд»: пока игрок ждёт соперника, они выключены, а на
-       большой кнопке видно, чего именно ждём. */
-    function renderRematch(ready) {
-      const waiting = Boolean(ready.you) && !ready.rival;
-      const text = !ready.you ? 'Ещё раунд'
-        : (ready.rival ? 'Начать раунд' : 'Ждём соперника…');
-      ['#rematch', '#rematch-2'].forEach((selector) => {
-        const button = $(selector);
-        if (!button) return;
-        button.disabled = waiting;
-        button.textContent = text;
-      });
-    }
-
-    function renderScreen() {
-      if (!state) return;
-      show('#choice-card', false);
-      show('#watch', false);
-      show('#wait-card', state.status === 'waiting');
-      show('#game', state.status !== 'waiting');
-      if (state.status !== 'playing') hideCombo();
-
-      if (state.status === 'waiting') {
-        $('#wait-code').textContent = state.code;
-        $('#invite-link').value = inviteLink(state.code);
-        $('#wait-round').textContent = 'раунд ' + state.round;
+    function applyState(next) {
+      state = next;
+      hideAll();
+      if (next.status === 'lobby') {
+        show('#room', true);
+        renderLobbyScreen();
+        schedulePoll(POLL_LOBBY_MS);
       } else {
-        renderGame();
+        show('#game', true);
+        renderMatch(next, false);
+        schedulePoll(next.match && next.match.finished ? POLL_FINISHED_MS : POLL_PLAYING_MS);
       }
     }
 
@@ -1098,8 +1365,8 @@
     }
 
     async function refresh() {
-      if (mode === 'watch') return refreshWatch();
-      if (!state) return;
+      const current = mode === 'watch' ? watchState : state;
+      if (!current) return;
       if (document.hidden) {
         schedulePoll(POLL_FINISHED_MS);
         return;
@@ -1110,14 +1377,28 @@
       }
       busy = true;
       try {
-        const data = await api(GAME + '/rooms/' + state.code);
-        state = data.state;
+        const suffix = mode === 'watch' ? '/watch' : '';
+        const data = await api(GAME + '/rooms/' + current.code + suffix);
         setConnection('online', 'на связи');
-        renderScreen();
-        schedulePoll(state.status === 'finished' ? POLL_FINISHED_MS : POLL_PLAYING_MS);
+        if (mode === 'watch') {
+          watchState = data.state;
+          hideAll();
+          if (watchState.status === 'lobby') {
+            show('#room', true);
+            renderWatchLobby();
+            schedulePoll(POLL_LOBBY_MS);
+          } else {
+            show('#game', true);
+            renderMatch(watchState, true);
+            schedulePoll(watchState.match && watchState.match.finished
+              ? POLL_FINISHED_MS : POLL_PLAYING_MS);
+          }
+        } else {
+          applyState(data.state);
+        }
       } catch (error) {
         if (error.status === 401) {
-          sessionExpired();
+          sessionExpired(error);
           return;
         }
         if (error.status === 400) {
@@ -1131,15 +1412,154 @@
       }
     }
 
-    function sessionExpired() {
-      stopPolling();
-      auth = { token: '', user: null };
-      saveAuth();
-      toast('Сессия истекла — войдите заново', 'warn');
-      showAuth('login');
+    function renderWatchLobby() {
+      const data = watchState;
+      if (!data) return;
+      $('#slot-counter').textContent = data.players_count + '/' + data.capacity;
+      $('#room-code-value').textContent = data.code;
+      $('#room-link').value = inviteLink(data.code);
+      $('#room-list').innerHTML = data.players.map((player, index) => (
+        '<div class="room-row">' + '<span class="place">' + (index + 1) + '</span>'
+        + userAvatar(player.name)
+        + '<span class="who"><b>' + escapeHtml(player.name) + '</b><span>'
+        + (player.host ? 'хозяин комнаты' : 'в ожидании') + '</span></span>'
+        + (player.host ? '<span class="star">✦</span>' : '') + '</div>'
+      )).join('') + (data.free > 0
+        ? '<div class="room-row free"><span class="plus">+</span><b>Свободно мест: '
+          + data.free + '</b></div>' : '');
+      $('#teams-grid').innerHTML = '';
+      $('#mode-picker').innerHTML = (data.modes || []).map((item) => (
+        '<div class="mode-card' + (item.key === data.mode ? ' on' : '') + '">'
+        + '<b>' + escapeHtml(item.label) + '</b><span>' + escapeHtml(item.hint) + '</span></div>'
+      )).join('');
+      $('#start-game').disabled = true;
+      $('#start-game').textContent = 'Наблюдение';
+      show('#start-game', false);
+      show('#leave-room', false);
+      show('#room-join', data.free > 0);
+      show('#room-watch-exit', true);
+      $('#room-hint').textContent = data.free > 0
+        ? 'Вы смотрите на лобби. Чтобы играть, займите свободное место.'
+        : 'Вы смотрите на лобби: свободных мест нет.';
+      show('#room-history', false);
+      setRoomTab('players');
     }
 
-    /* ---------------------------- наблюдение -------------------------------- */
+    function roomGone(message) {
+      stopPolling();
+      state = null;
+      watchState = null;
+      mode = 'player';
+      hideAll();
+      show('#lobby', true);
+      history.replaceState(null, '', location.pathname);
+      toast(message || 'Комната больше недоступна', 'warn');
+    }
+
+    /* ------------------------------ действия -------------------------------- */
+
+    async function act(method, path, body, message) {
+      if (busy) return;
+      busy = true;
+      try {
+        const data = await api(GAME + path, { method, body });
+        if (data.state && data.state.closed) {
+          await showLobbyScreen();
+          toast('Комната закрыта', 'warn');
+          return;
+        }
+        applyState(data.state);
+        if (message) toast(message);
+      } catch (error) {
+        if (!sessionExpired(error)) toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function createRoom() {
+      await act('POST', '/rooms', { mode: 'duel' }, 'Комната создана — позовите друзей');
+      if (state) history.replaceState(null, '', inviteLink(state.code));
+    }
+
+    async function joinRoom(code) {
+      const room = String(code || '').trim().toUpperCase();
+      if (room.length !== 4) {
+        toast('Код комнаты — четыре символа', 'warn');
+        return false;
+      }
+      let ok = false;
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + room + '/join', { method: 'POST' });
+        applyState(data.state);
+        history.replaceState(null, '', inviteLink(room));
+        toast('Вы в комнате ' + room);
+        ok = true;
+      } catch (error) {
+        if (!sessionExpired(error)) toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+      return ok;
+    }
+
+    async function leaveRoom() {
+      const code = state ? state.code : '';
+      if (!code) return;
+      busy = true;
+      try {
+        await api(GAME + '/rooms/' + code + '/leave', { method: 'POST' });
+      } catch (error) {
+        if (!sessionExpired(error)) toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+      await showLobbyScreen();
+      toast('Вы вышли из комнаты');
+    }
+
+    async function setMode(modeKey) {
+      if (!state || !state.is_host) return;
+      await act('POST', '/rooms/' + state.code + '/mode', { mode: modeKey });
+    }
+
+    async function startGame() {
+      if (!state) return;
+      await act('POST', '/rooms/' + state.code + '/start', {}, 'Игра началась');
+    }
+
+    async function sendGuess(name) {
+      const value = String(name || '').trim();
+      if (!value || !state) return;
+      hideCombo();
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + state.code + '/guess',
+          { method: 'POST', body: { name: value } });
+        applyState(data.state);
+        $('#guess-input').value = '';
+      } catch (error) {
+        if (!sessionExpired(error)) toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
+    async function giveUp() {
+      if (!state) return;
+      await act('POST', '/rooms/' + state.code + '/giveup', {}, 'Вы сдались');
+    }
+
+    async function rematch() {
+      if (!state) return;
+      await act('POST', '/rooms/' + state.code + '/rematch', {}, 'Отметили готовность');
+    }
+
+    async function toLobby() {
+      if (!state) return;
+      await act('POST', '/rooms/' + state.code + '/lobby', {});
+    }
 
     async function openWatch(code) {
       busy = true;
@@ -1150,318 +1570,52 @@
         watchState = data.state;
         setConnection('online', 'на связи');
         history.replaceState(null, '', inviteLink(code));
-        show('#choice-card', false);
-        show('#lobby', false);
-        show('#wait-card', false);
-        show('#game', false);
-        renderWatch();
+        hideAll();
+        if (data.state.status === 'lobby') {
+          show('#room', true);
+          renderWatchLobby();
+        } else {
+          show('#game', true);
+          renderMatch(data.state, true);
+        }
         schedulePoll(POLL_PLAYING_MS);
       } catch (error) {
-        if (error.status === 401) sessionExpired();
+        if (error.status === 401) sessionExpired(error);
         else toast(error.message, 'err');
       } finally {
         busy = false;
       }
-    }
-
-    /* Зритель опрашивает комнату отдельным адресом: игроку видно меньше,
-       чем наблюдателю, поэтому состояние живёт в watchState. */
-    async function refreshWatch() {
-      if (!watchState) return;
-      if (document.hidden) {
-        schedulePoll(POLL_FINISHED_MS);
-        return;
-      }
-      if (busy) {
-        schedulePoll(POLL_PLAYING_MS);
-        return;
-      }
-      busy = true;
-      try {
-        const data = await api(GAME + '/rooms/' + watchState.code + '/watch');
-        watchState = data.state;
-        setConnection('online', 'на связи');
-        renderWatch();
-        schedulePoll(watchState.status === 'finished' ? POLL_FINISHED_MS : POLL_PLAYING_MS);
-      } catch (error) {
-        if (error.status === 401) {
-          sessionExpired();
-          return;
-        }
-        if (error.status === 400) {
-          roomGone(error.message);
-          return;
-        }
-        setConnection('err', root() ? 'сервер не отвечает' : 'адрес не задан');
-        schedulePoll(POLL_FINISHED_MS);
-      } finally {
-        busy = false;
-      }
-    }
-
-    function watchHint(status) {
-      if (status === 'waiting') return 'Соперник ещё не подключился — ссылку можно отправить друзьям.';
-      if (status === 'finished') return 'Раунд закончен. Новый начнётся, когда оба игрока нажмут «Ещё раунд» — вы увидите его здесь.';
-      return 'Загадка откроется после раунда: до этого её не видит никто, даже зрители.';
-    }
-
-    function renderWatch() {
-      const data = watchState;
-      if (!data) return;
-      const players = data.players || [];
-      const finished = data.status === 'finished';
-
-      show('#watch', true);
-      $('#watch-status').textContent = data.status === 'waiting'
-        ? 'раунд ' + data.round + ' · ждём соперника'
-        : 'раунд ' + data.round + (finished ? ' · итог' : '');
-      $('#watch-hint').textContent = watchHint(data.status);
-      show('#watch-play', data.status === 'waiting');
-
-      /* Обе стороны показываем одинаково: зритель пришёл смотреть на дуэль. */
-      for (let index = 0; index < MAX_PLAYERS; index += 1) {
-        const place = index + 1;
-        const player = players[index];
-        if (!player) {
-          $('#watch-name-' + place).textContent = 'соперник ещё не вошёл';
-          $('#watch-badge-' + place).textContent = '—';
-          renderAttempts($('#watch-board-' + place), []);
-          continue;
-        }
-        $('#watch-name-' + place).textContent = player.name;
-        const bits = ['попыток: ' + player.guess_count];
-        if (player.solved_in) bits.push('угадал с ' + player.solved_in + '-й попытки');
-        if (player.gave_up) bits.push('сдался');
-        if (player.ready) bits.push('готов к новому раунду');
-        if (data.rounds) bits.push('побед: ' + player.wins);
-        $('#watch-badge-' + place).textContent = bits.join(' · ');
-        renderAttempts($('#watch-board-' + place), player.attempts);
-      }
-
-      if (finished) {
-        $('#watch-result-box').className = 'result' + (data.draw ? '' : ' win');
-        $('#watch-result-title').textContent = data.draw
-          ? 'Раунд закончился ничьей'
-          : ('Раунд забрал ' + (data.winner_name || '—'));
-        $('#watch-result-name').textContent = data.answer ? data.answer.name : '—';
-        $('#watch-result-avatar').innerHTML = data.answer
-          ? avatarHtml(data.answer.name, 'avatar-lg') : '';
-        $('#watch-result-attrs').innerHTML = answerAttrsHtml(data.answer);
-        $('#watch-result-text').textContent = data.finish_reason === 'gave_up'
-          ? 'Один из игроков сдался, не дожидаясь разгадки.'
-          : 'Оба искали одного и того же персонажа.';
-      }
-      show('#watch-result', finished);
-
-      show('#watch-history', data.history.length > 0);
-      if (data.history.length) {
-        $('#watch-history-badge').textContent = 'раундов: ' + data.rounds;
-        const rows = data.history.map((item) => {
-          const moves = Object.keys(item.attempts || {})
-            .map((name) => name + ': ' + item.attempts[name]).join(', ');
-          return '<tr>'
-            + '<td class="dim">раунд ' + escapeHtml(item.round) + '</td>'
-            + '<td>' + escapeHtml(item.winner_name || 'ничья') + '</td>'
-            + '<td class="dim">' + escapeHtml(moves || '—') + '</td>'
-            + '<td><span class="who-line">' + avatarHtml(item.target)
-            + escapeHtml(item.target || '—') + '</span></td>'
-            + '</tr>';
-        }).join('');
-        $('#watch-history-table').innerHTML = '<thead><tr><th>Раунд</th><th>Победитель</th>'
-          + '<th>Ходы</th><th>Персонаж</th></tr></thead><tbody>' + rows + '</tbody>';
-      }
-    }
-
-    /* Комната живёт два часа: если её уже нет, возвращаем в лобби, а не
-       продолжаем опрашивать несуществующую комнату. */
-    function roomGone(message) {
-      stopPolling();
-      state = null;
-      watchState = null;
-      mode = 'player';
-      show('#watch', false);
-      show('#choice-card', false);
-      show('#game', false);
-      show('#wait-card', false);
-      history.replaceState(null, '', location.pathname);
-      show('#lobby', true);
-      toast(message || 'Комната больше недоступна', 'warn');
     }
 
     function leaveWatch() {
       stopPolling();
       mode = 'player';
       watchState = null;
-      show('#watch', false);
-      history.replaceState(null, '', location.pathname);
+      hideAll();
       show('#lobby', true);
+      history.replaceState(null, '', location.pathname);
       toast('Наблюдение закрыто');
     }
 
-    /* Зритель может занять освободившееся место: пока комната ждёт соперника. */
     async function playFromWatch() {
       const code = watchState ? watchState.code : '';
       if (!code) return;
-      if (await joinRoom(code)) {
-        show('#watch', false);
-        return;
-      }
-      renderWatch();
+      await joinRoom(code);
     }
 
-    /* ------------------------------ команды --------------------------------- */
-
-    async function createRoom() {
-      busy = true;
-      try {
-        const data = await api(GAME + '/rooms', { method: 'POST' });
-        mode = 'player';
-        watchState = null;
-        state = data.state;
-        setConnection('online', 'на связи');
-        history.replaceState(null, '', inviteLink(state.code));
-        show('#choice-card', false);
-        show('#watch', false);
-        show('#lobby', false);
-        renderScreen();
-        schedulePoll(POLL_PLAYING_MS);
-        toast('Комната ' + state.code + ' создана — отправьте ссылку другу');
-      } catch (error) {
-        if (error.status === 401) sessionExpired();
-        else toast(error.message, 'err');
-      } finally {
-        busy = false;
-      }
-    }
-
-    async function joinRoom(code) {
-      const value = (code || '').trim().toUpperCase();
-      if (value.length !== 4) {
-        toast('Код комнаты — четыре символа', 'warn');
-        return false;
-      }
-      busy = true;
-      try {
-        const data = await api(GAME + '/rooms/' + value + '/join', { method: 'POST' });
-        mode = 'player';
-        watchState = null;
-        state = data.state;
-        setConnection('online', 'на связи');
-        history.replaceState(null, '', inviteLink(state.code));
-        show('#choice-card', false);
-        show('#watch', false);
-        show('#lobby', false);
-        renderScreen();
-        schedulePoll(POLL_PLAYING_MS);
-        return true;
-      } catch (error) {
-        if (error.status === 401) sessionExpired();
-        else toast(error.message, 'err');
-        return false;
-      } finally {
-        busy = false;
-      }
-    }
-
-    async function sendGuess(name) {
-      if (!state || state.status !== 'playing') return;
-      const value = (name || '').trim();
-      if (!value) return;
-      // Набор приходит из базы как список объектов: сверяем по имени, чтобы
-      // опечатка не тратилась на попытку.
-      const known = catalog.characters.some(
-        (item) => String(item.name).toLowerCase() === value.toLowerCase());
-      if (catalog.characters.length && !known) {
-        toast('Такого персонажа нет в наборе — выберите из подсказки', 'warn');
-        return;
-      }
-      busy = true;
-      try {
-        const data = await api(GAME + '/rooms/' + state.code + '/guess',
-          { method: 'POST', body: { name: value } });
-        state = data.state;
-        $('#guess-input').value = '';
-        hideCombo();
-        const last = state.you.attempts[state.you.attempts.length - 1];
-        if (last && last.correct) toast('Точно! Раунд ваш');
-        renderScreen();
-        schedulePoll(state.status === 'finished' ? POLL_FINISHED_MS : POLL_PLAYING_MS);
-      } catch (error) {
-        if (error.status === 401) sessionExpired();
-        else toast(error.message, error.status === 400 ? 'warn' : 'err');
-      } finally {
-        busy = false;
-      }
-    }
-
-    async function giveUp() {
-      if (!state || state.status !== 'playing') return;
-      if (!window.confirm('Сдаться в этом раунде? Победа достанется сопернику.')) return;
-      busy = true;
-      try {
-        const data = await api(GAME + '/rooms/' + state.code + '/giveup', { method: 'POST' });
-        state = data.state;
-        renderScreen();
-        schedulePoll(POLL_FINISHED_MS);
-      } catch (error) {
-        if (error.status === 401) sessionExpired();
-        else toast(error.message, 'err');
-      } finally {
-        busy = false;
-      }
-    }
-
-    async function rematch() {
-      if (!state) return;
-      busy = true;
-      try {
-        const data = await api(GAME + '/rooms/' + state.code + '/rematch', { method: 'POST' });
-        state = data.state;
-        renderScreen();
-        /* Опрашиваем часто в обоих случаях: если отметка ушла и ждём второго
-           игрока, новый раунд должен начаться сразу, как он нажмёт. */
-        schedulePoll(POLL_PLAYING_MS);
-        if (state.status === 'finished') {
-          toast('Ждём соперника — раунд начнётся, когда он тоже будет готов');
-        } else {
-          $('#guess-input').focus();
-        }
-      } catch (error) {
-        if (error.status === 401) sessionExpired();
-        else toast(error.message, 'warn');
-      } finally {
-        busy = false;
-      }
-    }
-
-    function leaveRoom() {
-      stopPolling();
-      state = null;
-      show('#wait-card', false);
-      history.replaceState(null, '', location.pathname);
-      show('#lobby', true);
-      toast('Комната закрыта у вас: ссылка перестанет работать, когда выйдет соперник');
-    }
-
-    /* ------------------------- выбор персонажа ------------------------------ */
-
-    /* Выпадающий список вместо подсказки браузера: видно портрет и имя, отбор
-       идёт по любой части имени. Управление — мышь, стрелки, Enter и Escape. */
-    const COMBO_LIMIT = 8;
-    let comboShown = [];
-    let comboActive = -1;
+    /* -------------------------------- комбо --------------------------------- */
 
     function comboMatches(query) {
-      const needle = String(query || '').trim().toLowerCase();
-      const all = catalog.characters || [];
-      if (!needle) return all.slice(0, COMBO_LIMIT);
+      const text = String(query || '').trim().toLowerCase();
+      const names = catalog.characters || [];
+      if (!text) return names.slice(0, Math.min(8, COMBO_LIMIT));
       const starts = [];
       const contains = [];
-      all.forEach((item) => {
-        const name = String(item.name || '').toLowerCase();
-        if (name.startsWith(needle)) starts.push(item);
-        else if (name.includes(needle)) contains.push(item);
-      });
+      for (const item of names) {
+        const name = String(item.name).toLowerCase();
+        if (name.startsWith(text)) starts.push(item);
+        else if (name.includes(text)) contains.push(item);
+      }
       return starts.concat(contains).slice(0, COMBO_LIMIT);
     }
 
@@ -1469,6 +1623,7 @@
       comboShown = [];
       comboActive = -1;
       const list = $('#guess-list');
+      if (!list) return;
       list.hidden = true;
       list.innerHTML = '';
       $('#guess-input').setAttribute('aria-expanded', 'false');
@@ -1484,7 +1639,9 @@
     function renderCombo() {
       const input = $('#guess-input');
       const list = $('#guess-list');
-      if (!catalog.characters.length || state === null || state.status !== 'playing') {
+      const playing = state && state.match && !state.match.finished && state.status === 'playing'
+        && state.you && !state.you.finished && !state.you.gave_up;
+      if (!catalog.characters.length || !playing) {
         hideCombo();
         return;
       }
@@ -1553,23 +1710,8 @@
       });
     }
 
-    /* ------------------------------ запуск --------------------------------- */
+    /* ------------------------------ соединение ------------------------------- */
 
-    async function loadCatalog() {
-      try {
-        catalog = await api(GAME + '/characters');
-        characterIndex = new Map(
-          (catalog.characters || []).map((item) => [String(item.name).toLowerCase(), item]));
-        hideCombo();
-        return true;
-      } catch (error) {
-        console.warn('Не удалось получить набор персонажей:', error);
-        return false;
-      }
-    }
-
-    /* Проверки связи могут идти внахлёст: результат устаревшей не должен
-       затирать более свежий (иначе адрес, введённый вручную, «не сработает»). */
     let connSeq = 0;
 
     async function checkConnection() {
@@ -1614,17 +1756,16 @@
         return;
       }
       show('#lobby', true);
+      show('#matches-card', matches.length > 0);
     }
 
-    /* Ссылка-приглашение ведёт в одну комнату, но по ней можно и играть,
-       и смотреть. Кто мы в этой комнате — отвечает сервер: участник уходит
-       в свою дуэль, остальным показываем выбор. */
+    /* По ссылке можно и играть, и смотреть: кто вы в комнате, отвечает сервер. */
     async function enterByInvite(code) {
       let info = null;
       try {
         info = (await api(GAME + '/rooms/' + code + '/watch')).state;
       } catch (error) {
-        if (error.status === 401) return sessionExpired();
+        if (error.status === 401) return sessionExpired(error);
         toast(error.message, 'err');
         history.replaceState(null, '', location.pathname);
         show('#lobby', true);
@@ -1634,21 +1775,15 @@
       showChoice(code, info);
     }
 
-    /* Участник открыл свою же ссылку (или обновил страницу) — сразу дуэль. */
     async function openMyRoom(code) {
       busy = true;
       try {
         const data = await api(GAME + '/rooms/' + code);
         mode = 'player';
         watchState = null;
-        state = data.state;
-        show('#choice-card', false);
-        show('#watch', false);
-        show('#lobby', false);
-        renderScreen();
-        schedulePoll(POLL_PLAYING_MS);
+        applyState(data.state);
       } catch (error) {
-        if (error.status === 401) sessionExpired();
+        if (error.status === 401) sessionExpired(error);
         else toast(error.message, 'err');
       } finally {
         busy = false;
@@ -1656,20 +1791,16 @@
     }
 
     function showChoice(code, info) {
-      const taken = Boolean(info && info.players && info.players.length >= MAX_PLAYERS);
       stopPolling();
       mode = 'player';
       state = null;
       watchState = null;
-      show('#game', false);
-      show('#wait-card', false);
-      show('#watch', false);
-      show('#lobby', false);
+      hideAll();
       show('#choice-error', false);
       $('#choice-code').textContent = code;
-      $('#choice-hint').textContent = taken
-        ? 'Мест в дуэли уже нет — двое играют, но за ними можно наблюдать.'
-        : 'В комнате есть свободное место: можно занять его или просто смотреть.';
+      $('#choice-hint').textContent = info && info.free > 0
+        ? 'В комнате есть свободные места (' + info.free + '): можно занять одно или просто смотреть.'
+        : 'Свободных мест нет — можно только смотреть.';
       show('#choice-card', true);
     }
 
@@ -1680,32 +1811,19 @@
         return;
       }
       const box = $('#choice-error');
-      box.textContent = 'Занять место не вышло — можно посмотреть дуэль.';
+      box.textContent = 'Занять место не вышло — можно посмотреть игру.';
       show('#choice-error', true);
     }
 
-    function showAuth(form) {
-      setAuthMode(form);
-      show('#auth-card', true);
-      show('#lobby', false);
-      show('#choice-card', false);
-      show('#wait-card', false);
-      show('#watch', false);
-      show('#game', false);
-      show('#matches-card', false);
-      $('#auth-user').focus();
-    }
+    /* ------------------------------ запуск --------------------------------- */
 
     async function boot() {
       applyTheme(readJson(THEME_KEY) || readJson(PANEL_STATE_KEY) || {});
-      initClock();
       loadAuth();
-      /* Адрес берём из ссылки, своих сохранённых настроек или панели теплицы
-         и сразу проверяем, что он живой — вводить вручную не нужно. */
       await resolveApiBase();
-
       $('#srv-input').value = root();
-      $('#lobby-hint').textContent = 'Комнаты живут два часа: за это время дуэль можно продолжить.';
+      $('#lobby-hint').textContent = 'Комнаты живут два часа: за это время партию можно продолжить.';
+      $('#room-code').placeholder = 'ABCD';
 
       $('#auth-submit').addEventListener('click', submitAuth);
       $('#auth-toggle').addEventListener('click', () => {
@@ -1719,28 +1837,39 @@
       });
       $('#create-room').addEventListener('click', createRoom);
       $('#join-room').addEventListener('click', () => joinRoom($('#room-code').value));
-      $('#choice-play').addEventListener('click', playFromChoice);
-      $('#choice-watch').addEventListener('click',
-        () => openWatch($('#choice-code').textContent.trim()));
-      $('#watch-play').addEventListener('click', playFromWatch);
-      $('#watch-exit').addEventListener('click', leaveWatch);
       $('#room-code').addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
           joinRoom($('#room-code').value);
         }
       });
-      $('#copy-code').addEventListener('click', () => copyText(state ? state.code : '', 'Код скопирован'));
-      $('#copy-link').addEventListener('click', () => copyText($('#invite-link').value, 'Ссылка скопирована'));
-      $('#leave-wait').addEventListener('click', leaveRoom);
+      $('#choice-play').addEventListener('click', playFromChoice);
+      $('#choice-watch').addEventListener('click',
+        () => openWatch($('#choice-code').textContent.trim()));
+      $('#watch-play').addEventListener('click', playFromWatch);
+      $('#watch-exit').addEventListener('click', leaveWatch);
+      $('#room-join').addEventListener('click', playFromWatch);
+      $('#room-watch-exit').addEventListener('click', leaveWatch);
+      $('#copy-code').addEventListener('click',
+        () => copyText(state ? state.code : (watchState ? watchState.code : ''), 'Код скопирован'));
+      $('#copy-link').addEventListener('click', () => copyText($('#room-link').value, 'Ссылка скопирована'));
+      $('#leave-room').addEventListener('click', leaveRoom);
+      $('#start-game').addEventListener('click', startGame);
+      $('#tab-players').addEventListener('click', () => setRoomTab('players'));
+      $('#tab-teams').addEventListener('click', () => setRoomTab('teams'));
+      $('#mode-picker').addEventListener('click', (event) => {
+        const card = event.target.closest('[data-mode]');
+        if (!card || card.disabled) return;
+        setMode(card.dataset.mode);
+      });
+      $('#give-up').addEventListener('click', giveUp);
+      $('#rematch').addEventListener('click', rematch);
+      $('#to-lobby-btn').addEventListener('click', toLobby);
       setupCombo();
       $('#guess-form').addEventListener('submit', (event) => {
         event.preventDefault();
         sendGuess($('#guess-input').value);
       });
-      $('#give-up').addEventListener('click', giveUp);
-      $('#rematch').addEventListener('click', rematch);
-      $('#rematch-2').addEventListener('click', rematch);
       $('#logout').addEventListener('click', signOut);
       $('#toggle-theme').addEventListener('click', toggleTheme);
       $('#srv-save').addEventListener('click', async () => {
@@ -1764,7 +1893,6 @@
             saveAuth();
             showAuth('login');
           } else {
-            // Сервер молчит: покажем адрес и попросим войти, когда он ответит.
             showAuth('login');
             show('#server-card', true);
           }
@@ -1781,25 +1909,16 @@
 
     /* -------------------------------- тема ---------------------------------- */
 
+    /* Тёмная тема — по умолчанию на всём сайте: светлую выбирают вручную,
+       и тогда она запоминается. */
     function applyTheme(saved) {
-      document.documentElement.dataset.theme = saved && saved.theme === 'dark' ? 'dark' : 'light';
+      document.documentElement.dataset.theme = saved && saved.theme === 'light' ? 'light' : 'dark';
     }
 
     function toggleTheme() {
       const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
       document.documentElement.dataset.theme = next;
       writeJson(THEME_KEY, { theme: next });
-    }
-
-    function initClock() {
-      const node = $('#clock');
-      const update = () => {
-        node.textContent = new Date().toLocaleString('ru-RU', {
-          day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', second: '2-digit'
-        });
-      };
-      update();
-      setInterval(update, 1000);
     }
 
     document.addEventListener('DOMContentLoaded', () => {
