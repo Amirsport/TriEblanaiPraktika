@@ -108,6 +108,12 @@
     .team-card h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.6px; text-transform: uppercase; }
     .team-card ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
     .team-card li { margin: 3px 0; }
+    .side-btn {
+      margin-top: 10px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+      font: inherit; font-size: 12.5px; color: var(--text);
+      border: 1px solid var(--accent); background: var(--accent-soft);
+    }
+    .side-btn:hover { background: var(--accent); color: #fff; }
 
     .mode-picker { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-top: 8px; }
     .mode-card {
@@ -589,6 +595,8 @@
     let comboShown = [];
     let comboActive = -1;
     let hints = null;                // подсказки игры (берём из состояния комнаты)
+    let openTeamBoards = new Set();  // доски товарищей, которые игрок раскрыл
+    let teamBoardsMatch = 0;         // партия, к которой относится этот набор
 
     /* ------------------------------- утилиты -------------------------------- */
 
@@ -1125,6 +1133,11 @@
       show('#teams-pane', roomTab === 'teams');
     }
 
+    /* Карточка команды в лобби: сюда же кнопка перехода в другую команду. */
+    function teamMoveLabel(team) {
+      return 'Перейти в ' + String(team.label || '').replace(/^Команда\s*/i, 'команду ');
+    }
+
     function renderLobbyScreen() {
       const data = state;
       if (!data) return;
@@ -1159,6 +1172,7 @@
         { key: 'b', label: 'Команда B', members: [] }
       ];
       const myTeam = data.you_team || (data.you ? data.you.team : null);
+      const canMove = data.mode === 'teams' && data.status === 'lobby' && data.member;
       $('#teams-grid').innerHTML = data.mode !== 'teams'
         ? '<p class="muted" style="margin:0;">Команды появятся, если хозяин выберет режим «Команды»: '
           + 'игроки делятся на две команды по очереди входа.</p>'
@@ -1168,6 +1182,10 @@
           + (team.members.length
             ? '<ul>' + team.members.map((name) => '<li>' + escapeHtml(name) + '</li>').join('') + '</ul>'
             : '<p class="muted" style="margin:0;">Пока никого</p>')
+          + (canMove && myTeam !== team.key
+            ? '<button type="button" class="side-btn" data-team="' + escapeHtml(team.key) + '">'
+              + escapeHtml(teamMoveLabel(team)) + '</button>'
+            : '')
           + '</div>'
         )).join('');
 
@@ -1309,10 +1327,22 @@
     function renderResultBoards(match) {
       const node = $('#result-boards');
       const boards = match.boards || [];
+      /* Раскрытые доски переживают опрос: страница обновляет итог каждые
+         пару секунд, и без этого чужая доска закрывалась бы сама. */
+      const openKeys = Array.from(node.querySelectorAll('details[data-archive]'))
+        .filter((item) => item.open)
+        .map((item) => item.dataset.archive);
+      const fill = (item) => {
+        const body = item.querySelector('.archive-body');
+        if (!body || body.dataset.filled) return;
+        body.dataset.filled = '1';
+        body.innerHTML = archiveBoardHtml(boards[Number(item.dataset.archive)]);
+      };
       node.innerHTML = '<div class="muted" style="font-size:12.5px;margin-bottom:8px;">'
         + 'Доски партии: видно, кто сколько попыток потратил на каждого персонажа</div>'
         + boards.map((board, index) => (
-          '<details class="archive" data-archive="' + index + '">'
+          '<details class="archive" data-archive="' + index + '"'
+          + (openKeys.includes(String(index)) ? ' open' : '') + '>'
           + '<summary><b>' + escapeHtml(board.name) + '</b> · ' + board.found_count
           + '/' + board.total
           + (match.mode === 'teams' && board.team_label
@@ -1321,12 +1351,9 @@
           + '<div class="archive-body"></div></details>'
         )).join('');
       node.querySelectorAll('details[data-archive]').forEach((item) => {
+        if (item.open) fill(item);
         item.addEventListener('toggle', () => {
-          if (!item.open) return;
-          const body = item.querySelector('.archive-body');
-          if (body.dataset.filled) return;
-          body.dataset.filled = '1';
-          body.innerHTML = archiveBoardHtml(boards[Number(item.dataset.archive)]);
+          if (item.open) fill(item);
         });
       });
     }
@@ -1418,7 +1445,7 @@
         const left = (you.active_total || 1) - (you.active_index || 0);
         $('#guess-hint').textContent = you.active_total > 1
           ? 'На этой доске осталось ' + left + ' из ' + you.active_total
-            + '. Персонажи идут по порядку: пока не угадан текущий, следующий не примется.'
+            + ': верный ответ открывает следующего персонажа.'
           : 'Подсказка появится при вводе: персонаж на этой доске один.';
       } else if (you && you.gave_up) {
         $('#guess-hint').textContent = 'Вы сдались в этой партии.';
@@ -1430,15 +1457,21 @@
         $('#guess-hint').textContent = watching ? 'Идёт партия: доски откроются после итога.' : '';
       }
 
-      /* В командах видно доски товарищей: так понятно, кому помогать. */
+      /* В командах видно доски товарищей: так понятно, кому помогать.
+         Раскрытые игроком доски не закрываются при опросе сервера. */
       const teamMates = (match.mode === 'teams' && you && !finished)
         ? boards.filter((board) => board.team === you.team && !board.you) : [];
+      if (match.number !== teamBoardsMatch) {
+        teamBoardsMatch = match.number;
+        openTeamBoards = new Set();
+      }
       show('#team-boards-card', teamMates.length > 0);
       if (teamMates.length) {
         $('#team-boards-badge').textContent = 'доск: ' + teamMates.length;
-        $('#team-boards').innerHTML = teamMates.map((board) => (
+        const node = $('#team-boards');
+        node.innerHTML = teamMates.map((board) => (
           '<details class="archive" data-team-board="' + escapeHtml(board.key) + '"'
-          + (you && you.active === board.key ? ' open' : '') + '>'
+          + ((you && you.active === board.key) || openTeamBoards.has(board.key) ? ' open' : '') + '>'
           + '<summary><b>' + escapeHtml(board.name) + '</b> · ' + board.found_count + '/'
           + board.total + ' · ' + (board.given_up ? 'сдался'
             : (board.finished ? 'набор закрыт' : 'ищет')) + '</summary>'
@@ -1446,6 +1479,12 @@
           + attemptsHtml(board.attempts, { showAuthor: true })
           + '</table></div></div></details>'
         )).join('');
+        node.querySelectorAll('details[data-team-board]').forEach((item) => {
+          item.addEventListener('toggle', () => {
+            if (item.open) openTeamBoards.add(item.dataset.teamBoard);
+            else openTeamBoards.delete(item.dataset.teamBoard);
+          });
+        });
       }
 
       /* Итог партии. */
@@ -1729,6 +1768,12 @@
       await act('POST', '/rooms/' + state.code + '/team', { total: Number(total) });
     }
 
+    async function moveTeam(team) {
+      if (!state || !team) return;
+      await act('POST', '/rooms/' + state.code + '/side', { team: String(team) },
+        'Вы перешли в ' + (team === 'a' ? 'команду A' : 'команду B'));
+    }
+
     async function startGame() {
       if (!state) return;
       await act('POST', '/rooms/' + state.code + '/start', {}, 'Игра началась');
@@ -1845,7 +1890,7 @@
       const input = $('#guess-input');
       const list = $('#guess-list');
       const playing = state && state.match && !state.match.finished && state.status === 'playing'
-        && state.you && !state.you.finished && !state.you.gave_up;
+        && state.you && !state.you.gave_up && Boolean(state.you.active);
       if (!catalog.characters.length || !playing) {
         hideCombo();
         return;
@@ -2071,6 +2116,11 @@
         const card = event.target.closest('[data-total]');
         if (!card || card.disabled) return;
         setTeamTotal(card.dataset.total);
+      });
+      $('#teams-grid').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-team]');
+        if (!button || button.disabled) return;
+        moveTeam(button.dataset.team);
       });
       $('#give-up').addEventListener('click', giveUp);
       $('#rematch').addEventListener('click', rematch);

@@ -5,8 +5,9 @@
     * комната открывается по коду приглашения и вмещает до шести игроков;
     * в лобби видно, кто пришёл, кто хозяин и сколько мест свободно; хозяин
       выбирает режим и запускает игру — начать можно с любым числом игроков;
-    * у каждого игрока своя доска. Персонажи угадываются **строго по порядку**:
-      пока не угадан текущий, следующий не принимается;
+    * у каждого игрока своя доска. Персонажи открываются по одному: засчитывается
+      только текущий, догадка про другого персонажа из набора — обычная ошибка,
+      поэтому подсказка не выдаёт загаданное имя;
     * после верного ответа доска очищается сама, а её подсказки уходят в архив:
       в конце партии видно, кто сколько попыток потратил на каждого персонажа;
     * «Дуэль»: всем загадан один и тот же персонаж, кто угадает первым — тот и
@@ -283,9 +284,23 @@ class Narutodle:
         return [player for player in self._ordered(room) if player.get("team") == team]
 
     def _assign_teams(self, room: Dict[str, Any]) -> None:
-        """Делит игроков на две команды по очереди входа (первый — в A)."""
-        for index, player in enumerate(self._ordered(room)):
-            player["team"] = TEAM_KEYS[index % len(TEAM_KEYS)]
+        """Делит игроков на две команды, не трогая выбранные вручную.
+
+        Кто команду не выбрал, попадает в ту, где сейчас меньше игроков
+        (при равенстве — в A): так при входе по очереди выходит «по одному
+        в каждую», а ручной переход товарища не отменяется следующим входом.
+        """
+        counts = {key: 0 for key in TEAM_KEYS}
+        for player in self._ordered(room):
+            if player.get("team") in TEAM_KEYS:
+                counts[player["team"]] += 1
+        for player in self._ordered(room):
+            if player.get("team") in TEAM_KEYS:
+                continue
+            target = (TEAM_KEYS[0] if counts[TEAM_KEYS[0]] <= counts[TEAM_KEYS[1]]
+                      else TEAM_KEYS[1])
+            player["team"] = target
+            counts[target] += 1
         options = self._team_options(room)
         if options and int(room.get("team_total") or 0) not in options:
             room["team_total"] = self._default_team_total(room)
@@ -725,6 +740,7 @@ class Narutodle:
 
         teams = [
             {"key": team, "label": TEAM_NAMES[team],
+             "size": len(self._team_members(room, team)),
              "members": [player["name"] for player in self._team_members(room, team)]}
             for team in TEAM_KEYS
         ] if room["mode"] == "teams" else []
@@ -888,6 +904,33 @@ class Narutodle:
             room["updated"] = now
             return self._payload(room, user)
 
+    def move_team(self, code: str, user: Dict[str, Any], team: Any) -> Dict[str, Any]:
+        """Игрок переходит в другую команду — пока партия не началась.
+
+        Раздача идёт по очереди входа, но если состав не устраивает, игрок
+        меняет команду сам: иначе приглашённому пришлось бы выходить и
+        заходить заново, чтобы оказаться с товарищем.
+        """
+        key = str(team or "").strip().lower()
+        if key not in TEAM_KEYS:
+            raise NarutodleError("Неизвестная команда: бывают только A и B")
+        now = time.time()
+        with self._lock:
+            room = self._room(code)
+            player = self._player(room, user)
+            if room["mode"] != "teams":
+                raise NarutodleError("Команды есть только в режиме «Команды»")
+            if room["status"] != "lobby":
+                raise NarutodleError("Команду можно сменить только до начала партии")
+            if player.get("team") == key:
+                return self._payload(room, user)
+            player["team"] = key
+            options = self._team_options(room)
+            if options and int(room.get("team_total") or 0) not in options:
+                room["team_total"] = self._default_team_total(room)
+            room["updated"] = now
+            return self._payload(room, user)
+
     def set_team_total(self, code: str, user: Dict[str, Any], total: Any) -> Dict[str, Any]:
         """Хозяин выбирает, сколько персонажей взять на команду.
 
@@ -1001,10 +1044,6 @@ class Narutodle:
                 raise NarutodleError(f"{character['name']} уже найден на этой доске")
 
             target_name = board["assigned"][board["index"]]
-            later = board["assigned"][board["index"] + 1:]
-            if character["name"] in later:
-                raise NarutodleError(
-                    f"Персонажи идут по порядку: сначала угадайте {target_name}")
 
             target = self.find_character(target_name) or {}
             result = [
