@@ -61,6 +61,7 @@ API (JSON):
     POST /api/games/narutodle/rooms/<код>/join     занять место в лобби
     POST /api/games/narutodle/rooms/<код>/leave    выйти из комнаты
     POST /api/games/narutodle/rooms/<код>/mode     {"mode":"duel|race|teams"} — режим (хозяин)
+    POST /api/games/narutodle/rooms/<код>/team     {"total":9} — сколько персонажей на команду (хозяин)
     POST /api/games/narutodle/rooms/<код>/start    начать игру (хозяин)
     POST /api/games/narutodle/rooms/<код>/lobby    вернуться в лобби после партии
     GET  /api/games/narutodle/rooms/<код>          состояние комнаты (опрос страницей)
@@ -1382,6 +1383,12 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST" and match:
                 mode = str(self._body().get("mode") or "")
                 return self._json({"state": app.narutodle.set_mode(match.group(1), user, mode)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/team", path)
+            if method == "POST" and match:
+                total = self._body().get("total")
+                return self._json({"state": app.narutodle.set_team_total(
+                    match.group(1), user, total)})
 
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/start", path)
             if method == "POST" and match:

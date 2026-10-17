@@ -144,11 +144,30 @@
     .p-card .p-bar { height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; margin-top: 8px; }
     .p-card .p-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
     .p-card .p-state { margin-top: 6px; font-size: 11.5px; color: var(--text-dim); }
-    .p-card .p-found { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
-    .p-card .p-chip {
+    .p-found { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+    .p-chip {
       font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
       border: 1px solid var(--border); color: var(--text-dim);
     }
+    .p-card .p-team { font-size: 10.5px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-dim); }
+
+    /* Текущая доска: своя или товарища, к которой подключились помогать. */
+    .current-line {
+      margin: 8px 0 10px; font-size: 13px; color: var(--text-dim);
+    }
+    .current-line b { color: var(--text); }
+
+    /* Архив партии: каждая закрытая доска — раскрывающийся блок. */
+    .archive {
+      border: 1px solid var(--border); border-radius: 14px;
+      background: var(--surface-solid); padding: 8px 12px; margin-bottom: 8px;
+    }
+    .archive summary { cursor: pointer; font-size: 13px; }
+    .archive summary b { font-size: 14px; }
+    .archive[open] summary { margin-bottom: 8px; }
+    .archive-board { margin: 10px 0; }
+    .archive-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+    .archive-head .muted { font-size: 12px; }
 
     .guess-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
     .guess-form label { flex: 1 1 260px; display: flex; flex-direction: column; gap: 8px; }
@@ -421,6 +440,12 @@
         <div class="mode-picker" id="mode-picker"></div>
       </div>
 
+      <div class="field" style="margin-top: 18px;" id="team-count-field" hidden>
+        <span>Сколько персонажей на команду <b id="team-count-owner">— делится поровну</b></span>
+        <div class="mode-picker" id="team-count"></div>
+        <p class="muted" id="team-count-hint"></p>
+      </div>
+
       <div class="row" style="margin-top: 16px;">
         <button class="btn btn-primary" type="button" id="start-game">Начать игру</button>
         <button class="btn btn-ghost" type="button" id="leave-room">Выйти из комнаты</button>
@@ -431,6 +456,10 @@
       <div id="room-history" hidden style="margin-top: 12px;">
         <div class="muted" style="font-size: 12.5px;">Прошлые партии в комнате</div>
         <ul class="history-list" id="room-history-list"></ul>
+      </div>
+      <div id="room-tally" hidden style="margin-top: 12px;">
+        <div class="muted" style="font-size: 12.5px;">Счёт комнаты</div>
+        <ul class="history-list" id="room-tally-list"></ul>
       </div>
     </section>
 
@@ -447,6 +476,7 @@
           <span id="game-watch-wrap" hidden>Наблюдение</span>
         </div>
         <p class="muted" id="game-rules"></p>
+        <p class="current-line" id="game-current"></p>
 
         <div class="progress" id="game-progress"></div>
         <div class="players" id="game-players" style="margin-top: 12px;"></div>
@@ -464,6 +494,7 @@
           <button class="btn btn-primary" type="submit" id="guess-submit">Угадать</button>
         </form>
         <p class="muted" id="guess-hint"></p>
+        <div class="p-found" id="game-history"></div>
 
         <div class="legend" style="margin-top: 10px;">
           <span><i class="l-match"></i>совпало</span>
@@ -485,6 +516,16 @@
         <p class="muted" id="game-hint"></p>
       </section>
 
+      <section class="card" id="team-boards-card" hidden>
+        <header class="card-head">
+          <h2>Доски команды</h2>
+          <span class="badge" id="team-boards-badge">—</span>
+        </header>
+        <p class="muted">Каждый игрок ведёт свою доску: персонажи идут по порядку.
+          Закрыл свои — подключается к доске товарища.</p>
+        <div id="team-boards"></div>
+      </section>
+
       <section class="card" id="result-card" hidden>
         <header class="card-head">
           <h2 id="result-title">Итог партии</h2>
@@ -494,14 +535,7 @@
           <p class="muted" id="result-text"></p>
           <div class="answer-list" id="result-answers"></div>
         </div>
-      </section>
-
-      <section class="card" id="rivals-card" hidden>
-        <header class="card-head">
-          <h2>Доски игроков</h2>
-          <span class="badge" id="rivals-badge">—</span>
-        </header>
-        <div id="rivals"></div>
+        <div id="result-boards" style="margin-top: 14px;"></div>
       </section>
     </section>
 
@@ -954,12 +988,8 @@
         + (earlier ? '↓' : '↑') + '</span>';
     }
 
-    function renderAttempts(table, attempts, options = {}) {
-      if (!table) return;
-      if (!attempts || !attempts.length || !catalog.attributes.length) {
-        table.innerHTML = '';
-        return;
-      }
+    function attemptsHtml(attempts, options = {}) {
+      if (!attempts || !attempts.length || !catalog.attributes.length) return '';
       const head = ['Персонаж'].concat(catalog.attributes.map((attribute) => attribute.label))
         .map((label) => '<th>' + escapeHtml(label) + '</th>').join('');
       const rows = attempts.map((attempt) => {
@@ -975,16 +1005,20 @@
           + '<td class="who"><span class="who-line">' + avatarHtml(attempt.name)
           + escapeHtml(attempt.name) + '</span>' + author + '</td>' + cells + '</tr>';
       }).join('');
-      table.innerHTML = '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody>';
+      return '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody>';
+    }
+
+    function renderAttempts(table, attempts, options = {}) {
+      if (!table) return;
+      table.innerHTML = attemptsHtml(attempts, options);
     }
 
     /* -------------------------------- экраны -------------------------------- */
 
     function hideAll() {
-      ['#lobby', '#room', '#game', '#choice-card'].forEach(
+      ['#lobby', '#room', '#game', '#choice-card', '#team-boards-card'].forEach(
         (selector) => show(selector, false));
       show('#result-card', false);
-      show('#rivals-card', false);
       $('#matches-card').hidden = true;
     }
 
@@ -1124,7 +1158,7 @@
         { key: 'a', label: 'Команда A', members: [] },
         { key: 'b', label: 'Команда B', members: [] }
       ];
-      const myTeam = data.you ? data.you.team : null;
+      const myTeam = data.you_team || (data.you ? data.you.team : null);
       $('#teams-grid').innerHTML = data.mode !== 'teams'
         ? '<p class="muted" style="margin:0;">Команды появятся, если хозяин выберет режим «Команды»: '
           + 'игроки делятся на две команды по очереди входа.</p>'
@@ -1149,8 +1183,25 @@
         + '<b>' + escapeHtml(item.label) + '</b><span>' + escapeHtml(item.hint) + '</span></button>'
       )).join('');
 
+      /* В командах хозяин выбирает набор на команду: только кратные числу игроков. */
+      const teamOptions = data.mode === 'teams' ? (data.team_options || []) : [];
+      show('#team-count-field', teamOptions.length > 0);
+      if (teamOptions.length) {
+        $('#team-count-owner').textContent = isHost ? 'выбираете вы' : 'выбирает ' + (data.host_name || 'хозяин');
+        $('#team-count').innerHTML = teamOptions.map((item) => (
+          '<button type="button" class="mode-card' + (item.total === data.team_total ? ' on' : '')
+          + '" data-total="' + item.total + '"' + (isHost ? '' : ' disabled') + '>'
+          + '<b>' + item.total + ' персонажей</b><span>по '
+          + item.per_team.map((value) => String(value)).join(' и ') + ' на игрока</span></button>'
+        )).join('');
+        $('#team-count-hint').textContent = isHost
+          ? 'Набор делится поровну, поэтому число кратно игрокам в командах. Сейчас: '
+            + data.team_total + ' на команду.'
+          : 'Набор делится поровну: ' + data.team_total + ' персонажей на команду.';
+      }
+
       const bothTeams = data.teams.length === 2 && data.teams.every((team) => team.members.length);
-      const canStart = data.mode !== 'teams' || bothTeams;
+      const canStart = data.mode !== 'teams' || (bothTeams && data.team_total > 0);
       const startButton = $('#start-game');
       startButton.disabled = !isHost || !canStart;
       startButton.textContent = isHost ? 'Начать игру' : 'Ждём хозяина';
@@ -1165,8 +1216,17 @@
         $('#room-history-list').innerHTML = data.history.slice().reverse().map((item) => (
           '<li>Партия ' + item.number + ' · ' + escapeHtml(modeLabel(item.mode)) + ' — '
           + escapeHtml(item.winner_name || 'ничья') + ' (' + escapeHtml(
-            item.groups.map((group) => group.name + ': ' + group.found_count + '/'
-              + group.total).join(', ')) + ')</li>'
+            (item.boards || []).map((board) => board.name + ': ' + board.found + '/'
+              + board.total).join(', ')) + ')</li>'
+        )).join('');
+      }
+      const tally = (data.tally || []).filter((item) => item.guessed || item.wins);
+      show('#room-tally', tally.length > 0);
+      if (tally.length) {
+        $('#room-tally-list').innerHTML = tally.map((item) => (
+          '<li>' + escapeHtml(item.name)
+          + (item.team_label ? ' · ' + escapeHtml(item.team_label) : '')
+          + ' — угадал ' + item.guessed + ', побед ' + item.wins + '</li>'
         )).join('');
       }
       setRoomTab(roomTab);
@@ -1174,13 +1234,109 @@
 
     /* ------------------------------- партия --------------------------------- */
 
+    function boardOf(match, key) {
+      return (match.boards || []).find((board) => board.key === key) || null;
+    }
+
+    function chipList(names) {
+      return (names || []).map((name) => (
+        '<span class="p-chip">' + escapeHtml(name) + '</span>'
+      )).join('');
+    }
+
+    /* Карточка доски игрока: прогресс, команда и уже найденные персонажи. */
+    function boardCardHtml(match, board, you) {
+      const share = board.total ? (board.found_count / board.total) * 100 : 0;
+      const mine = Boolean(you && board.key === you.board);
+      const active = Boolean(you && you.active === board.key);
+      const won = Boolean(match.finished && match.winner && (
+        (match.mode === 'teams' && match.winner.key === board.team)
+        || (match.mode !== 'teams' && match.winner.key === board.key)));
+      let stateText;
+      if (board.given_up) stateText = 'сдался';
+      else if (board.finished) stateText = 'набор закрыт';
+      else if (active) stateText = mine ? 'ищет' : 'ему помогают';
+      else if (board.attempts === null) stateText = 'доска скрыта';
+      else stateText = 'ждёт';
+      return '<div class="p-card' + (mine ? ' mine' : '')
+        + (board.finished && !board.given_up ? ' done' : '') + '">'
+        + '<div class="p-head"><b>' + escapeHtml(board.name) + '</b>'
+        + '<span>' + board.found_count + '/' + board.total + '</span></div>'
+        + (match.mode === 'teams' && board.team_label
+          ? '<div class="p-team">' + escapeHtml(board.team_label) + '</div>' : '')
+        + '<div class="p-bar"><i style="width: ' + share.toFixed(1) + '%"></i></div>'
+        + '<div class="p-state">' + escapeHtml(won ? 'победа · ' + stateText : stateText) + '</div>'
+        + (board.found && board.found.length ? '<div class="p-found">' + chipList(board.found) + '</div>' : '')
+        + '</div>';
+    }
+
+    function rulesFor(match) {
+      if (match.mode === 'duel') {
+        return 'Один общий персонаж: кто угадает первым, тот и побеждает.';
+      }
+      if (match.mode === 'race') {
+        return 'У всех один и тот же набор из ' + match.per_board
+          + ' персонажей и своя доска. Персонажи идут по порядку, а после верного ответа'
+          + ' доска очищается сама. Побеждает тот, кто закроет набор первым.';
+      }
+      return 'Две команды и одинаковый набор: ' + match.team_total
+        + ' персонажей на команду, по ' + match.per_board + ' каждому игроку.'
+        + ' Персонажи идут по порядку, доска после верного ответа очищается.'
+        + ' Закрыл свои — помогаешь товарищу на его доске.';
+    }
+
+    /* Архив одной доски: каждая закрытая доска со всеми подсказками. */
+    function archiveBoardHtml(board) {
+      if (!board.history || !board.history.length) {
+        return '<p class="muted" style="margin:8px 0 0;">Попыток не было.</p>';
+      }
+      return board.history.map((entry) => (
+        '<div class="archive-board">'
+        + '<div class="archive-head">' + avatarHtml(entry.target)
+        + '<b>' + escapeHtml(entry.target) + '</b>'
+        + '<span class="muted">· ' + entry.attempts.length + ' попыток · '
+        + clockText(entry.seconds) + '</span>'
+        + ((entry.helpers && entry.helpers.length)
+          ? '<span class="muted">· помогали: ' + escapeHtml(entry.helpers.join(', ')) + '</span>' : '')
+        + '</div>'
+        + '<div class="board-wrap"><table class="board">'
+        + attemptsHtml(entry.attempts, { showAuthor: true })
+        + '</table></div></div>'
+      )).join('');
+    }
+
+    /* Итог: доски всех участников раскрываются по клику, подсказки уже собраны. */
+    function renderResultBoards(match) {
+      const node = $('#result-boards');
+      const boards = match.boards || [];
+      node.innerHTML = '<div class="muted" style="font-size:12.5px;margin-bottom:8px;">'
+        + 'Доски партии: видно, кто сколько попыток потратил на каждого персонажа</div>'
+        + boards.map((board, index) => (
+          '<details class="archive" data-archive="' + index + '">'
+          + '<summary><b>' + escapeHtml(board.name) + '</b> · ' + board.found_count
+          + '/' + board.total
+          + (match.mode === 'teams' && board.team_label
+            ? ' · ' + escapeHtml(board.team_label) : '')
+          + (board.given_up ? ' · сдался' : '') + '</summary>'
+          + '<div class="archive-body"></div></details>'
+        )).join('');
+      node.querySelectorAll('details[data-archive]').forEach((item) => {
+        item.addEventListener('toggle', () => {
+          if (!item.open) return;
+          const body = item.querySelector('.archive-body');
+          if (body.dataset.filled) return;
+          body.dataset.filled = '1';
+          body.innerHTML = archiveBoardHtml(boards[Number(item.dataset.archive)]);
+        });
+      });
+    }
+
     function renderMatch(data, watching) {
       const match = data.match;
       if (!match) return;
       const you = data.you;
       const finished = match.finished;
-      const mineGroup = you
-        ? (match.groups.find((group) => group.mine) || null) : null;
+      const boards = match.boards || [];
       hints = data;
 
       $('#game-title').textContent = 'Партия ' + match.number;
@@ -1188,45 +1344,54 @@
       $('#game-room').textContent = data.code;
       $('#game-timer').textContent = clockText(match.elapsed);
       show('#game-watch-wrap', Boolean(watching));
-      $('#game-rules').textContent = match.mode === 'duel'
-        ? 'Один общий персонаж: кто угадает первым, тот и побеждает.'
-        : (match.mode === 'race'
-          ? 'Пять персонажей у всех одинаковые: кто первым закроет все пять, тот и побеждает.'
-          : 'Две команды и одинаковый набор из пяти персонажей: доска у команды общая, побеждает та, что закроет набор первой.');
+      $('#game-rules').textContent = rulesFor(match);
 
-      $('#game-progress').innerHTML = match.groups.map((group) => {
-        const share = group.total ? (group.found_count / group.total) * 100 : 0;
-        const chips = (group.found || []).map((name) => (
-          '<span class="p-chip">' + escapeHtml(name) + '</span>'
+      /* Прогресс: у каждого игрока своя доска, в командах — по командам. */
+      if (match.mode === 'teams') {
+        $('#game-progress').innerHTML = (match.teams || []).map((team) => (
+          '<div style="margin-bottom:12px;">'
+          + '<div class="p-head" style="margin-bottom:6px;"><b>' + escapeHtml(team.label)
+          + '</b><span>' + team.found_count + '/' + team.total + '</span></div>'
+          + '<div class="progress">'
+          + boards.filter((board) => board.team === team.key)
+            .map((board) => boardCardHtml(match, board, you)).join('')
+          + '</div></div>'
         )).join('');
-        const closed = group.finished && group.found_count >= group.total;
-        const winner = Boolean(match.finished && match.winner && match.winner.key === group.key);
-        let stateText;
-        if (winner) {
-          stateText = match.targets_total === 1 ? 'угадал первым' : 'набор закрыт · победа';
-        } else if (closed) {
-          stateText = 'набор закрыт';
-        } else if (group.finished) {
-          stateText = 'сдался';
+      } else {
+        $('#game-progress').innerHTML = boards
+          .map((board) => boardCardHtml(match, board, you)).join('');
+      }
+
+      const activeBoard = you && you.active ? boardOf(match, you.active) : null;
+      let currentText = '';
+      if (you) {
+        if (finished) currentText = 'Партия закончена.';
+        else if (you.helping && activeBoard) {
+          currentText = 'Вы помогаете <b>' + escapeHtml(you.helping.name) + '</b>: его доска, '
+            + activeBoard.found_count + ' из ' + activeBoard.total;
+        } else if (activeBoard) {
+          currentText = 'Ваша доска · ' + activeBoard.found_count + ' из ' + activeBoard.total;
+        } else if (you.gave_up) {
+          currentText = 'Вы сдались в этой партии.';
         } else {
-          stateText = group.attempts === null ? 'доска скрыта' : 'ищет';
+          currentText = 'Ваша доска закрыта.';
         }
-        return '<div class="p-card' + (group.mine ? ' mine' : '')
-          + (group.finished ? ' done' : '') + '">'
-          + '<div class="p-head"><b>' + escapeHtml(group.name) + '</b>'
-          + '<span>' + group.found_count + '/' + group.total + '</span></div>'
-          + '<div class="p-bar"><i style="width: ' + share.toFixed(1) + '%"></i></div>'
-          + '<div class="p-state">' + escapeHtml(stateText)
-          + (group.seconds !== null && group.seconds !== undefined
-            ? ' · ' + clockText(group.seconds) : '') + '</div>'
-          + (chips ? '<div class="p-found">' + chips + '</div>' : '')
-          + '</div>';
-      }).join('');
+      } else if (watching) {
+        currentText = 'Вы наблюдаете за партией: чужие доски откроются после итога.';
+      }
+      $('#game-current').innerHTML = currentText;
+
+      const foundNames = activeBoard ? (activeBoard.found || []) : (you ? you.found : []);
+      $('#game-history').innerHTML = foundNames.length
+        ? '<span class="muted" style="font-size:12px;">Уже найдено:</span> '
+          + chipList(foundNames)
+        : '';
 
       const list = data.players.map((player) => {
         const bits = [];
         if (match.mode === 'teams' && player.team_label) bits.push(player.team_label);
-        bits.push('найдено ' + player.found_count);
+        bits.push('угадал ' + player.guessed);
+        bits.push('побед ' + player.wins);
         if (player.gave_up) bits.push('сдался');
         if (player.ready) bits.push('готов');
         return '<div class="player' + (player.you ? ' mine' : '') + '">'
@@ -1237,31 +1402,50 @@
       $('#game-players').innerHTML = list + '<div class="player"><span>🔑</span><span>комната <b>'
         + escapeHtml(data.code) + '</b></span></div>';
 
-      const canGuess = Boolean(you) && !watching && !finished && !you.gave_up && !you.finished;
+      const canGuess = Boolean(you) && !watching && !finished && !you.gave_up
+        && Boolean(you.active);
       show('#guess-form', canGuess);
       show('#give-up', canGuess);
       $('#guess-submit').disabled = !canGuess;
-      $('#guess-label').textContent = match.mode === 'teams'
-        ? 'Догадка команды — подсказку увидят все её игроки'
-        : 'Ваша догадка';
+      $('#guess-label').textContent = you && you.helping
+        ? 'Догадка на доске ' + you.helping.name
+        : (match.mode === 'teams' ? 'Ваша догадка на своей доске' : 'Ваша догадка');
 
-      const attempts = you ? you.attempts : (match.groups[0] ? match.groups[0].attempts : null);
-      renderAttempts($('#game-board'), attempts, { showAuthor: match.mode === 'teams' });
+      renderAttempts($('#game-board'), you ? you.attempts : null,
+        { showAuthor: match.mode === 'teams' });
 
       if (canGuess) {
-        const left = (match.targets_total || 1) - (you.found_count || 0);
-        $('#guess-hint').textContent = match.targets_total > 1
-          ? 'Осталось найти: ' + left + ' из ' + match.targets_total + '. '
-            + 'Подсказки ведут к первому незакрытому персонажу набора.'
-          : 'В наборе ' + catalog.characters.length + ' персонажей: подсказка появится при вводе.';
+        const left = (you.active_total || 1) - (you.active_index || 0);
+        $('#guess-hint').textContent = you.active_total > 1
+          ? 'На этой доске осталось ' + left + ' из ' + you.active_total
+            + '. Персонажи идут по порядку: пока не угадан текущий, следующий не примется.'
+          : 'Подсказка появится при вводе: персонаж на этой доске один.';
       } else if (you && you.gave_up) {
         $('#guess-hint').textContent = 'Вы сдались в этой партии.';
-      } else if (you && you.finished) {
-        $('#guess-hint').textContent = 'Вы закрыли свой набор — ждём остальных.';
       } else if (finished) {
         $('#guess-hint').textContent = 'Партия закончена — можно сыграть ещё или вернуться в лобби.';
+      } else if (you && !you.active) {
+        $('#guess-hint').textContent = 'Все доски команды закрыты — ждём итога.';
       } else {
         $('#guess-hint').textContent = watching ? 'Идёт партия: доски откроются после итога.' : '';
+      }
+
+      /* В командах видно доски товарищей: так понятно, кому помогать. */
+      const teamMates = (match.mode === 'teams' && you && !finished)
+        ? boards.filter((board) => board.team === you.team && !board.you) : [];
+      show('#team-boards-card', teamMates.length > 0);
+      if (teamMates.length) {
+        $('#team-boards-badge').textContent = 'доск: ' + teamMates.length;
+        $('#team-boards').innerHTML = teamMates.map((board) => (
+          '<details class="archive" data-team-board="' + escapeHtml(board.key) + '"'
+          + (you && you.active === board.key ? ' open' : '') + '>'
+          + '<summary><b>' + escapeHtml(board.name) + '</b> · ' + board.found_count + '/'
+          + board.total + ' · ' + (board.given_up ? 'сдался'
+            : (board.finished ? 'набор закрыт' : 'ищет')) + '</summary>'
+          + '<div class="archive-body"><div class="board-wrap"><table class="board">'
+          + attemptsHtml(board.attempts, { showAuthor: true })
+          + '</table></div></div></details>'
+        )).join('');
       }
 
       /* Итог партии. */
@@ -1273,38 +1457,19 @@
         $('#result-title').textContent = match.draw ? 'Ничья'
           : (winner ? 'Победила ' + winner.name : 'Партия закончена');
         $('#result-badge').textContent = match.reason === 'gave_up' ? 'сдача' : 'набор закрыт';
-        const seconds = match.groups
-          .filter((group) => group.seconds !== null && group.found_count >= group.total)
-          .map((group) => group.name + ' — ' + clockText(group.seconds)).join(', ');
-        $('#result-text').textContent = (match.draw
-          ? 'Все сдались — победителя нет. '
-          : '') + (seconds ? 'Время: ' + seconds + '. ' : '')
+        const closed = boards
+          .filter((board) => board.finished && !board.given_up)
+          .map((board) => board.name + ' — ' + board.found_count + '/' + board.total)
+          .join(', ');
+        $('#result-text').textContent = (match.draw ? 'Победителя нет. ' : '')
+          + (closed ? 'Закрыли доски: ' + closed + '. ' : '')
           + (match.mode === 'duel' ? 'Загадка была такой:' : 'Набор был таким:');
         $('#result-answers').innerHTML = (match.answers || []).map((answer) => (
           '<div class="answer-card">' + avatarHtml(answer.name, 'avatar-lg')
           + '<div><div class="answer-name">' + escapeHtml(answer.name) + '</div>'
           + '<div class="answer-attrs">' + answerAttrsHtml(answer) + '</div></div></div>'
         )).join('');
-      }
-
-      /* Чужие доски: после итога показываем каждую. */
-      const rivals = finished
-        ? match.groups.filter((group) => !group.mine && group.attempts && group.attempts.length)
-        : [];
-      show('#rivals-card', rivals.length > 0);
-      if (rivals.length) {
-        $('#rivals-badge').textContent = 'доск: ' + rivals.length;
-        $('#rivals').innerHTML = rivals.map((group) => (
-          '<div style="margin-bottom: 14px;"><div class="who-line" style="margin-bottom: 6px;">'
-          + userAvatar(group.name) + '<b>' + escapeHtml(group.name) + '</b>'
-          + '<span class="muted">· найдено ' + group.found_count + '/' + group.total + '</span></div>'
-          + '<div class="board-wrap"><table class="board" id="rival-board-' + escapeHtml(group.key)
-          + '"></table></div></div>'
-        )).join('');
-        rivals.forEach((group) => {
-          renderAttempts($('#rival-board-' + group.key.replace(/[^A-Za-z0-9_-]/g, '')),
-            group.attempts, { showAuthor: match.mode === 'teams' });
-        });
+        renderResultBoards(match);
       }
 
       /* Кнопки после итога и наблюдение. */
@@ -1427,7 +1592,16 @@
       )).join('') + (data.free > 0
         ? '<div class="room-row free"><span class="plus">+</span><b>Свободно мест: '
           + data.free + '</b></div>' : '');
-      $('#teams-grid').innerHTML = '';
+      $('#teams-grid').innerHTML = data.mode !== 'teams' || !data.teams.length
+        ? '<p class="muted" style="margin:0;">Команд пока нет: их показывает режим «Команды».</p>'
+        : data.teams.map((team) => (
+          '<div class="team-card">'
+          + '<h3>' + escapeHtml(team.label) + '</h3>'
+          + (team.members.length
+            ? '<ul>' + team.members.map((name) => '<li>' + escapeHtml(name) + '</li>').join('') + '</ul>'
+            : '<p class="muted" style="margin:0;">Пока никого</p>')
+          + '</div>'
+        )).join('');
       $('#mode-picker').innerHTML = (data.modes || []).map((item) => (
         '<div class="mode-card' + (item.key === data.mode ? ' on' : '') + '">'
         + '<b>' + escapeHtml(item.label) + '</b><span>' + escapeHtml(item.hint) + '</span></div>'
@@ -1438,10 +1612,36 @@
       show('#leave-room', false);
       show('#room-join', data.free > 0);
       show('#room-watch-exit', true);
+      const watchOptions = data.mode === 'teams' ? (data.team_options || []) : [];
+      show('#team-count-field', watchOptions.length > 0);
+      if (watchOptions.length) {
+        $('#team-count-owner').textContent = 'выбирает хозяин';
+        $('#team-count').innerHTML = watchOptions.map((item) => (
+          '<div class="mode-card' + (item.total === data.team_total ? ' on' : '') + '">'
+          + '<b>' + item.total + ' персонажей</b><span>по '
+          + item.per_team.join(' и ') + ' на игрока</span></div>'
+        )).join('');
+        $('#team-count-hint').textContent = data.team_total
+          + ' персонажей на команду.';
+      }
       $('#room-hint').textContent = data.free > 0
         ? 'Вы смотрите на лобби. Чтобы играть, займите свободное место.'
         : 'Вы смотрите на лобби: свободных мест нет.';
-      show('#room-history', false);
+      show('#room-history', data.history.length > 0);
+      if (data.history.length) {
+        $('#room-history-list').innerHTML = data.history.slice().reverse().map((item) => (
+          '<li>Партия ' + item.number + ' · ' + escapeHtml(modeLabel(item.mode)) + ' — '
+          + escapeHtml(item.winner_name || 'ничья') + '</li>'
+        )).join('');
+      }
+      const watchTally = (data.tally || []).filter((item) => item.guessed || item.wins);
+      show('#room-tally', watchTally.length > 0);
+      if (watchTally.length) {
+        $('#room-tally-list').innerHTML = watchTally.map((item) => (
+          '<li>' + escapeHtml(item.name) + ' — угадал ' + item.guessed
+          + ', побед ' + item.wins + '</li>'
+        )).join('');
+      }
       setRoomTab('players');
     }
 
@@ -1522,6 +1722,11 @@
     async function setMode(modeKey) {
       if (!state || !state.is_host) return;
       await act('POST', '/rooms/' + state.code + '/mode', { mode: modeKey });
+    }
+
+    async function setTeamTotal(total) {
+      if (!state || !state.is_host) return;
+      await act('POST', '/rooms/' + state.code + '/team', { total: Number(total) });
     }
 
     async function startGame() {
@@ -1861,6 +2066,11 @@
         const card = event.target.closest('[data-mode]');
         if (!card || card.disabled) return;
         setMode(card.dataset.mode);
+      });
+      $('#team-count').addEventListener('click', (event) => {
+        const card = event.target.closest('[data-total]');
+        if (!card || card.disabled) return;
+        setTeamTotal(card.dataset.total);
       });
       $('#give-up').addEventListener('click', giveUp);
       $('#rematch').addEventListener('click', rematch);
