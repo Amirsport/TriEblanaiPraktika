@@ -1,0 +1,15 @@
+[Unit]
+Description=Anime songless: фрагменты на всю длину раунда
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/greenhouse
+ExecStart=/opt/greenhouse/.venv/bin/python /opt/greenhouse/_srv_extend_clips.py
+StandardOutput=append:/var/log/clipfill.log
+StandardError=append:/var/log/clipfill.log
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

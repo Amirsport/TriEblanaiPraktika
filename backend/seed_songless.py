@@ -113,6 +113,12 @@ def attach_audio(db, folder: pathlib.Path, mapping: Dict[str, str], dry_run: boo
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     parser = argparse.ArgumentParser(description="Треки «Аниме-сонглесса» в базе")
     parser.add_argument("--db", type=pathlib.Path, help="файл SQLite")
     parser.add_argument("--dsn", help="строка подключения PostgreSQL")
@@ -178,6 +184,7 @@ def main() -> int:
         if args.dry_run:
             print(f"  сняли бы запись: {name}")
         elif db.songless_set_audio(name, ""):
+            db.audio_clip_delete("songless", name)
             print(f"  запись снята: {name}")
         else:
             print(f"  аниме не найдено: {name}")

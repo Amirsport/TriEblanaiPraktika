@@ -1,0 +1,11 @@
+[Unit]
+Description=Anime songless: перенос обложек в локальную папку
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/greenhouse
+ExecStart=/opt/greenhouse/.venv/bin/python /opt/greenhouse/_covers_fetch3.py
+StandardOutput=append:/var/log/animecovers.log
+StandardError=append:/var/log/animecovers.log
+TimeoutStartSec=3600

@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light" data-palette="red">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Профиль · AmrGames</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#c5342b">
+  <link rel="icon" type="image/png" href="../../icons/logo.png?v=2">
+  <link rel="stylesheet" href="../../css/main.css?v=32">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Страница профиля: одна карточка с аватаром и статистикой слева,
+       персонализация справа. На телефоне — в одну колонку. */
+    [hidden] { display: none !important; }
+
+    .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+
+    button.status-pill { font-family: inherit; }
+
+    .profile-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .profile-head {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      text-align: center;
+    }
+
+    .avatar-big {
+      width: 132px;
+      height: 132px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: var(--accent-soft);
+      border: 3px solid var(--profile-accent, var(--accent));
+      box-shadow: var(--shadow);
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--profile-accent, var(--accent));
+    }
+
+    .avatar-big img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .avatar-big img[hidden] { display: none; }
+
+    .avatar-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+    .avatar-actions .btn { flex: 0 0 auto; }
+
+    .profile-name {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+
+    .profile-login { color: var(--text-dim); font-size: 13.5px; }
+
+    .profile-bio {
+      margin: 0;
+      color: var(--text-dim);
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Блок «о себе» и любимая игра: показываем всегда, даже если пусто —
+       чтобы чужой профиль не выглядел полусломанным. */
+    .info-block {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+    }
+    .info-label {
+      font-size: 11px;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+    .info-label:not(:first-child) { margin-top: 14px; }
+    .profile-favorite { font-size: 14px; font-weight: 600; }
+    .profile-bio.empty, .profile-favorite.empty {
+      color: var(--text-dim);
+      font-weight: 400;
+      font-style: italic;
+    }
+    .badge-game.empty {
+      background: transparent;
+      border: 1px dashed var(--border);
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    .badge-game {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+
+    .accent-row { display: flex; align-items: center; gap: 12px; }
+    .accent-row input[type="color"] {
+      width: 56px;
+      height: 36px;
+      padding: 2px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-solid);
+      cursor: pointer;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+    }
+
+    .stat-tile {
+      padding: 14px 16px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface-solid);
+    }
+
+    .stat-tile b { display: block; font-size: 24px; line-height: 1.1; }
+    .stat-tile span { color: var(--text-dim); font-size: 12.5px; }
+
+    .small { font-size: 12.5px; }
+    .profile-card .stat-row { margin-top: 4px; }
+
+    /* Чужой профиль: статистика встаёт рядом с карточкой, а не отдельной
+       полосой снизу — иначе справа остаётся пустое место. */
+    #stats-card { grid-column: 1 / -1; }
+    #profile-view.view-only #stats-card { grid-column: 2; align-self: start; }
+
+    @media (max-width: 860px) {
+      .profile-grid { grid-template-columns: minmax(0, 1fr); }
+      #profile-view.view-only #stats-card { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="app">
+
+    <header class="topbar">
+      <div class="brand">
+        <a class="brand-mark" href="../" title="AmrGames — главное меню" aria-label="AmrGames — главное меню"><img src="../../icons/logo.png?v=2" alt=""></a>
+        <div class="brand-text">
+          <h1 id="page-title">Профиль</h1>
+          <p id="page-subtitle">Аватар, имя и настройки — одни для всех игр AmrGames</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <a class="user-pill" id="user-pill" href="./" title="Мой профиль" hidden>
+          <img class="user-avatar" id="user-avatar" alt="" hidden>
+          <span class="user-avatar-fallback" id="user-avatar-fallback" aria-hidden="true">👤</span>
+          <span id="user-name">—</span>
+        </a>
+        <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
+        <a class="icon-btn" href="../" title="Вернуться в главное меню">←</a>
+      </div>
+    </header>
+
+    <!-- ===== Вход и регистрация ===== -->
+    <section class="card auth-card" id="auth-card" hidden>
+      <h2 id="auth-title">Вход в профиль</h2>
+      <p class="muted" id="auth-hint">
+        Аккаунт один на все игры AmrGames: аватар и имя подхватят витрина и каждая игра.
+      </p>
+      <label class="field">
+        <span>Логин</span>
+        <input type="text" id="auth-user" autocomplete="username" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>Пароль</span>
+        <input type="password" id="auth-pass" autocomplete="current-password">
+      </label>
+      <label class="field" id="auth-confirm-field" hidden>
+        <span>Повторите пароль</span>
+        <input type="password" id="auth-confirm" autocomplete="new-password">
+      </label>
+      <p class="login-error" id="auth-error" hidden></p>
+      <button class="btn btn-primary btn-wide" type="button" id="auth-submit">Войти</button>
+      <button class="link-btn" type="button" id="auth-toggle">Создать аккаунт</button>
+    </section>
+
+    <!-- ===== Профиль ===== -->
+    <div id="profile-view" hidden>
+      <div class="profile-grid">
+        <section class="card profile-card amr-card" data-card="">
+          <div class="profile-head">
+            <span class="amr-frame avatar-frame" id="avatar-frame" data-frame="">
+              <span class="avatar-big" id="avatar-big">
+                <img id="avatar-img" alt="Аватар" hidden>
+                <span id="avatar-initials">—</span>
+              </span>
+            </span>
+            <div>
+              <div class="profile-name" id="view-name">—</div>
+              <div id="view-status" hidden></div>
+              <div class="profile-login" id="view-username">@—</div>
+            </div>
+            <span class="badge-game" id="view-favorite">🎮 —</span>
+            <div class="avatar-actions" id="avatar-actions" hidden>
+              <button class="btn btn-primary btn-sm" type="button" id="avatar-pick">Загрузить фото</button>
+              <button class="btn btn-ghost btn-sm" type="button" id="avatar-clear" hidden>Удалить</button>
+              <input type="file" id="avatar-file" accept="image/png,image/jpeg,image/webp" hidden>
+            </div>
+            <p class="muted small" id="avatar-hint" hidden>
+              PNG, JPEG или WebP, до 512 КБ. Фото уменьшается до 256×256.
+            </p>
+          </div>
+          <div class="info-block">
+            <div class="info-label">О себе</div>
+            <p class="profile-bio" id="view-bio">—</p>
+            <div class="info-label" id="view-favorite-label">Любимая игра</div>
+            <div class="profile-favorite" id="view-favorite-title">—</div>
+          </div>
+          <div class="stat-row"><span>Логин</span><b id="view-login">—</b></div>
+          <div class="stat-row"><span>В играх с</span><b id="view-since">—</b></div>
+          <div class="stat-row"><span>Роль</span><b id="view-role">—</b></div>
+          <div class="row row-tight" id="share-row">
+            <button class="btn btn-ghost btn-sm" type="button" id="share-profile">Ссылка на профиль</button>
+          </div>
+        </section>
+
+        <section class="card" id="edit-card" hidden>
+          <header class="card-head"><h2>Персонализация</h2></header>
+          <label class="field">
+            <span>Отображаемое имя</span>
+            <input type="text" id="field-name" maxlength="40" placeholder="Как вас показывать в играх" autocomplete="nickname">
+          </label>
+          <label class="field">
+            <span>О себе <b id="bio-count">0 / 280</b></span>
+            <textarea id="field-bio" rows="3" maxlength="280" placeholder="Любимые игры, роли, любимые карты — всё, что стоит знать соперникам"></textarea>
+          </label>
+          <label class="field">
+            <span>Любимая игра</span>
+            <select id="field-game">
+              <option value="">— не выбрана —</option>
+              <option value="narutodle">Narutodle: дуэль</option>
+              <option value="animesongless">Аниме-сонглесс</option>
+              <option value="csdraft">87-0: драфт по CS</option>
+              <option value="songguess">Угадай песню за 10 секунд</option>
+              <option value="valorant">13-0: драфт по Valorant</option>
+              <option value="rl">4-0: драфт по Rocket League</option>
+              <option value="raporder">Рэп-хронология</option>
+              <option value="dota322">322-0: драфт по Dota 2</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Цвет профиля</span>
+            <span class="accent-row">
+              <input type="color" id="field-accent" value="#c5342b" aria-label="Цвет профиля">
+              <button class="link-btn" type="button" id="accent-reset">Вернуть красный AmrGames</button>
+            </span>
+          </label>
+          <details class="customize" id="customize">
+            <summary>
+              <span>Кастомизация</span>
+              <small>только доступное</small>
+            </summary>
+            <div class="customize-body">
+              <div class="field">
+                <span>Ободок аватара <b>у каждой игры свой знак</b></span>
+                <div class="picker-grid" id="frame-grid"></div>
+              </div>
+              <div class="field">
+                <span>Оформление карточки</span>
+                <div class="picker-grid" id="card-grid"></div>
+              </div>
+              <div class="field">
+                <span>Статус рядом с ником <b>открывается за достижения</b></span>
+                <div class="picker-grid" id="status-grid"></div>
+              </div>
+            </div>
+          </details>
+          <p class="login-error" id="profile-error" hidden></p>
+          <div class="row">
+            <button class="btn btn-primary" type="button" id="profile-save">Сохранить</button>
+            <button class="btn btn-ghost" type="button" id="logout">Выйти из аккаунта</button>
+          </div>
+        </section>
+
+        <section class="card" id="stats-card">
+          <header class="card-head">
+            <h2>Статистика</h2>
+            <span class="badge" id="stats-badge">—</span>
+          </header>
+          <div class="stats-grid" id="stats"></div>
+          <p class="muted small">Считаются только партии и прогоны, записанные за аккаунтом.</p>
+        </section>
+      </div>
+
+      <section class="card" id="achievements-card">
+        <header class="card-head">
+          <h2>Достижения</h2>
+          <span class="badge" id="ach-badge">—</span>
+        </header>
+        <p class="muted small">
+          Достижения считаются по партиям в играх AmrGames. За них открываются
+          статусы рядом с ником, ободки и оформление карточки.
+        </p>
+        <div class="ach-list" id="ach-list"></div>
+      </section>
+    </div>
+
+    <footer class="footer">
+      <span>профиль · AmrGames</span>
+      <span id="clock">—</span>
+    </footer>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="pill.js?v=5"></script>
+  <script>
+    'use strict';
+
+    const AUTH_KEY = 'greenhouse.auth.v1';
+    const CONN_KEY = 'greenhouse.games.conn.v1';
+    const PANEL_KEY = 'greenhouse.state.v1';
+    const THEME_KEY = 'greenhouse.games.theme';
+    const TIMEOUT_MS = 8000;
+
+    const GAME_TITLES = {
+      narutodle: 'Narutodle: дуэль',
+      animesongless: 'Аниме-сонглесс',
+      csdraft: '87-0: драфт по CS',
+      songguess: 'Угадай песню за 10 секунд',
+      valorant: '13-0: драфт по Valorant',
+      rl: '4-0: драфт по Rocket League',
+      raporder: 'Рэп-хронология',
+      dota322: '322-0: драфт по Dota 2'
+    };
+
+    const $ = (selector) => document.querySelector(selector);
+
+    let auth = { token: '', user: null };
+    let profile = null;
+    let publicName = '';
+
+    /* Ободки связаны с мини-играми: у каждой игры свой знак, поэтому ободок
+       сразу рассказывает, во что игрок играет. Список совпадает с FRAMES в
+       backend/auth.py — там же сервер проверяет выбор. «Смотритель» — только
+       для администраторов, остальным плитка не показывается. */
+    const FRAME_OPTIONS = [
+      { id: '', title: 'Без ободка', note: 'обычный аватар' },
+      { id: 'narutodle', title: 'Свиток Конохи', note: 'Narutodle' },
+      { id: 'animesongless', title: 'Винил', note: 'Аниме-сонглесс' },
+      { id: 'csdraft', title: '87-0', note: 'драфт по CS' },
+      { id: 'dota322', title: '322-0', note: 'драфт по Dota 2' },
+      { id: 'valorant', title: '13-0', note: 'драфт по Valorant' },
+      { id: 'rl', title: '4-0', note: 'драфт по Rocket League' },
+      { id: 'songguess', title: 'Микрофон', note: 'Угадай песню' },
+      { id: 'raporder', title: 'Золотая цепь', note: 'Рэп-хронология' },
+      { id: 'greenhouse', title: 'Теплица', note: 'вне игр' },
+      { id: 'legend', title: 'Легенда', note: 'переливается' },
+      { id: 'admin', title: 'Смотритель', note: 'только админ', adminOnly: true },
+      { id: 'founder', title: 'Основатель', note: 'только админ', adminOnly: true },
+      { id: 'konoha', title: 'Коноха', note: 'за коллекцию' }
+    ];
+
+    const CARD_OPTIONS = [
+      { id: '', title: 'Классика', note: 'как у всех' },
+      { id: 'greenhouse', title: 'Теплица', note: 'зелёный' },
+      { id: 'neon', title: 'Неон', note: 'AmrGames' },
+      { id: 'gold', title: 'Золото', note: 'премиально' },
+      { id: 'pixel', title: 'Пиксели', note: 'сетка' },
+      { id: 'spotlight', title: 'Прожектор', note: 'свет профиля' },
+      { id: 'crown', title: 'Корона', note: 'награда за турниры' },
+      { id: 'architect', title: 'Архитектор', note: 'только админ', adminOnly: true },
+      { id: 'scroll', title: 'Свиток', note: 'за коллекцию' }
+    ];
+
+    let chosenFrame = '';
+    let chosenCard = '';
+
+    /* Плитка выбора: образец ободка или фона карточки плюс подпись.
+       В кастомизации показываем только доступное: закрытые предметы скрыты. */
+    function chipMarkup(item, kind) {
+      const sample = kind === 'frame'
+        ? '<span class="picker-sample amr-frame" data-frame="' + escapeHtml(item.id) + '">'
+          + (item.id ? '<i></i>' : '—') + '</span>'
+        : '<span class="picker-sample card-sample amr-card" data-card="'
+          + escapeHtml(item.id) + '"></span>';
+      const note = item.adminOnly ? 'только админ' : item.note;
+      const selected = item.id === (kind === 'frame' ? chosenFrame : chosenCard);
+      return '<button class="picker-chip" type="button" data-' + kind + '-pick="'
+        + escapeHtml(item.id) + '" aria-pressed="' + selected + '">'
+        + sample + '<b>' + escapeHtml(item.title) + '</b>'
+        + '<small>' + escapeHtml(note) + '</small></button>';
+    }
+
+    /* Предмет доступен: обычный — всем, закрытый — только после достижения. */
+    function isAvailable(item, kind, unlockedList, isAdmin) {
+      if (item.adminOnly && !isAdmin) return false;
+      if (!item.id) return true;
+      const need = requirementFor(kind, item.id);
+      return !need || (unlockedList || []).indexOf(item.id) !== -1;
+    }
+
+    function renderPickers() {
+      const isAdmin = Boolean(profile && profile.role === 'admin');
+      const unlocked = (achState && achState.unlocked) || {};
+      const statuses = unlocked.statuses || [];
+
+      $('#frame-grid').innerHTML = FRAME_OPTIONS
+        .filter((item) => isAvailable(item, 'frame', unlocked.frames, isAdmin))
+        .map((item) => chipMarkup(item, 'frame')).join('');
+      $('#card-grid').innerHTML = CARD_OPTIONS
+        .filter((item) => isAvailable(item, 'card', unlocked.cards, isAdmin))
+        .map((item) => chipMarkup(item, 'card')).join('');
+
+      const grid = $('#status-grid');
+      if (!grid) return;
+      grid.innerHTML = [STATUS_EMPTY].concat(statusList())
+        .filter((item) => !item.id
+          || (item.adminOnly ? isAdmin : statuses.indexOf(item.id) !== -1))
+        .map((item) => {
+          const sample = item.id
+            ? statusBadge(item.id, false)
+            : '<span class="picker-sample">—</span>';
+          const note = item.adminOnly ? 'только админ' : (item.note || '');
+          return '<button class="picker-chip" type="button" data-status-pick="'
+            + escapeHtml(item.id) + '" aria-pressed="' + (item.id === chosenStatus) + '">'
+            + sample + '<b>' + escapeHtml(item.title) + '</b>'
+            + '<small>' + escapeHtml(note) + '</small></button>';
+        }).join('');
+    }
+
+    /* Выбор сразу виден на своём аватаре и карточке — до нажатия «Сохранить». */
+    function selectFrame(id) {
+      chosenFrame = id || '';
+      $('#avatar-frame').dataset.frame = chosenFrame;
+      renderPickers();
+    }
+
+    function selectCard(id) {
+      chosenCard = id || '';
+      const card = document.querySelector('.profile-card');
+      if (card) card.dataset.card = chosenCard;
+      renderPickers();
+    }
+
+    /* ------------------------- достижения ------------------------- */
+    let achState = null;
+    let chosenStatus = '';
+
+    const STATUS_EMPTY = { id: '', title: 'Без статуса', note: 'обычный ник' };
+
+    function statusCatalog() {
+      return (achState && achState.statuses) || {};
+    }
+
+    function statusList() {
+      const catalog = statusCatalog();
+      return Object.keys(catalog).map((id) => ({
+        id: id,
+        title: catalog[id].title,
+        icon: catalog[id].icon,
+        color: catalog[id].color,
+        adminOnly: Boolean(catalog[id].adminOnly),
+        note: catalog[id].adminOnly ? 'только админ' : 'открыт'
+      }));
+    }
+
+    /* Значок статуса: emoji или картинка-эмблема. */
+    function statusImageUrl(url) {
+      const value = String(url || '');
+      /* На домене витрины profile лежит в /profile, на панели — в /games/profile. */
+      if (value.startsWith('/games/') && !location.pathname.startsWith('/games/')) {
+        return value.slice('/games'.length);
+      }
+      return value;
+    }
+
+    function statusIcon(item) {
+      const url = statusImageUrl((item && item.icon_url) || '');
+      if (url) {
+        /* Значок крошечный, а плитки статусов перерисовываются — без lazy,
+           иначе картинка каждый раз грузилась заново и мигала. */
+        return '<img class="amr-status-img" src="' + escapeHtml(url) + '" alt="">';
+      }
+      return escapeHtml((item && item.icon) || '');
+    }
+
+    /* Плашка статуса: полная — в профиле, только значок — в шапке и комнатах. */
+    function statusBadge(id, compact) {
+      const item = statusCatalog()[id];
+      if (!item) return '';
+      return '<span class="amr-status' + (compact ? ' icon-only' : '') + '"'
+        + ' style="--status-color:' + escapeHtml(item.color) + '"'
+        + (compact ? ' title="' + escapeHtml(item.title) + '"' : '')
+        + '>' + statusIcon(item)
+        + (compact ? '' : ' ' + escapeHtml(item.title)) + '</span>';
+    }
+
+    /* Какое достижение открывает предмет — подпись для закрытой плитки. */
+    function requirementFor(kind, id) {
+      const items = (achState && achState.achievements) || [];
+      return items.find((item) => item.reward && item.reward[kind] === id) || null;
+    }
+
+    function optionTitle(list, id) {
+      const found = list.find((item) => item.id === id);
+      return found ? found.title : id;
+    }
+
+    function rewardLabel(item) {
+      const reward = item.reward || {};
+      if (reward.status) {
+        const catalog = statusCatalog();
+        return 'статус «' + ((catalog[reward.status] || {}).title || reward.status) + '»';
+      }
+      if (reward.frame) return 'ободок «' + optionTitle(FRAME_OPTIONS, reward.frame) + '»';
+      if (reward.card) return 'карточка «' + optionTitle(CARD_OPTIONS, reward.card) + '»';
+      return '';
+    }
+
+    function loadAchievements(name) {
+      const url = '/api/achievements' + (name ? '?u=' + encodeURIComponent(name) : '');
+      return api(url)
+        .then((data) => {
+          achState = data;
+          renderAchievements();
+          renderPickers();
+        })
+        .catch(() => {
+          achState = null;
+          renderAchievements();
+        });
+    }
+
+    function renderAchievements() {
+      const list = $('#ach-list');
+      const badge = $('#ach-badge');
+      if (!list) return;
+      if (!achState) {
+        if (badge) badge.textContent = '—';
+        list.innerHTML = '<p class="muted small">Достижения не загрузились — обновите страницу.</p>';
+        return;
+      }
+      const counts = achState.counts || {};
+      if (badge) badge.textContent = (counts.unlocked || 0) + ' из ' + (counts.total || 0);
+      list.innerHTML = (achState.achievements || []).map((item) => {
+        /* Скрытое достижение: название и награда видны, условие — нет. */
+        if (item.secret) {
+          const got = Boolean(item.unlocked);
+          return '<div class="ach-row secret' + (got ? ' done' : '') + '">'
+            + '<span class="ach-icon" aria-hidden="true">' + escapeHtml(got ? item.icon : '❔') + '</span>'
+            + '<span class="ach-body"><b>' + escapeHtml(item.title) + '</b>'
+            + '<small>' + (got ? 'Скрытое достижение получено'
+              : 'Скрытое достижение: условие откроется, когда вы его выполните') + '</small></span>'
+            + '<span class="ach-goal"><b>' + (got ? 'получено' : '???') + '</b>'
+            + escapeHtml(rewardLabel(item)) + '</span>'
+            + '</div>';
+        }
+        const percent = item.goal ? Math.round((item.progress / item.goal) * 100) : 0;
+        const goal = item.unlocked ? 'получено' : item.progress + ' / ' + item.goal;
+        return '<div class="ach-row' + (item.unlocked ? ' done' : '') + '">'
+          + '<span class="ach-icon" aria-hidden="true">' + escapeHtml(item.icon) + '</span>'
+          + '<span class="ach-body"><b>' + escapeHtml(item.title) + '</b>'
+          + '<small>' + escapeHtml(item.description) + '</small>'
+          + '<span class="ach-bar"><span style="width:' + percent + '%"></span></span></span>'
+          + '<span class="ach-goal"><b>' + escapeHtml(goal) + '</b>'
+          + escapeHtml(rewardLabel(item)) + '</span>'
+          + '</div>';
+      }).join('');
+    }
+
+    function renderStatusBadge() {
+      const node = $('#view-status');
+      if (!node) return;
+      const html = statusBadge(chosenStatus, false);
+      node.innerHTML = html;
+      node.hidden = !html;
+    }
+
+    function selectStatus(id) {
+      chosenStatus = id || '';
+      renderStatusBadge();
+      renderPickers();
+    }
+
+    function show(selector, visible) {
+      const node = $(selector);
+      if (node) node.hidden = !visible;
+    }
+
+    function readJson(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' ? value : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function writeJson(key, value) {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch (error) {
+        /* приватный режим — просто не запомним */
+      }
+    }
+
+    function toast(message, kind) {
+      const node = document.createElement('div');
+      node.className = 'toast' + (kind ? ' ' + kind : '');
+      node.textContent = message;
+      $('#toasts').appendChild(node);
+      setTimeout(() => {
+        node.classList.add('out');
+        setTimeout(() => node.remove(), 320);
+      }, 4200);
+    }
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    /* ---------------------------- адрес API --------------------------------- */
+
+    function storedConnection() {
+      const own = readJson(CONN_KEY) || {};
+      const panel = readJson(PANEL_KEY) || {};
+      return {
+        apiBase: String(own.apiBase || panel.apiBase || '').trim().replace(/\/+$/, ''),
+        apiToken: String(own.apiToken || panel.apiToken || '').trim()
+      };
+    }
+
+    let publishedKey = '';
+    let apiBase = storedConnection().apiBase;
+    let apiToken = storedConnection().apiToken;
+
+    /* Адрес и ключ страница определяет сама: из ссылки ?srv=, своих настроек,
+       настроек панели или файла api-address.json на сайте. Пустой адрес значит
+       «тот же домен» — тогда /api/ идёт на сервер, отдавший страницу. */
+    async function resolveApi() {
+      const fromLink = new URLSearchParams(location.search).get('srv');
+      if (fromLink) {
+        apiBase = String(fromLink).trim().replace(/\/+$/, '');
+      }
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4000);
+        let response;
+        try {
+          /* ../api-address.json — это /games/api-address.json на домене панели
+             и /api-address.json на витрине: файл лежит рядом с каталогом игр. */
+          response = await fetch('../api-address.json', { cache: 'no-store', signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!response.ok) return;
+        const data = await response.json();
+        const publishedBase = String((data && data.apiBase) || '').trim().replace(/\/+$/, '');
+        const publishedToken = String((data && data.apiKey) || '').trim();
+        publishedKey = publishedToken || '';
+        if (!apiBase && publishedBase) apiBase = publishedBase;
+        if (!apiToken && publishedToken) apiToken = publishedToken;
+      } catch (error) {
+        /* файла нет — работаем с тем, что есть */
+      }
+    }
+
+    async function api(path, options = {}) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (auth.token) headers.Authorization = 'Bearer ' + auth.token;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      const init = {
+        method: options.method || 'GET',
+        headers,
+        cache: 'no-store',
+        signal: controller.signal
+      };
+      if (options.body !== undefined) init.body = JSON.stringify(options.body);
+      let response;
+      try {
+        response = await fetch((apiBase || '') + path, init);
+      } catch (error) {
+        throw new Error(error.name === 'AbortError' ? 'Сервер не отвечает' : 'Нет связи с сервером');
+      } finally {
+        clearTimeout(timer);
+      }
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (error) {
+        data = {};
+      }
+      if (!response.ok) {
+        const failure = new Error(data.error || ('Сервер ответил HTTP ' + response.status));
+        failure.status = response.status;
+        throw failure;
+      }
+      return data;
+    }
+
+    /* ------------------------------- вход ---------------------------------- */
+
+    function loadAuth() {
+      const saved = readJson(AUTH_KEY);
+      auth = saved && saved.token
+        ? { token: saved.token, user: saved.user || null }
+        : { token: '', user: null };
+    }
+
+    function saveAuth() {
+      if (auth.token) writeJson(AUTH_KEY, { token: auth.token, user: auth.user });
+      else {
+        try {
+          localStorage.removeItem(AUTH_KEY);
+        } catch (error) {
+          /* ничего страшного: данные просто останутся */
+        }
+      }
+      if (window.AmrProfile) AmrProfile.render(auth.user);
+    }
+
+    /* Профиль приходит и при входе, и из /api/auth/me: в шапке должны быть
+       актуальные имя, аватар и цвет — их сохраняем в ту же запись авторизации. */
+    function applyProfile(data) {
+      profile = data || null;
+      if (!profile) return;
+      auth.user = Object.assign({}, auth.user || {}, {
+        id: profile.id,
+        username: profile.username,
+        role: profile.role,
+        display_name: profile.display_name,
+        avatar_url: profile.avatar_url,
+        accent: profile.accent,
+        frame: profile.frame,
+        card: profile.card,
+        status: profile.status
+      });
+      saveAuth();
+      renderProfile();
+    }
+
+    function setAuthMode(mode) {
+      const register = mode === 'register';
+      $('#auth-title').textContent = register ? 'Регистрация' : 'Вход в профиль';
+      $('#auth-submit').textContent = register ? 'Создать аккаунт' : 'Войти';
+      $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
+      $('#auth-hint').textContent = register
+        ? 'Аккаунт один на все игры AmrGames: аватар и имя подхватят витрина и каждая игра.'
+        : 'Войдите своим логином и паролем.';
+      show('#auth-confirm-field', register);
+      show('#auth-error', false);
+      $('#auth-card').dataset.mode = register ? 'register' : 'login';
+    }
+
+    async function submitAuth() {
+      const mode = $('#auth-card').dataset.mode === 'register' ? 'register' : 'login';
+      const username = ($('#auth-user').value || '').trim();
+      const password = $('#auth-pass').value || '';
+      const fail = (message) => {
+        $('#auth-error').textContent = message;
+        show('#auth-error', true);
+      };
+      if (!username || !password) return fail('Заполните логин и пароль');
+      if (mode === 'register' && password !== $('#auth-confirm').value) return fail('Пароли не совпадают');
+
+      const button = $('#auth-submit');
+      button.disabled = true;
+      try {
+        const data = await api('/api/auth/' + mode, { method: 'POST', body: { username, password } });
+        auth = { token: data.token, user: data.user || null };
+        saveAuth();
+        toast(mode === 'register' ? 'Аккаунт создан' : 'С возвращением, ' + ((data.user && data.user.username) || username));
+        show('#auth-card', false);
+        await loadMine();
+      } catch (error) {
+        fail(error.message || 'Не удалось выполнить запрос');
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function signOut() {
+      if (auth.token) api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      auth = { token: '', user: null };
+      saveAuth();
+      profile = null;
+      show('#profile-view', false);
+      setAuthMode('login');
+      show('#auth-card', true);
+    }
+
+    /* ------------------------------ отрисовка ------------------------------ */
+
+    function avatarMarkup(container) {
+      const image = container.querySelector('img');
+      const fallback = container.querySelector('span');
+      const url = profile && profile.avatar_url ? (apiBase + profile.avatar_url) : '';
+      const name = profile ? (profile.display_name || profile.username || '') : '';
+      if (image) {
+        image.hidden = !url;
+        if (url) image.src = url;
+        else image.removeAttribute('src');
+      }
+      if (fallback) {
+        fallback.hidden = Boolean(url);
+        fallback.textContent = name ? name.slice(0, 1).toUpperCase() : '👤';
+      }
+    }
+
+    function formatDate(value) {
+      if (!value) return '—';
+      const moment = new Date(value);
+      if (Number.isNaN(moment.getTime())) return '—';
+      return moment.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' });
+    }
+
+    function renderStats(stats) {
+      const labels = {
+        total: 'Всего партий и прогонов',
+        narutodle: 'Narutodle',
+        drafts: 'Драфты (87-0, 13-0, 4-0, 322-0)',
+        songguess: 'Угадай песню',
+        raporder: 'Рэп-хронология'
+      };
+      const order = ['total', 'narutodle', 'drafts', 'songguess', 'raporder'];
+      $('#stats').innerHTML = order.map((key) => (
+        '<div class="stat-tile"><b>' + escapeHtml(String((stats && stats[key]) || 0)) + '</b>'
+        + '<span>' + escapeHtml(labels[key]) + '</span></div>'
+      )).join('');
+      $('#stats-badge').textContent = (stats && stats.total) ? 'записей: ' + stats.total : 'пока пусто';
+    }
+
+    function renderProfile() {
+      if (!profile) return;
+      const name = profile.display_name || profile.username || '—';
+      $('#view-name').textContent = name;
+      $('#view-username').textContent = '@' + (profile.username || '');
+      $('#view-login').textContent = profile.username || '—';
+      $('#view-since').textContent = formatDate(profile.created_at);
+      $('#view-role').textContent = profile.role === 'admin' ? 'администратор' : 'игрок';
+
+      const bio = $('#view-bio');
+      const bioText = String(profile.bio || '').trim();
+      bio.textContent = bioText || 'Пользователь пока ничего о себе не рассказал.';
+      bio.classList.toggle('empty', !bioText);
+
+      const favoriteTitle = $('#view-favorite-title');
+      const gameTitle = profile.favorite_game
+        ? (GAME_TITLES[profile.favorite_game] || profile.favorite_game) : '';
+      favoriteTitle.textContent = gameTitle || 'Любимая игра не выбрана';
+      favoriteTitle.classList.toggle('empty', !gameTitle);
+
+      const favorite = $('#view-favorite');
+      favorite.textContent = gameTitle ? '🎮 ' + gameTitle : '🎮 Любимая игра не выбрана';
+      favorite.classList.toggle('empty', !gameTitle);
+      favorite.hidden = false;
+
+      const accent = profile.accent || '';
+      document.documentElement.style.setProperty('--profile-accent', accent || 'var(--accent)');
+      avatarMarkup($('#avatar-big'));
+      renderStats(profile.stats);
+
+      /* Ободок и оформление карточки видны и в чужом профиле: их рисует та же
+         разметка, разница только в отсутствии выбора. */
+      chosenFrame = profile.frame || '';
+      chosenCard = profile.card || '';
+      chosenStatus = profile.status || '';
+      $('#avatar-frame').dataset.frame = chosenFrame;
+      const cardNode = document.querySelector('.profile-card');
+      if (cardNode) cardNode.dataset.card = chosenCard;
+      renderStatusBadge();
+
+      if (!publicName) {
+        renderPickers();
+        show('#edit-card', true);
+        show('#avatar-actions', true);
+        show('#avatar-hint', true);
+        $('#field-name').value = profile.display_name || '';
+        $('#field-bio').value = profile.bio || '';
+        $('#field-game').value = profile.favorite_game || '';
+        $('#field-accent').value = accent || '#c5342b';
+        $('#bio-count').textContent = (profile.bio || '').length + ' / 280';
+        show('#avatar-clear', Boolean(profile.has_avatar));
+      }
+      show('#profile-view', true);
+    }
+
+    function renderPublicMode() {
+      publicName = new URLSearchParams(location.search).get('u') || '';
+      if (!publicName) {
+        $('#profile-view').classList.remove('view-only');
+        $('#page-title').textContent = 'Профиль';
+        $('#page-subtitle').textContent = 'Аватар, имя и настройки — одни для всех игр AmrGames';
+        return false;
+      }
+      $('#profile-view').classList.add('view-only');
+      $('#page-title').textContent = 'Профиль игрока';
+      $('#page-subtitle').textContent = 'Так игрока видят другие в играх AmrGames';
+      show('#edit-card', false);
+      show('#avatar-actions', false);
+      show('#avatar-hint', false);
+      show('#share-row', false);
+      $('#avatar-big').style.cursor = 'default';
+      return true;
+    }
+
+    /* ------------------------------- загрузка ------------------------------ */
+
+    async function loadMine() {
+      try {
+        const data = await api('/api/auth/me');
+        if (data.user) auth.user = data.user;
+        applyProfile(data.profile || null);
+      } catch (error) {
+        if (error.status === 401) {
+          auth = { token: '', user: null };
+          saveAuth();
+          setAuthMode('login');
+          show('#auth-card', true);
+          show('#profile-view', false);
+          toast('Сессия истекла — войдите заново', 'warn');
+          return;
+        }
+        toast(error.message || 'Не удалось загрузить профиль', 'err');
+      }
+    }
+
+    async function loadPublic(name) {
+      try {
+        const data = await api('/api/profile/' + encodeURIComponent(name));
+        profile = data.profile || null;
+        if (!profile) throw new Error('Профиль не найден');
+        renderProfile();
+        document.title = (profile.display_name || profile.username) + ' · профиль · AmrGames';
+      } catch (error) {
+        toast(error.status === 404 ? 'Игрок не найден' : (error.message || 'Не удалось загрузить профиль'), 'err');
+        show('#auth-card', !auth.token);
+        if (!auth.token) setAuthMode('login');
+      }
+    }
+
+    /* --------------------------------- фото -------------------------------- */
+
+    /* Фото уменьшается на клиенте до 256×256 (обрезается по центру), поэтому
+       даже снимок с телефона проходит в лимит сервера без лишнего трафика. */
+    function shrinkImage(file) {
+      return new Promise((resolve, reject) => {
+        if (!file || !/^image\/(png|jpeg|webp)$/.test(file.type)) {
+          reject(new Error('Выберите картинку PNG, JPEG или WebP'));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+        reader.onload = () => {
+          const image = new Image();
+          image.onerror = () => reject(new Error('Не удалось открыть картинку'));
+          image.onload = () => {
+            const side = Math.min(image.width, image.height);
+            const sx = (image.width - side) / 2;
+            const sy = (image.height - side) / 2;
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const context = canvas.getContext('2d');
+            context.drawImage(image, sx, sy, side, side, 0, 0, 256, 256);
+            resolve(canvas.toDataURL('image/jpeg', 0.86));
+          };
+          image.src = String(reader.result);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function uploadAvatar(file) {
+      const button = $('#avatar-pick');
+      button.disabled = true;
+      try {
+        const image = await shrinkImage(file);
+        const data = await api('/api/profile/avatar', { method: 'POST', body: { image } });
+        applyProfile(data.profile || null);
+        toast('Аватар обновлён');
+      } catch (error) {
+        toast(error.message || 'Не удалось загрузить фото', 'err');
+      } finally {
+        button.disabled = false;
+        $('#avatar-file').value = '';
+      }
+    }
+
+    async function clearAvatar() {
+      try {
+        const data = await api('/api/profile/avatar', { method: 'DELETE' });
+        applyProfile(data.profile || null);
+        toast('Аватар удалён');
+      } catch (error) {
+        toast(error.message || 'Не удалось удалить аватар', 'err');
+      }
+    }
+
+    async function saveProfile() {
+      const button = $('#profile-save');
+      button.disabled = true;
+      try {
+        const data = await api('/api/profile', {
+          method: 'POST',
+          body: {
+            display_name: $('#field-name').value,
+            bio: $('#field-bio').value,
+            favorite_game: $('#field-game').value,
+            accent: $('#field-accent').value,
+            frame: chosenFrame,
+            card: chosenCard,
+            status: chosenStatus
+          }
+        });
+        applyProfile(data.profile || null);
+        show('#profile-error', false);
+        toast('Профиль сохранён — его видят другие игроки');
+      } catch (error) {
+        $('#profile-error').textContent = error.message || 'Не удалось сохранить профиль';
+        show('#profile-error', true);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    /* -------------------------------- тема --------------------------------- */
+
+    function applyTheme(theme) {
+      document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+    }
+
+    function initTheme() {
+      const own = readJson(THEME_KEY);
+      const panel = readJson(PANEL_KEY) || {};
+      let theme = '';
+      if (own && typeof own.theme === 'string') {
+        theme = own.theme;
+      } else {
+        /* Строка от прошлых версий витрины: тот же ключ, но без обёртки. */
+        try {
+          const legacy = localStorage.getItem(THEME_KEY) || '';
+          if (legacy === 'dark' || legacy === 'light') theme = legacy;
+        } catch (error) {
+          theme = '';
+        }
+      }
+      if (!theme && typeof panel.theme === 'string') theme = panel.theme;
+      applyTheme(theme);
+      $('#toggle-theme').addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        applyTheme(next);
+        writeJson(THEME_KEY, { theme: next });
+      });
+    }
+
+    function initClock() {
+      const node = $('#clock');
+      const tick = () => {
+        node.textContent = new Date().toLocaleString('ru-RU', {
+          day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit'
+        });
+      };
+      tick();
+      setInterval(tick, 30000);
+    }
+
+    /* --------------------------------- старт -------------------------------- */
+
+    async function boot() {
+      initTheme();
+      initClock();
+      loadAuth();
+      await resolveApi();
+      if (window.AmrProfile) AmrProfile.render(auth.user);
+
+      const isPublic = renderPublicMode();
+      if (isPublic) {
+        if (auth.token) loadAuth();
+        await loadPublic(publicName);
+        await loadAchievements(publicName);
+        return;
+      }
+
+      if (auth.token) {
+        await loadMine();
+        if (profile) {
+          await loadAchievements('');
+          return;
+        }
+      }
+      setAuthMode('register');
+      show('#auth-card', true);
+    }
+
+    $('#auth-submit').addEventListener('click', submitAuth);
+    $('#auth-toggle').addEventListener('click', () => {
+      setAuthMode($('#auth-card').dataset.mode === 'login' ? 'register' : 'login');
+    });
+    $('#auth-card').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        submitAuth();
+      }
+    });
+    $('#avatar-pick').addEventListener('click', () => $('#avatar-file').click());
+    $('#avatar-file').addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      if (file) uploadAvatar(file);
+    });
+    $('#avatar-clear').addEventListener('click', clearAvatar);
+    $('#profile-save').addEventListener('click', saveProfile);
+    $('#logout').addEventListener('click', signOut);
+    $('#field-bio').addEventListener('input', () => {
+      $('#bio-count').textContent = $('#field-bio').value.length + ' / 280';
+    });
+    $('#accent-reset').addEventListener('click', () => {
+      $('#field-accent').value = '#c5342b';
+    });
+    /* Плитки персонализации внутри «Кастомизации»: выбор виден сразу,
+       а в базу уходит вместе с «Сохранить». */
+    $('#frame-grid').addEventListener('click', (event) => {
+      const chip = event.target.closest('[data-frame-pick]');
+      if (chip) selectFrame(chip.dataset.framePick);
+    });
+    $('#card-grid').addEventListener('click', (event) => {
+      const chip = event.target.closest('[data-card-pick]');
+      if (chip) selectCard(chip.dataset.cardPick);
+    });
+    $('#status-grid').addEventListener('click', (event) => {
+      const chip = event.target.closest('[data-status-pick]');
+      if (chip) selectStatus(chip.dataset.statusPick);
+    });
+    $('#share-profile').addEventListener('click', async () => {
+      const name = (profile && profile.username) || '';
+      if (!name) return;
+      const url = location.origin + location.pathname + '?u=' + encodeURIComponent(name);
+      try {
+        await navigator.clipboard.writeText(url);
+        toast('Ссылка скопирована: ' + url);
+      } catch (error) {
+        toast('Ссылка на профиль: ' + url);
+      }
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+      boot().catch((error) => toast(error.message || 'Не удалось открыть профиль', 'err'));
+    });
+  </script>
+</body>
+</html>

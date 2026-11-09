@@ -6,8 +6,8 @@
   <title>87-0 · драфт по Counter-Strike · Умная AI-Теплица</title>
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
-  <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=21">
+  <link rel="icon" type="image/png" href="../../icons/logo.png?v=2">
+  <link rel="stylesheet" href="../../css/main.css?v=32">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -195,7 +195,7 @@
     <!-- ===== Шапка ===== -->
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
+        <a class="brand-mark" href="../" title="AmrGames — главное меню" aria-label="AmrGames — главное меню"><img src="../../icons/logo.png?v=2" alt=""></a>
         <div class="brand-text">
           <h1>87-0</h1>
           <p>Драфт по Counter-Strike: собери состав мечты и возьми мейджор</p>
@@ -207,10 +207,11 @@
           <span class="dot"></span>
           <span id="conn-text">подключаемся…</span>
         </button>
-        <div class="user-pill" id="user-pill" hidden>
-          <span aria-hidden="true">👤</span>
+        <a class="user-pill" id="user-pill" href="../profile/" title="Мой профиль" hidden>
+          <img class="user-avatar" id="user-avatar" alt="" hidden>
+          <span class="user-avatar-fallback" id="user-avatar-fallback" aria-hidden="true">👤</span>
           <span id="user-name">—</span>
-        </div>
+        </a>
         <button class="icon-btn" type="button" id="logout" title="Выйти из аккаунта" hidden>⎋</button>
         <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
         <a class="icon-btn" href="../" title="Вернуться в игровую комнату">←</a>
@@ -240,7 +241,7 @@
     <section class="card auth-card" id="auth-card" hidden>
       <h2 id="auth-title">Регистрация</h2>
       <p class="muted" id="auth-hint">
-        Аккаунт нужен, чтобы прогоны сохранялись за вами. Он же открывает панель теплицы.
+        Аккаунт нужен, чтобы прогоны сохранялись за вами.
       </p>
       <label class="field">
         <span>Логин</span>
@@ -385,6 +386,7 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
+  <script src="../profile/pill.js?v=5"></script>
   <script>
     'use strict';
 
@@ -585,7 +587,7 @@
       for (const candidate of list) {
         if (await pingServer(candidate)) {
           apiBase = candidate;
-          if (candidate !== stored) toast('Адрес сервера взят из настроек панели теплицы');
+          if (candidate !== stored) toast('Адрес сервера взят из сохранённых настроек');
           return apiBase;
         }
       }
@@ -636,6 +638,7 @@
       $('#user-name').textContent = name || '—';
       show('#user-pill', Boolean(name));
       show('#logout', Boolean(auth.token));
+      if (window.AmrProfile) AmrProfile.render(auth.user);
     }
 
     function setAuthMode(form) {
@@ -644,8 +647,8 @@
       $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
       $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
       $('#auth-hint').textContent = register
-        ? 'Аккаунт нужен, чтобы прогоны сохранялись за вами. Он же открывает панель теплицы.'
-        : 'Войдите тем же логином, что и в панели теплицы.';
+        ? 'Аккаунт нужен, чтобы прогоны сохранялись за вами.'
+        : 'Войдите своим логином и паролем.';
       show('#auth-confirm-field', register);
       show('#auth-error', false);
       $('#auth-card').dataset.mode = register ? 'register' : 'login';

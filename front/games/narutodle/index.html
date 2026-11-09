@@ -6,8 +6,8 @@
   <title>Narutodle — угадай персонажа · Умная AI-Теплица</title>
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#141a16">
-  <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=21">
+  <link rel="icon" type="image/png" href="../../icons/logo.png?v=2">
+  <link rel="stylesheet" href="../../css/main.css?v=32">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -77,10 +77,14 @@
     }
     .room-row .who { min-width: 0; }
     .room-row .who b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .room-row .who span {
-      display: block; font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase;
-      color: var(--text-dim); margin-top: 2px;
+    /* Только строка состояния: плашка статуса (.amr-status) сюда не попадает,
+       иначе наследует крупный шрифт и капс. */
+    .room-row .who .state {
+      display: block; font-size: 9.5px; letter-spacing: 0.3px; text-transform: uppercase;
+      color: var(--text-dim); margin-top: 1px; line-height: 1.2;
     }
+    /* Звезда хозяина и кнопка исключения стоят в одной ячейке сетки. */
+    .room-row .row-actions { display: inline-flex; align-items: center; gap: 6px; }
     .room-row .star { color: #ffd75e; font-size: 15px; }
     .room-row.free {
       grid-template-columns: 46px minmax(0, 1fr); cursor: pointer;
@@ -93,11 +97,9 @@
     }
     .room-row.free b { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
 
-    .user-avatar {
-      display: inline-grid; place-items: center; flex: 0 0 auto;
-      width: 46px; height: 46px; border-radius: 50%; overflow: hidden;
-      color: #fff; font-weight: 700; font-size: 16px; letter-spacing: 0.5px;
-    }
+    /* Аватар в шапке берёт размер из общих стилей (24 px). Крупный размер был
+       нужен старым строкам комнаты, а теперь их рисует общий .amr-avatar.lg. */
+    .user-pill .user-avatar { width: 24px; height: 24px; border-radius: 50%; }
 
     .teams-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 6px; }
     .team-card {
@@ -282,6 +284,46 @@
       display: flex; align-items: center; gap: 10px;
       font-size: 13px; color: var(--text-dim);
     }
+
+    /* Чат комнаты: короткая лента сообщений и поле ввода под ней. */
+    .chat-card .chat-log {
+      display: flex; flex-direction: column; gap: 8px;
+      max-height: 280px; overflow-y: auto; margin: 4px 0 12px;
+      padding-right: 4px;
+    }
+    .chat-card .chat-empty { font-size: 13px; color: var(--text-dim); margin: 0; }
+    .chat-msg { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
+    .chat-msg .chat-body { min-width: 0; }
+    .chat-msg .chat-meta {
+      display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--text-dim);
+    }
+    .chat-msg .chat-meta b { color: var(--text); font-size: 12.5px; }
+    .chat-msg .chat-text {
+      font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap;
+    }
+    .chat-msg.mine .chat-text { color: var(--accent); }
+    .chat-card .chat-note {
+      margin: 0; padding: 6px 0; text-align: center;
+      font-size: 12px; color: var(--text-dim);
+    }
+
+    /* Исключение игрока: маленькая кнопка справа в строке участника. */
+    .kick-btn {
+      margin-left: auto; flex: 0 0 auto;
+      width: 26px; height: 26px; border-radius: 8px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text-dim); font: inherit; font-size: 12px; line-height: 1;
+      cursor: pointer;
+    }
+    .kick-btn:hover, .kick-btn:focus-visible {
+      color: var(--danger); border-color: var(--danger);
+    }
+    .chat-form { display: flex; gap: 8px; }    .chat-form input {
+      flex: 1 1 auto; min-width: 0; font-family: inherit; font-size: 13.5px;
+      padding: 9px 12px; border-radius: 12px;
+      border: 1px solid var(--border); background: var(--surface-solid); color: var(--text);
+    }
+    .chat-form input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     .spinner {
       width: 14px; height: 14px; border-radius: 50%;
       border: 2px solid var(--border); border-top-color: var(--accent);
@@ -296,8 +338,8 @@
     @media (max-width: 620px) {
       .brand-text h1 { font-size: 18px; }
       .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
-      .user-pill { max-width: 130px; }
-      .user-pill span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .user-pill { max-width: 150px; }
+      .user-pill #user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .room-row { grid-template-columns: 22px 40px minmax(0, 1fr) auto; gap: 10px; padding: 9px 12px; }
       .room-row.free { grid-template-columns: 40px minmax(0, 1fr); }
     }
@@ -309,7 +351,7 @@
 
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
+        <a class="brand-mark" href="../" title="AmrGames — главное меню" aria-label="AmrGames — главное меню"><img src="../../icons/logo.png?v=2" alt=""></a>
         <div class="brand-text">
           <h1>Narutodle</h1>
           <p>Комната до шести игроков: дуэль, гонка на пять персонажей или игра командами</p>
@@ -320,10 +362,11 @@
           <span class="dot"></span>
           <span id="conn-text">подключаемся…</span>
         </button>
-        <div class="user-pill" id="user-pill" hidden>
-          <span aria-hidden="true">👤</span>
+        <a class="user-pill" id="user-pill" href="../profile/" title="Мой профиль" hidden>
+          <img class="user-avatar" id="user-avatar" alt="" hidden>
+          <span class="user-avatar-fallback" id="user-avatar-fallback" aria-hidden="true">👤</span>
           <span id="user-name">—</span>
-        </div>
+        </a>
         <button class="icon-btn" type="button" id="logout" title="Выйти из аккаунта" hidden>⎋</button>
         <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
         <a class="icon-btn" href="../" title="Вернуться в игровую комнату">←</a>
@@ -336,7 +379,7 @@
         <h2>Сервер игры</h2>
         <span class="badge" id="server-badge">не подключён</span>
       </header>
-      <p class="muted">Адрес берётся из ссылки-приглашения или настроек панели. Если не подставился — впишите руками.</p>
+      <p class="muted">Адрес берётся из ссылки-приглашения или сохранённых настроек. Если не подставился — впишите руками.</p>
       <label class="field">
         <span>Адрес API</span>
         <input type="text" id="srv-input" placeholder="https://ваш-адрес-сервера" autocomplete="off" spellcheck="false">
@@ -350,7 +393,7 @@
     <section class="card auth-card" id="auth-card" hidden>
       <h2 id="auth-title">Регистрация</h2>
       <p class="muted" id="auth-hint">
-        Аккаунт нужен, чтобы другие игроки видели, с кем играют. Он же открывает панель теплицы.
+        Аккаунт нужен, чтобы другие игроки видели, с кем играют.
       </p>
       <label class="field">
         <span>Логин</span>
@@ -453,7 +496,7 @@
       </div>
 
       <div class="row" style="margin-top: 16px;">
-        <button class="btn btn-primary" type="button" id="start-game">Начать игру</button>
+        <button class="btn btn-primary" type="button" id="ready-toggle">Я готов</button>
         <button class="btn btn-ghost" type="button" id="leave-room">Выйти из комнаты</button>
         <button class="btn btn-primary" type="button" id="room-join" hidden>Занять место</button>
         <button class="btn btn-ghost" type="button" id="room-watch-exit" hidden>Выйти из наблюдения</button>
@@ -545,6 +588,21 @@
       </section>
     </section>
 
+    <!-- ===== Чат комнаты: работает и в ожидании, и в партии ===== -->
+    <section class="card chat-card" id="chat-card" hidden>
+      <header class="card-head">
+        <h2>Чат комнаты</h2>
+        <span class="badge" id="chat-badge">—</span>
+      </header>
+      <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
+      <form class="chat-form" id="chat-form" autocomplete="off">
+        <input type="text" id="chat-input" maxlength="240" placeholder="Сообщение для комнаты…"
+               aria-label="Сообщение в чат комнаты" autocomplete="off">
+        <button class="btn btn-primary" type="submit" id="chat-send">Отправить</button>
+      </form>
+      <p class="muted" id="chat-hint">Чат видят все в комнате, включая наблюдателей.</p>
+    </section>
+
     <!-- ===== Мои матчи ===== -->
     <section class="card" id="matches-card" hidden>
       <header class="card-head">
@@ -564,6 +622,8 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
+  <script src="../profile/pill.js?v=5"></script>
+  <script src="../profile/profiles.js?v=8"></script>
   <script>
     'use strict';
 
@@ -595,6 +655,8 @@
     let comboShown = [];
     let comboActive = -1;
     let hints = null;                // подсказки игры (берём из состояния комнаты)
+    let chatKey = '';                // какие сообщения чата уже нарисованы
+    let chatRoom = '';               // комната, к которой относится лента чата
     let openTeamBoards = new Set();  // доски товарищей, которые игрок раскрыл
     let teamBoardsMatch = 0;         // партия, к которой относится этот набор
 
@@ -766,7 +828,7 @@
       for (const candidate of list) {
         if (await pingServer(candidate)) {
           apiBase = candidate;
-          if (candidate !== stored) toast('Адрес сервера взят из настроек панели теплицы');
+          if (candidate !== stored) toast('Адрес сервера взят из сохранённых настроек');
           return apiBase;
         }
       }
@@ -829,6 +891,7 @@
       $('#user-name').textContent = name || '—';
       show('#user-pill', Boolean(name));
       show('#logout', Boolean(auth.token));
+      if (window.AmrProfile) AmrProfile.render(auth.user);
     }
 
     function setAuthMode(form) {
@@ -837,8 +900,8 @@
       $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
       $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
       $('#auth-hint').textContent = register
-        ? 'Аккаунт нужен, чтобы другие игроки видели, с кем играют. Он же открывает панель теплицы.'
-        : 'Войдите тем же логином, что и в панели теплицы.';
+        ? 'Аккаунт нужен, чтобы другие игроки видели, с кем играют.'
+        : 'Войдите своим логином и паролем.';
       show('#auth-confirm-field', register);
       show('#auth-error', false);
       $('#auth-card').dataset.mode = register ? 'register' : 'login';
@@ -924,21 +987,8 @@
       return (first + second).toUpperCase();
     }
 
-    /* Аватар игрока: у аккаунтов картинок нет, поэтому инициалы на цвете,
-       который получается из ника — у каждого игрока свой и постоянный. */
-    const USER_COLORS = ['#7a5c3e', '#3f6f5a', '#6b4a7a', '#8a4a3a', '#4a5f8a', '#6f6a3a'];
-
-    function userColor(name) {
-      let hash = 0;
-      for (const char of String(name || '')) hash = (hash * 31 + char.charCodeAt(0)) % 9973;
-      return USER_COLORS[hash % USER_COLORS.length];
-    }
-
-    function userAvatar(name, extra = '') {
-      return '<span class="user-avatar' + (extra ? ' ' + extra : '') + '" style="background: '
-        + escapeHtml(userColor(name)) + '">' + escapeHtml(initialsOf(name)) + '</span>';
-    }
-
+    /* Аватар игрока рисует общий AmrProfiles: картинка из профиля или
+       инициалы на его цвете. */
     function whenText(iso) {
       const date = new Date(iso || '');
       if (Number.isNaN(date.getTime())) return '—';
@@ -1021,10 +1071,82 @@
       table.innerHTML = attemptsHtml(attempts, options);
     }
 
+    /* -------------------------------- чат ----------------------------------- */
+
+    function chatTime(seconds) {
+      const date = new Date(Number(seconds || 0) * 1000);
+      if (Number.isNaN(date.getTime())) return '';
+      return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    /* Лента чата комнаты: рисуем только когда пришли новые сообщения, чтобы
+       опрос не сбивал прокрутку, и держим свежие сообщения внизу: при входе
+       в комнату лента сразу показывает последние, а не первые. */
+    function renderChat(data) {
+      if (!data) return;
+      const messages = data.chat || [];
+      const log = $('#chat-log');
+      show('#chat-card', true);
+      const roomKey = String(data.code || '');
+      const key = roomKey + '|' + messages.map((message) => message.id).join(',');
+      if (key !== chatKey) {
+        const firstPaint = roomKey !== chatRoom;
+        const atBottom = firstPaint
+          || log.scrollHeight - log.scrollTop - log.clientHeight < 48;
+        chatKey = key;
+        chatRoom = roomKey;
+        log.innerHTML = messages.length
+          ? messages.map((message) => (message.system
+            ? '<p class="chat-note">' + escapeHtml(message.text) + '</p>'
+            : '<div class="chat-msg' + (message.mine ? ' mine' : '') + '">'
+              + AmrProfiles.html(message.user_id, message.name, 'sm')
+              + '<div class="chat-body"><div class="chat-meta"><b>'
+              + AmrProfiles.link(message.user_id, message.name) + '</b><span>'
+              + escapeHtml(chatTime(message.at)) + '</span></div>'
+              + '<div class="chat-text">' + escapeHtml(message.text) + '</div></div></div>'
+          )).join('')
+          : '<p class="chat-empty">Сообщений пока нет — напишите первым.</p>';
+        AmrProfiles.ensure(messages.filter((message) => !message.system)
+          .map((message) => ({ id: message.user_id, name: message.name })));
+        if (atBottom) {
+          log.scrollTop = log.scrollHeight;
+          /* Аватары догружаются после отрисовки — подкручиваем ещё раз. */
+          requestAnimationFrame(() => { log.scrollTop = log.scrollHeight; });
+        }
+      }
+      $('#chat-badge').textContent = messages.length
+        ? messages.length + ' сообщ.' : 'пусто';
+      const canWrite = Boolean(data.member) && mode === 'player';
+      $('#chat-input').disabled = !canWrite;
+      $('#chat-send').disabled = !canWrite;
+      $('#chat-hint').textContent = canWrite
+        ? 'Чат видят все в комнате, включая наблюдателей.'
+        : 'Вы наблюдаете за комнатой: чат можно только читать.';
+    }
+
+    async function sendChat(event) {
+      if (event) event.preventDefault();
+      const input = $('#chat-input');
+      const text = input.value.trim();
+      const code = state ? state.code : '';
+      if (!text || !code || busy) return;
+      busy = true;
+      try {
+        const data = await api(GAME + '/rooms/' + code + '/say',
+          { method: 'POST', body: { text: text } });
+        input.value = '';
+        applyState(data.state);
+      } catch (error) {
+        if (!sessionExpired(error)) toast(error.message, 'err');
+      } finally {
+        busy = false;
+      }
+    }
+
     /* -------------------------------- экраны -------------------------------- */
 
     function hideAll() {
-      ['#lobby', '#room', '#game', '#choice-card', '#team-boards-card'].forEach(
+      ['#lobby', '#room', '#game', '#choice-card', '#team-boards-card', '#chat-card'].forEach(
         (selector) => show(selector, false));
       show('#result-card', false);
       $('#matches-card').hidden = true;
@@ -1141,20 +1263,30 @@
     function renderLobbyScreen() {
       const data = state;
       if (!data) return;
+      renderChat(data);
       $('#slot-counter').textContent = data.players_count + '/' + data.capacity;
       $('#room-code-value').textContent = data.code;
       $('#room-link').value = inviteLink(data.code);
+      AmrProfiles.ensure(data.players);
 
       const rows = data.players.map((player, index) => {
-        const stateText = player.host ? 'хозяин комнаты'
-          : (player.ready ? 'готов к игре' : 'в ожидании');
+        const bits = [];
+        if (player.host) bits.push('хозяин комнаты');
+        bits.push(player.ready ? 'готов к игре' : 'в ожидании');
+        const stateText = bits.join(' · ');
         const star = player.host ? '<span class="star" title="Хозяин комнаты">✦</span>' : '';
+        const kick = data.can_kick && !player.you
+          ? '<button class="kick-btn" type="button" data-kick="' + player.id
+            + '" title="Исключить из комнаты" aria-label="Исключить из комнаты">✕</button>'
+          : '';
         return '<div class="room-row' + (player.you ? ' you' : '') + '">'
           + '<span class="place">' + (index + 1) + '</span>'
-          + userAvatar(player.name)
-          + '<span class="who"><b>' + escapeHtml(player.name) + '</b>'
-          + '<span>' + escapeHtml(stateText) + '</span></span>'
-          + star + '</div>';
+          + AmrProfiles.html(player.id, player.name, 'lg')
+          + '<span class="who"><span class="amr-line"><b>'
+          + AmrProfiles.link(player.id, player.name, false) + '</b>'
+          + AmrProfiles.status(player.id, player.name, false) + '</span>'
+          + '<span class="state">' + escapeHtml(stateText) + '</span></span>'
+          + '<span class="row-actions">' + star + kick + '</span></div>';
       }).join('');
       const freeRow = data.free > 0
         ? '<div class="room-row free" id="free-slot"><span class="plus">+</span>'
@@ -1190,7 +1322,7 @@
         )).join('');
 
       const isHost = data.is_host;
-      show('#start-game', true);
+      show('#ready-toggle', true);
       show('#leave-room', true);
       show('#room-join', false);
       show('#room-watch-exit', false);
@@ -1220,14 +1352,21 @@
 
       const bothTeams = data.teams.length === 2 && data.teams.every((team) => team.members.length);
       const canStart = data.mode !== 'teams' || (bothTeams && data.team_total > 0);
-      const startButton = $('#start-game');
-      startButton.disabled = !isHost || !canStart;
-      startButton.textContent = isHost ? 'Начать игру' : 'Ждём хозяина';
-      $('#room-hint').textContent = !isHost
-        ? 'Игру запускает ' + (data.host_name || 'хозяин') + ': можно начинать с любым числом игроков.'
-        : (data.mode === 'teams' && !bothTeams
-          ? 'В режиме «Команды» нужны игроки в обеих командах — позовите ещё кого-нибудь.'
-          : 'Можно начинать с любым числом игроков: ' + data.players_count + ' уже в комнате.');
+      /* Партию запускает общая готовность: каждый отмечается сам, матч
+         начинается, когда готовы все. Готовность можно снять до старта. */
+      const ready = Boolean(data.you && data.you.ready);
+      const readyCount = data.players.filter((player) => player.ready).length;
+      const readyButton = $('#ready-toggle');
+      readyButton.textContent = ready ? 'Отменить готовность' : 'Я готов';
+      readyButton.classList.toggle('btn-primary', !ready);
+      readyButton.classList.toggle('btn-ghost', ready);
+      readyButton.disabled = !canStart && !ready;
+      $('#room-hint').textContent = !canStart
+        ? 'В режиме «Команды» нужны игроки в обеих командах — позовите ещё кого-нибудь.'
+        : 'Готовы ' + readyCount + ' из ' + data.players_count + '. '
+          + (ready
+            ? 'Партия начнётся, когда будут готовы все.'
+            : 'Нажмите «Я готов» — матч начнётся, когда отметятся все.');
 
       show('#room-history', data.history.length > 0);
       if (data.history.length) {
@@ -1241,8 +1380,10 @@
       const tally = (data.tally || []).filter((item) => item.guessed || item.wins);
       show('#room-tally', tally.length > 0);
       if (tally.length) {
+        AmrProfiles.ensure(tally);
         $('#room-tally-list').innerHTML = tally.map((item) => (
-          '<li>' + escapeHtml(item.name)
+          '<li><span class="amr-person">' + AmrProfiles.html(item.id, item.name)
+          + AmrProfiles.link(item.id, item.name) + '</span>'
           + (item.team_label ? ' · ' + escapeHtml(item.team_label) : '')
           + ' — угадал ' + item.guessed + ', побед ' + item.wins + '</li>'
         )).join('');
@@ -1278,7 +1419,9 @@
       else stateText = 'ждёт';
       return '<div class="p-card' + (mine ? ' mine' : '')
         + (board.finished && !board.given_up ? ' done' : '') + '">'
-        + '<div class="p-head"><b>' + escapeHtml(board.name) + '</b>'
+        + '<div class="p-head"><div class="amr-person" style="min-width: 0;">'
+        + AmrProfiles.html(Number(board.key) || null, board.name, 'sm')
+        + '<b>' + AmrProfiles.link(Number(board.key) || null, board.name) + '</b></div>'
         + '<span>' + board.found_count + '/' + board.total + '</span></div>'
         + (match.mode === 'teams' && board.team_label
           ? '<div class="p-team">' + escapeHtml(board.team_label) + '</div>' : '')
@@ -1303,24 +1446,39 @@
         + ' Закрыл свои — помогаешь товарищу на его доске.';
     }
 
-    /* Архив одной доски: каждая закрытая доска со всеми подсказками. */
+    /* Архив одной доски: подсказки по каждому персонажу, включая того,
+       которого так и не угадали, — иначе попытки пропадали из итога. */
     function archiveBoardHtml(board) {
-      if (!board.history || !board.history.length) {
+      const blocks = [];
+      (board.history || []).forEach((entry) => {
+        blocks.push('<div class="archive-board">'
+          + '<div class="archive-head">' + avatarHtml(entry.target)
+          + '<b>' + escapeHtml(entry.target) + '</b>'
+          + '<span class="muted">· ' + entry.attempts.length + ' попыток · '
+          + clockText(entry.seconds) + '</span>'
+          + ((entry.helpers && entry.helpers.length)
+            ? '<span class="muted">· помогали: ' + escapeHtml(entry.helpers.join(', ')) + '</span>' : '')
+          + '</div>'
+          + '<div class="board-wrap"><table class="board">'
+          + attemptsHtml(entry.attempts, { showAuthor: true })
+          + '</table></div></div>');
+      });
+      const open = board.attempts || [];
+      if (board.current && open.length) {
+        blocks.push('<div class="archive-board">'
+          + '<div class="archive-head">' + avatarHtml(board.current)
+          + '<b>' + escapeHtml(board.current) + '</b>'
+          + '<span class="muted">· ' + open.length + ' попыток'
+          + (board.current_seconds ? ' · ' + clockText(board.current_seconds) : '')
+          + ' · не угадан</span></div>'
+          + '<div class="board-wrap"><table class="board">'
+          + attemptsHtml(open, { showAuthor: true })
+          + '</table></div></div>');
+      }
+      if (!blocks.length) {
         return '<p class="muted" style="margin:8px 0 0;">Попыток не было.</p>';
       }
-      return board.history.map((entry) => (
-        '<div class="archive-board">'
-        + '<div class="archive-head">' + avatarHtml(entry.target)
-        + '<b>' + escapeHtml(entry.target) + '</b>'
-        + '<span class="muted">· ' + entry.attempts.length + ' попыток · '
-        + clockText(entry.seconds) + '</span>'
-        + ((entry.helpers && entry.helpers.length)
-          ? '<span class="muted">· помогали: ' + escapeHtml(entry.helpers.join(', ')) + '</span>' : '')
-        + '</div>'
-        + '<div class="board-wrap"><table class="board">'
-        + attemptsHtml(entry.attempts, { showAuthor: true })
-        + '</table></div></div>'
-      )).join('');
+      return blocks.join('');
     }
 
     /* Итог: доски всех участников раскрываются по клику, подсказки уже собраны. */
@@ -1340,16 +1498,20 @@
       };
       node.innerHTML = '<div class="muted" style="font-size:12.5px;margin-bottom:8px;">'
         + 'Доски партии: видно, кто сколько попыток потратил на каждого персонажа</div>'
-        + boards.map((board, index) => (
-          '<details class="archive" data-archive="' + index + '"'
-          + (openKeys.includes(String(index)) ? ' open' : '') + '>'
-          + '<summary><b>' + escapeHtml(board.name) + '</b> · ' + board.found_count
-          + '/' + board.total
-          + (match.mode === 'teams' && board.team_label
-            ? ' · ' + escapeHtml(board.team_label) : '')
-          + (board.given_up ? ' · сдался' : '') + '</summary>'
-          + '<div class="archive-body"></div></details>'
-        )).join('');
+        + boards.map((board, index) => {
+          const spent = (board.history || [])
+            .reduce((sum, entry) => sum + entry.attempts.length, 0)
+            + ((board.attempts || []).length);
+          return '<details class="archive" data-archive="' + index + '"'
+            + (openKeys.includes(String(index)) ? ' open' : '') + '>'
+            + '<summary><b>' + AmrProfiles.link(Number(board.key) || null, board.name) + '</b> · '
+            + board.found_count + '/' + board.total
+            + (spent ? ' · попыток: ' + spent : '')
+            + (match.mode === 'teams' && board.team_label
+              ? ' · ' + escapeHtml(board.team_label) : '')
+            + (board.given_up ? ' · сдался' : '') + '</summary>'
+            + '<div class="archive-body"></div></details>';
+        }).join('');
       node.querySelectorAll('details[data-archive]').forEach((item) => {
         if (item.open) fill(item);
         item.addEventListener('toggle', () => {
@@ -1361,6 +1523,7 @@
     function renderMatch(data, watching) {
       const match = data.match;
       if (!match) return;
+      renderChat(data);
       const you = data.you;
       const finished = match.finished;
       const boards = match.boards || [];
@@ -1421,11 +1584,16 @@
         bits.push('побед ' + player.wins);
         if (player.gave_up) bits.push('сдался');
         if (player.ready) bits.push('готов');
+        const kick = data.can_kick && !player.you && !watching
+          ? '<button class="kick-btn" type="button" data-kick="' + player.id
+            + '" title="Исключить из комнаты" aria-label="Исключить из комнаты">✕</button>'
+          : '';
         return '<div class="player' + (player.you ? ' mine' : '') + '">'
-          + userAvatar(player.name)
-          + '<span><b>' + escapeHtml(player.name) + '</b><br><small>'
-          + escapeHtml(bits.join(' · ')) + '</small></span></div>';
+          + AmrProfiles.html(player.id, player.name, 'lg')
+          + '<span><b>' + AmrProfiles.link(player.id, player.name) + '</b><br><small>'
+          + escapeHtml(bits.join(' · ')) + '</small></span>' + kick + '</div>';
       }).join('');
+      AmrProfiles.ensure(data.players);
       $('#game-players').innerHTML = list + '<div class="player"><span>🔑</span><span>комната <b>'
         + escapeHtml(data.code) + '</b></span></div>';
 
@@ -1519,14 +1687,19 @@
       show('#watch-play', Boolean(watching) && data.status === 'lobby');
       const button = $('#rematch');
       if (button) {
-        button.disabled = ready;
-        button.textContent = ready ? 'Ждём остальных…' : 'Ещё игра';
+        button.disabled = false;
+        button.textContent = ready ? 'Отменить готовность' : 'Ещё игра';
+        button.title = ready
+          ? 'Снять готовность к новой партии'
+          : 'Отметить готовность к новой партии';
+        button.classList.toggle('btn-primary', !ready);
+        button.classList.toggle('btn-ghost', ready);
       }
       if (finished && you) {
         const readyCount = data.players.filter((player) => player.ready).length;
         $('#game-hint').textContent = ready
           ? 'Готовы ' + readyCount + ' из ' + data.players_count
-            + ': партия начнётся, когда отметятся все.'
+            + ': партия начнётся, когда отметятся все. Готовность можно отменить.'
           : 'Новая партия начнётся, когда все нажмут «Ещё игра».';
       } else if (watching) {
         $('#game-hint').textContent = data.status === 'lobby'
@@ -1619,15 +1792,22 @@
     function renderWatchLobby() {
       const data = watchState;
       if (!data) return;
+      renderChat(data);
       $('#slot-counter').textContent = data.players_count + '/' + data.capacity;
       $('#room-code-value').textContent = data.code;
       $('#room-link').value = inviteLink(data.code);
+      AmrProfiles.ensure(data.players);
       $('#room-list').innerHTML = data.players.map((player, index) => (
         '<div class="room-row">' + '<span class="place">' + (index + 1) + '</span>'
-        + userAvatar(player.name)
-        + '<span class="who"><b>' + escapeHtml(player.name) + '</b><span>'
-        + (player.host ? 'хозяин комнаты' : 'в ожидании') + '</span></span>'
-        + (player.host ? '<span class="star">✦</span>' : '') + '</div>'
+        + AmrProfiles.html(player.id, player.name, 'lg')
+        + '<span class="who"><span class="amr-line"><b>'
+        + AmrProfiles.link(player.id, player.name, false) + '</b>'
+        + AmrProfiles.status(player.id, player.name, false) + '</span>'
+        + '<span class="state">'
+        + (player.host ? 'хозяин комнаты · ' : '') + (player.ready ? 'готов к игре' : 'в ожидании')
+        + '</span></span>'
+        + '<span class="row-actions">'
+        + (player.host ? '<span class="star">✦</span>' : '') + '</span></div>'
       )).join('') + (data.free > 0
         ? '<div class="room-row free"><span class="plus">+</span><b>Свободно мест: '
           + data.free + '</b></div>' : '');
@@ -1645,9 +1825,7 @@
         '<div class="mode-card' + (item.key === data.mode ? ' on' : '') + '">'
         + '<b>' + escapeHtml(item.label) + '</b><span>' + escapeHtml(item.hint) + '</span></div>'
       )).join('');
-      $('#start-game').disabled = true;
-      $('#start-game').textContent = 'Наблюдение';
-      show('#start-game', false);
+      show('#ready-toggle', false);
       show('#leave-room', false);
       show('#room-join', data.free > 0);
       show('#room-watch-exit', true);
@@ -1676,9 +1854,11 @@
       const watchTally = (data.tally || []).filter((item) => item.guessed || item.wins);
       show('#room-tally', watchTally.length > 0);
       if (watchTally.length) {
+        AmrProfiles.ensure(watchTally);
         $('#room-tally-list').innerHTML = watchTally.map((item) => (
-          '<li>' + escapeHtml(item.name) + ' — угадал ' + item.guessed
-          + ', побед ' + item.wins + '</li>'
+          '<li><span class="amr-person">' + AmrProfiles.html(item.id, item.name)
+          + AmrProfiles.link(item.id, item.name) + '</span>'
+          + ' — угадал ' + item.guessed + ', побед ' + item.wins + '</li>'
         )).join('');
       }
       setRoomTab('players');
@@ -1774,9 +1954,13 @@
         'Вы перешли в ' + (team === 'a' ? 'команду A' : 'команду B'));
     }
 
-    async function startGame() {
+    async function toggleReady() {
       if (!state) return;
-      await act('POST', '/rooms/' + state.code + '/start', {}, 'Игра началась');
+      const next = !(state.you && state.you.ready);
+      await act('POST', '/rooms/' + state.code + '/ready', { ready: next }, '');
+      if (state && state.status === 'playing') toast('Все готовы — партия началась');
+      else if (next) toast('Вы готовы — ждём остальных');
+      else toast('Готовность снята');
     }
 
     async function sendGuess(name) {
@@ -1802,8 +1986,22 @@
     }
 
     async function rematch() {
+      if (!state || !state.you) return;
+      const ready = !state.you.ready;
+      await act('POST', '/rooms/' + state.code + '/rematch', { ready: ready },
+        ready ? 'Отметили готовность' : 'Готовность отменена');
+    }
+
+    /* Хозяин комнаты (и администратор сайта) убирает игрока из комнаты.
+       Во время партии исключённый выбывает как сдавшийся. */
+    async function kickPlayer(userId) {
       if (!state) return;
-      await act('POST', '/rooms/' + state.code + '/rematch', {}, 'Отметили готовность');
+      const player = (state.players || []).find(
+        (item) => String(item.id) === String(userId));
+      const name = player ? AmrProfiles.name(player.id, player.name) : 'игрок';
+      if (!window.confirm('Исключить ' + name + ' из комнаты?')) return;
+      await act('POST', '/rooms/' + state.code + '/kick',
+        { user_id: Number(userId) }, 'Игрок исключён');
     }
 
     async function toLobby() {
@@ -2104,7 +2302,7 @@
         () => copyText(state ? state.code : (watchState ? watchState.code : ''), 'Код скопирован'));
       $('#copy-link').addEventListener('click', () => copyText($('#room-link').value, 'Ссылка скопирована'));
       $('#leave-room').addEventListener('click', leaveRoom);
-      $('#start-game').addEventListener('click', startGame);
+      $('#ready-toggle').addEventListener('click', toggleReady);
       $('#tab-players').addEventListener('click', () => setRoomTab('players'));
       $('#tab-teams').addEventListener('click', () => setRoomTab('teams'));
       $('#mode-picker').addEventListener('click', (event) => {
@@ -2124,6 +2322,15 @@
       });
       $('#give-up').addEventListener('click', giveUp);
       $('#rematch').addEventListener('click', rematch);
+      $('#chat-form').addEventListener('submit', sendChat);
+      ['#room-list', '#game-players'].forEach((selector) => {
+        $(selector).addEventListener('click', (event) => {
+          const button = event.target.closest('[data-kick]');
+          if (!button) return;
+          event.preventDefault();
+          kickPlayer(button.dataset.kick);
+        });
+      });
       $('#to-lobby-btn').addEventListener('click', toLobby);
       setupCombo();
       $('#guess-form').addEventListener('submit', (event) => {
@@ -2183,6 +2390,18 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       boot().catch((error) => toast('Не удалось запустить игру: ' + error.message, 'err'));
+    });
+
+    /* Аватары участников пришли после первого показа — перерисовываем списки. */
+    document.addEventListener('amr:profiles', () => {
+      if (watchState) {
+        renderWatchLobby();
+        if (watchState.match) renderMatch(watchState, true);
+      }
+      if (state) {
+        renderLobbyScreen();
+        if (state.match) renderMatch(state, false);
+      }
     });
   </script>
 </body>

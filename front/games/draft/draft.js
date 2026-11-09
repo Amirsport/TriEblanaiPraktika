@@ -225,7 +225,7 @@ async function resolveApiBase() {
   for (const candidate of list) {
     if (await pingServer(candidate)) {
       apiBase = candidate;
-      if (candidate !== stored) toast('Адрес сервера взят из настроек панели теплицы');
+      if (candidate !== stored) toast('Адрес сервера взят из сохранённых настроек');
       return apiBase;
     }
   }
@@ -276,6 +276,7 @@ function renderUser() {
   $('#user-name').textContent = name || '—';
   show('#user-pill', Boolean(name));
   show('#logout', Boolean(auth.token));
+  if (window.AmrProfile) AmrProfile.render(auth.user);
 }
 
 function setAuthMode(form) {
@@ -284,8 +285,8 @@ function setAuthMode(form) {
   $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
   $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
   $('#auth-hint').textContent = register
-    ? 'Аккаунт нужен, чтобы прогоны сохранялись за вами. Он же открывает панель теплицы.'
-    : 'Войдите тем же логином, что и в панели теплицы.';
+    ? 'Аккаунт нужен, чтобы прогоны сохранялись за вами.'
+    : 'Войдите своим логином и паролем.';
   show('#auth-confirm-field', register);
   show('#auth-error', false);
   $('#auth-card').dataset.mode = register ? 'register' : 'login';

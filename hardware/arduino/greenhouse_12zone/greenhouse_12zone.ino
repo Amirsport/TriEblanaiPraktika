@@ -1,19 +1,32 @@
 /*
  * Умная AI-Теплица — прошивка контроллера 12 участков.
  * ---------------------------------------------------------------
- * Плата: Arduino Mega 2560 (или совместимая).
+ * Плата: Arduino Nano (ATmega328P, 16 МГц, 2 КБ SRAM).
  * Обмен с сервером: построчный JSON по Serial, 115200 бод.
+ *
+ * Распиновка Nano:
+ *   A0       <- SIG  CD74HC4067 (общий аналоговый выход)
+ *   D2..D5   -> S0..S3 мультиплексора
+ *   D6       <- DATA DHT22
+ *   D7       -> TRIG HC-SR04
+ *   D8       <- ECHO HC-SR04
+ *   D9       -> DS   74HC595 #1 (каскад -> #2)
+ *   D10      -> SHCP (clock)
+ *   D11      -> STCP (latch)
+ *   D12, D13, A1..A7 — свободны
  *
  * Аппаратная конфигурация:
  *   - CD74HC4067 (16-канальный аналоговый мультиплексор):
  *       C0..C11  -> датчики влажности почвы 12 участков (ёмкостные/резистивные);
  *       C12      -> фоторезистор (освещённость, лк, оценочно);
- *   - DHT22      -> температура и влажность воздуха;
+ *   - DHT22      -> температура воздуха (влажность — резерв протокола);
  *   - HC-SR04    -> уровень воды в баке;
  *   - 2x 74HC595 -> 16 выходов: Q0..Q11 насосы 12 участков,
- *                   Q12 вентилятор, Q13 фитолампа (ШИМ через MOSFET);
- *   - Строб: линия STROBE синхронизирует засветку фитолампы с экспозицией
- *            (при наличии модуля технического зрения).
+ *                   Q12 вентилятор, Q13 фитолампа (через MOSFET-модуль).
+ *
+ * Память: кадр телеметрии печатается в Serial потоком, без JSON-документа
+ * на 12 участков, поэтому не занимает SRAM. Входящая команда разбирается
+ * ArduinoJson в StaticJsonDocument<192> (строки не копируются).
  *
  * Библиотеки (Library Manager): ArduinoJson (v6), DHT sensor library.
  *
@@ -36,20 +49,20 @@ static const uint32_t SERIAL_BAUD      = 115200;
 static const uint32_t MAX_ON_MS        = 120000; // страховка: макс. 2 мин работы
 
 // Мультиплексор CD74HC4067
-static const uint8_t MUX_S0 = 22, MUX_S1 = 23, MUX_S2 = 24, MUX_S3 = 25, MUX_SIG = A0;
+static const uint8_t MUX_S0 = 2, MUX_S1 = 3, MUX_S2 = 4, MUX_S3 = 5, MUX_SIG = A0;
 static const uint8_t MUX_SOIL_FIRST = 0;   // каналы 0..11 — влажность почвы
 static const uint8_t MUX_LDR_CH     = 12;  // фотодиод/фоторезистор
 
 // DHT22
-static const uint8_t DHT_PIN = 2;
+static const uint8_t DHT_PIN = 6;
 #define DHT_TYPE DHT22
 
 // Ультразвук (бак)
-static const uint8_t TRIG_PIN = 3, ECHO_PIN = 4;
+static const uint8_t TRIG_PIN = 7, ECHO_PIN = 8;
 static const float   TANK_FULL_CM = 3.0f, TANK_EMPTY_CM = 25.0f;
 
 // 74HC595 (2 шт. каскадом)
-static const uint8_t SR_DATA = 8, SR_CLOCK = 9, SR_LATCH = 10;
+static const uint8_t SR_DATA = 9, SR_CLOCK = 10, SR_LATCH = 11;
 static const uint8_t OUT_PUMP_FIRST = 0;   // Q0..Q11 — насосы участков
 static const uint8_t OUT_FAN = 12;         // Q12 — вентилятор
 static const uint8_t OUT_LIGHT = 13;       // Q13 — фитолампа
@@ -63,7 +76,6 @@ DHT dht(DHT_PIN, DHT_TYPE);
 struct Output {
   bool      on = false;
   uint32_t  offAt = 0;      // 0 — без таймера
-  uint16_t  shiftBit = 0;   // позиция в сдвиговом регистре
 };
 
 Output outputs[ZONES + 2];  // 12 насосов + вентилятор + лампа
@@ -141,8 +153,8 @@ void applyOutput(int index, bool on, uint32_t seconds) {
   writeShiftRegister();
 }
 
-void handleCommand(const char *line) {
-  StaticJsonDocument<256> doc;
+void handleCommand(char *line) {
+  StaticJsonDocument<192> doc;
   DeserializationError error = deserializeJson(doc, line);
   if (error) return;
 
@@ -159,7 +171,7 @@ void handleCommand(const char *line) {
   if (index < 0) return;
   applyOutput(index, on, seconds);
 
-  StaticJsonDocument<160> ack;
+  StaticJsonDocument<128> ack;
   ack["type"] = "ack";
   ack["zone"] = zone;
   ack["device"] = device;
@@ -169,40 +181,43 @@ void handleCommand(const char *line) {
 }
 
 void sendHello() {
-  StaticJsonDocument<96> hello;
-  hello["type"] = "hello";
-  hello["fw"] = "1.0";
-  hello["zones"] = ZONES;
-  serializeJson(hello, Serial);
-  Serial.println();
+  Serial.print(F("{\"type\":\"hello\",\"fw\":\"1.0\",\"zones\":"));
+  Serial.print(ZONES);
+  Serial.println(F("}"));
 }
 
 void sendReadings() {
   float airTemp = dht.readTemperature();
-  float airHum = dht.readHumidity();
   if (isnan(airTemp)) airTemp = 24.0f;
 
   float lux = lightLux(readMuxAverage(MUX_LDR_CH));
   float tank = tankPercent();
 
-  StaticJsonDocument<1024> doc;
-  doc["type"] = "readings";
-  if (tank >= 0) doc["tank"] = tank;
-  JsonArray data = doc.createNestedArray("data");
+  // Кадр печатается потоком: на ATmega328P документ на 12 участков не влезает в SRAM.
+  Serial.print(F("{\"type\":\"readings\""));
+  if (tank >= 0) {
+    Serial.print(F(",\"tank\":"));
+    Serial.print(tank, 1);
+  }
+  Serial.print(F(",\"data\":["));
 
   for (uint8_t zone = 0; zone < ZONES; zone++) {
     uint16_t raw = readMuxAverage(MUX_SOIL_FIRST + zone);
     float moisture = soilMoisturePercent(raw);
 
-    JsonObject item = data.createNestedObject();
-    item["zone"] = zone + 1;
-    item["temperature"] = airTemp;
-    item["moisture"] = moisture;
-    item["light"] = lux;
+    if (zone) Serial.print(',');
+    Serial.print(F("{\"zone\":"));
+    Serial.print(zone + 1);
+    Serial.print(F(",\"temperature\":"));
+    Serial.print(airTemp, 1);
+    Serial.print(F(",\"moisture\":"));
+    Serial.print(moisture, 1);
+    Serial.print(F(",\"light\":"));
+    Serial.print((uint16_t)lux);
+    Serial.print('}');
   }
 
-  serializeJson(doc, Serial);
-  Serial.println();
+  Serial.println(F("]}"));
 }
 
 void expireTimers() {
@@ -227,7 +242,6 @@ void setup() {
   outputState = 0;
   writeShiftRegister();
   for (uint8_t i = 0; i < ZONES + 2; i++) {
-    outputs[i].shiftBit = i;
     outputs[i].on = false;
     outputs[i].offAt = 0;
   }

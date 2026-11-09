@@ -195,6 +195,7 @@ def clear_audio(db, keys: List[str], dry_run: bool) -> int:
             print(f"  сняли бы запись: {track['title']}")
         else:
             db.songguess_set_audio(str(track["id"]), "")
+            db.audio_clip_delete("songguess", str(track["id"]))
             print(f"  запись снята: {track['artist']} — {track['title']}")
         cleared += 1
     return cleared

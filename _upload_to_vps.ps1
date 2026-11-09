@@ -86,6 +86,9 @@ $ssh = Require-Tool 'ssh.exe'
 $exclude = @(
     '--exclude=.git', '--exclude=.venv', '--exclude=data', '--exclude=__pycache__',
     '--exclude=*.zip', '--exclude=*.pyc', '--exclude=*.sqlite3',
+    # рабочий каталог _fetch_songless_audio.py: записи лежат в базе, на сервере
+    # они не нужны (и весят сотни мегабайт)
+    '--exclude=_songless_audio',
     # адрес прошлого туннеля: на VPS страницы игр берут адрес API у своего домена,
     # а устаревший файл с хостинга отправил бы их на несуществующий адрес
     '--exclude=api-address.json'

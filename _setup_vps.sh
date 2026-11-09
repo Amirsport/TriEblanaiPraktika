@@ -256,6 +256,14 @@ if [ -n "$DUMP_FILE" ]; then
     if [ ! -f "$DUMP_FILE" ]; then
         say "   файла $DUMP_FILE нет — перенос пропущен"
     else
+        # Страховка перед заливкой: дамп снят с другой базы и восстанавливается
+        # с DROP TABLE, поэтому содержимое текущей базы затирается целиком.
+        # Снимаем копию того, что уже есть, чтобы потеря данных была обратимой.
+        BACKUP_FILE="/var/backups/greenhouse-before-restore-$(date -u +%Y%m%d-%H%M%S).sql"
+        run_shell "mkdir -p /var/backups"
+        run_shell "sudo -u postgres pg_dump --format=plain --file='$BACKUP_FILE' '$DB_NAME' 2>/dev/null \
+            && chmod 600 '$BACKUP_FILE' && echo '   страховочная копия прежней базы: $BACKUP_FILE' \
+            || echo '   прежняя база пуста или недоступна — копию не делаем'"
         run_shell "sudo -u postgres psql -v ON_ERROR_STOP=1 -q -d '$DB_NAME' -f '$DUMP_FILE'"
         # Дамп снят с рабочей базы тем же пользователем, поэтому владелец таблиц
         # совпадает, а на всякий случай выдаём права схемы приложению.
@@ -362,7 +370,6 @@ GONEEOF
     # запросы /api/ переправляет тому же серверу теплицы.
     if [ ${#GAMES_DOMAINS[@]} -gt 0 ]; then
         games_names="${GAMES_DOMAINS[*]}"
-        panel_host="${DOMAINS[0]}"
         # sub_filter есть в nginx из штатных пакетов Debian и Ubuntu. Если его
         # вдруг нет, витрина останется с прежним названием, но сайт будет цел.
         branding=0
@@ -394,6 +401,12 @@ server {
     }
     location ^~ /icons/ {
         alias $ROOT_DIR/front/icons/;
+        expires 30d;
+    }
+    # Эмблемы титулов (флаг Израиля, эмблема Субару) не меняются: пусть браузер
+    # держит их в кэше. Иначе перерисовка списков игроков заново запрашивала
+    # значок, и он «моргал».
+    location ^~ /profile/emblems/ {
         expires 30d;
     }
 
@@ -432,7 +445,6 @@ GAMESEOF
     sub_filter "· Умная AI-Теплица" "· AmrGames";
     sub_filter "<h1>Игровая комната</h1>" "<h1>AmrGames</h1>";
     sub_filter "<p>Онлайн мини-игры проекта «Умная AI-Теплица»</p>" "<p>Мини-игры проекта AmrGames</p>";
-    sub_filter "<a class=\"icon-btn\" href=\"../\" title=\"Вернуться к панели теплицы\">←</a>" "<a class=\"icon-btn\" href=\"https://$panel_host/\" title=\"Панель теплицы\">←</a>";
 BRANDEOF
                 fi
                 printf '}\n'

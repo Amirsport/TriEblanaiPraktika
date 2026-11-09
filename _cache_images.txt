@@ -1,0 +1,32 @@
+C:\Users\Amir\AppData\Roaming\Code\agentSessionData\0d10708b-e730-4109-b156-a23827575e32\attachments\58fc892f-8665-441e-b735-be326051e7c7\Pasted Image.png	504x731	79672	1791876617.8955772
+C:\Users\Amir\AppData\Roaming\Code\agentSessionData\0d10708b-e730-4109-b156-a23827575e32\attachments\5e087387-469e-49f6-8a9a-000d93d42ac8\Pasted Image.png	504x731	79672	1791876632.4134529
+C:\Users\Amir\AppData\Roaming\Code\agentSessionData\0d10708b-e730-4109-b156-a23827575e32\attachments\98298acc-ff50-4a15-832a-c2c96f04c825\Pasted Image.png	460x411	55881	1791971453.3341293
+C:\Users\Amir\AppData\Roaming\Code\agentSessionData\0d10708b-e730-4109-b156-a23827575e32\attachments\d2dbcfce-a7fd-40b6-be23-94944e2e1d7f\Pasted Image.png	489x737	75818	1791876714.292794
+C:\Users\Amir\AppData\Roaming\Code\agentSessionData\0d10708b-e730-4109-b156-a23827575e32\attachments\dd175383-2a9b-4197-b5af-82d6e15c3674\Pasted Image.png	744x511	44338	1791815251.1464808
+C:\Users\Amir\AppData\Roaming\Code\agentSessionData\9524509c-3c41-46a4-bf7e-22f3bf666bce\attachments\38f1b24a-ef3a-44b6-8e1b-4d14a973df28\Pasted Image.png	488x564	63019	1791871614.3295984
+C:\Users\Amir\AppData\Roaming\Code\agentSessionData\967c1270-af6c-41a8-8dcb-2a2460e26baf\attachments\968cae00-3856-449c-9e04-7d58fb5845a4\Pasted Image.png	342x729	21533	1792254744.8921885
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000017	800x352	256062	1792998452.0067387
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000018	600x319	183120	1792998452.0750766
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000019	600x310	181236	1792998452.0940177
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00001d	590x425	43587	1792998943.5330746
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00001e	519x470	61838	1792998943.5538075
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00001f	480x458	56073	1792998943.5638356
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000020	611x358	44723	1792998943.5819824
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000021	509x486	43443	1792998943.58399
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000022	570x469	55195	1792998943.7381482
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000023	424x406	45281	1792998943.7648644
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000044	480x458	56073	1793027429.8346412
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000045	570x469	55195	1793027430.0850947
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000046	519x470	61838	1793027430.2972708
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000047	424x406	45281	1793027430.2992718
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000049	611x358	44723	1793027430.4339106
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00004a	590x425	43587	1793027430.470214
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00004b	509x486	43443	1793027430.540531
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00005b	424x406	45281	1793193549.3674338
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00005c	611x358	44723	1793193549.3724349
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00005d	509x486	43443	1793193549.377436
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00005e	480x458	56073	1793193549.3844557
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_00005f	519x470	61838	1793193549.3984113
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000060	570x469	55195	1793193549.4947262
+C:\Users\Amir\AppData\Roaming\Code\Cache\Cache_Data\f_000061	590x425	43587	1793193549.5905628
+C:\Users\Amir\AppData\Roaming\Code\Partitions\vscode-browser\Cache\Cache_Data\f_000015	512x512	17804	1791893665.5230508

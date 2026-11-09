@@ -32,6 +32,7 @@ narutodle_characters, поэтому набор правится в базе, а
 """
 from __future__ import annotations
 
+import json
 import math
 import random
 import sys
@@ -71,6 +72,11 @@ RACE_TARGETS = 5
 DUEL_TARGETS = 1
 # Предел набора на команду: дальше партия становится слишком долгой.
 MAX_TEAM_TOTAL = 12
+
+# Чат комнаты: короткие сообщения, в состоянии комнаты отдаём последние.
+MAX_CHAT_LENGTH = 240
+MAX_CHAT_KEPT = 120
+MAX_CHAT_SENT = 60
 
 MODES: tuple = ("duel", "race", "teams")
 MODE_LABELS: Dict[str, str] = {
@@ -243,6 +249,8 @@ class Narutodle:
                 if player_id in room["players"]]
 
     def _player(self, room: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+        if user["id"] in (room.get("kicked") or {}):
+            raise NarutodleError("Вас исключили из этой комнаты")
         player = room["players"].get(user["id"])
         if not player:
             raise NarutodleError("Вы не участник этой комнаты")
@@ -605,6 +613,30 @@ class Narutodle:
                 "winner_attempts": (winner_board["index"] if winner_board
                                     else (match["per_team"] if winner_name else 0)),
                 "loser_attempts": 0,
+                # Скрытые достижения считаются по доскам: кто и с какой попытки
+                # закрывал персонажа и какая команда победила. Без этих данных
+                # «SiZeTovich» и «Мадарович» из журнала не вычислить.
+                "winner_team": (match["winner"] if match["mode"] == "teams"
+                                and match.get("winner") else ""),
+                "boards_json": json.dumps([
+                    {
+                        "id": board["player_id"],
+                        "name": board["name"],
+                        "team": board.get("team"),
+                        "found": board["index"],
+                        "total": len(board["assigned"]),
+                        "history": [
+                            {
+                                "target": item["target"],
+                                "attempts": len(item.get("attempts") or []),
+                                "by": item.get("by") or "",
+                                "by_id": item.get("by_id"),
+                            }
+                            for item in board["history"]
+                        ],
+                    }
+                    for board in match["boards"].values()
+                ], ensure_ascii=False),
                 "reason": reason,
             })
         except Exception as exc:  # noqa: BLE001
@@ -641,6 +673,8 @@ class Narutodle:
             "finished": bool(board["finished_at"]),
             "given_up": bool(board["given_up"]),
             "current": current if show else None,
+            "current_seconds": (round(time.time() - board["started_at"], 1)
+                                if show and current and board["started_at"] else 0),
             "you": bool(you_key and board["key"] == you_key),
             "started": board["started_at"] is not None,
         }
@@ -738,6 +772,18 @@ class Narutodle:
                     "wins": self._tally(room, you["id"])["wins"],
                 }
 
+        if you_public is None and you:
+            # В лобби партии ещё нет, но странице нужна готовность участника:
+            # кнопка «Я готов» опирается именно на это поле.
+            you_public = {
+                "id": you["id"],
+                "name": you["name"],
+                "team": you.get("team"),
+                "team_label": TEAM_NAMES.get(you.get("team") or "", ""),
+                "ready": you["id"] in room["ready"],
+                "gave_up": bool(you["gave_up"]),
+            }
+
         teams = [
             {"key": team, "label": TEAM_NAMES[team],
              "size": len(self._team_members(room, team)),
@@ -757,6 +803,7 @@ class Narutodle:
             "host_name": (room["players"][room["host"]]["name"]
                           if room.get("host") in room["players"] else ""),
             "is_host": is_host,
+            "can_kick": bool(is_host or user.get("role") == "admin"),
             "watching": watcher,
             "member": bool(you),
             "you": you_public,
@@ -767,9 +814,11 @@ class Narutodle:
             "team_options": self.team_options(room) if room["mode"] == "teams" else [],
             "match": match_public,
             "history": list(room["history"]),
-            "tally": [{"name": player["name"], "team_label": TEAM_NAMES.get(
-                player.get("team") or "", ""), "guessed": self._tally(room, player["id"])["guessed"],
-                "wins": self._tally(room, player["id"])["wins"]} for player in ordered],
+            "chat": self._chat_public(room, user),
+            "tally": [{"id": player["id"], "name": player["name"],
+                       "team_label": TEAM_NAMES.get(player.get("team") or "", ""),
+                       "guessed": self._tally(room, player["id"])["guessed"],
+                       "wins": self._tally(room, player["id"])["wins"]} for player in ordered],
             "updated": round(room["updated"], 3),
         }
 
@@ -838,6 +887,9 @@ class Narutodle:
                 "team_total": 0,
                 "tally": {},
                 "history": [],
+                "chat": [],
+                "chat_seq": 0,
+                "kicked": {},
             }
             self._tally(room, user["id"])
             self._assign_teams(room)
@@ -850,6 +902,8 @@ class Narutodle:
         with self._lock:
             self._cleanup(now)
             room = self._room(code)
+            if user["id"] in (room.get("kicked") or {}):
+                raise NarutodleError("Вас исключили из этой комнаты — создайте свою или зайдите в другую")
             if user["id"] not in room["players"]:
                 if room["status"] != "lobby":
                     raise NarutodleError("Игра уже началась — можно смотреть или дождаться новой")
@@ -861,6 +915,60 @@ class Narutodle:
                 self._assign_teams(room)
             room["updated"] = now
             return self._payload(room, user)
+
+    def kick(self, code: str, user: Dict[str, Any], target_id: Any) -> Dict[str, Any]:
+        """Хозяин комнаты (или администратор сайта) исключает игрока.
+
+        Исключённый выбывает из партии как сдавшийся, его место освобождается,
+        а обратно в эту комнату он зайти уже не может.
+        """
+        now = time.time()
+        with self._lock:
+            self._cleanup(now)
+            room = self._room(code)
+            self._player(room, user)
+            if room.get("host") != user["id"] and user.get("role") != "admin":
+                raise NarutodleError("Исключать игроков может хозяин комнаты")
+            try:
+                target = int(target_id)
+            except (TypeError, ValueError):
+                raise NarutodleError("Не выбран игрок для исключения") from None
+            if target == user["id"]:
+                raise NarutodleError("Себя исключить нельзя — выйдите из комнаты")
+            player = room["players"].get(target)
+            if not player:
+                raise NarutodleError("Этого игрока уже нет в комнате")
+            name = str(player.get("name") or "")
+            if room["status"] == "playing" and not player["gave_up"]:
+                self._give_up_locked(room, {"id": target}, now)
+            room["players"].pop(target, None)
+            if target in room["order"]:
+                room["order"].remove(target)
+            room["ready"].discard(target)
+            room.get("tally", {}).pop(target, None)
+            room.setdefault("kicked", {})[target] = now
+            if room.get("host") not in room["players"] and room["order"]:
+                room["host"] = room["order"][0]
+            if room["status"] == "lobby":
+                # Во время партии команды не пересобираем: доски уже разыграны.
+                self._assign_teams(room)
+            self._system_note(room, f"{name} исключён из комнаты", now)
+            room["updated"] = now
+            return self._payload(room, user)
+
+    def _system_note(self, room: Dict[str, Any], text: str, now: float) -> None:
+        """Служебная строка в чате: по ней видно, почему игрок исчез (вызывать под замком)."""
+        room["chat_seq"] = int(room.get("chat_seq") or 0) + 1
+        room.setdefault("chat", []).append({
+            "id": room["chat_seq"],
+            "at": now,
+            "user_id": 0,
+            "name": "",
+            "text": text,
+            "system": True,
+        })
+        if len(room["chat"]) > MAX_CHAT_KEPT:
+            room["chat"] = room["chat"][-MAX_CHAT_KEPT:]
 
     def leave(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
         """Выходит из комнаты; если шла партия — сначала засчитывается сдача."""
@@ -973,6 +1081,39 @@ class Narutodle:
             self._start_match(room, now)
             return self._payload(room, user)
 
+    def set_ready(self, code: str, user: Dict[str, Any], ready: bool = True) -> Dict[str, Any]:
+        """Готовность в лобби: партия начинается, когда готовы все участники.
+
+        Так партию не запускает один человек за остальных: каждый отмечается
+        сам, а последний «готов» стартует матч. Готовность можно снять, пока
+        партия не началась.
+        """
+        now = time.time()
+        with self._lock:
+            self._cleanup(now)
+            room = self._room(code)
+            player = self._player(room, user)
+            if room["status"] != "lobby":
+                raise NarutodleError("Партия уже идёт")
+            if ready:
+                room["ready"].add(user["id"])
+            else:
+                room["ready"].discard(user["id"])
+            player["ready"] = bool(ready)
+            present = set(room["players"])
+            if present and present <= room["ready"] and self._ready_to_start(room):
+                self._start_match(room, now)
+            room["updated"] = now
+            return self._payload(room, user)
+
+    def _ready_to_start(self, room: Dict[str, Any]) -> bool:
+        """Можно ли стартовать: в «Командах» нужны игроки в обеих командах."""
+        if room["mode"] != "teams":
+            return True
+        if any(not self._team_members(room, team) for team in TEAM_KEYS):
+            return False
+        return self._team_total(room) > 0
+
     def to_lobby(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
         """Возвращает комнату в лобби после партии: режим снова можно менять."""
         now = time.time()
@@ -1078,6 +1219,7 @@ class Narutodle:
                     "attempts": board["attempts"],
                     "seconds": round(now - (board["started_at"] or now), 1),
                     "by": player["name"],
+                    "by_id": player["id"],
                     "helpers": [name_ for name_ in sorted(contributors) if name_ != board["name"]],
                 })
                 board["index"] += 1
@@ -1120,11 +1262,50 @@ class Narutodle:
             self._check_finished(room, now)
         room["updated"] = now
 
-    def rematch(self, code: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    def _chat_public(self, room: Dict[str, Any], user: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Последние сообщения чата комнаты; mine — чтобы страница их выделила."""
+        messages = room.get("chat") or []
+        return [{
+            "id": message["id"],
+            "at": round(message["at"], 1),
+            "user_id": message["user_id"],
+            "name": message["name"],
+            "text": message["text"],
+            "system": bool(message.get("system")),
+            "mine": bool(message["user_id"]) and message["user_id"] == user.get("id"),
+        } for message in messages[-MAX_CHAT_SENT:]]
+
+    def say(self, code: str, user: Dict[str, Any], text: str) -> Dict[str, Any]:
+        """Сообщение в чат комнаты: пишут участники, видят все, включая зрителей."""
+        now = time.time()
+        message = str(text or "").strip()
+        if not message:
+            raise NarutodleError("Пустое сообщение — напишите пару слов")
+        if len(message) > MAX_CHAT_LENGTH:
+            raise NarutodleError(f"Слишком длинное сообщение: до {MAX_CHAT_LENGTH} символов")
+        with self._lock:
+            self._cleanup(now)
+            room = self._room(code)
+            player = self._player(room, user)
+            room["chat_seq"] = int(room.get("chat_seq") or 0) + 1
+            room.setdefault("chat", []).append({
+                "id": room["chat_seq"],
+                "at": now,
+                "user_id": user["id"],
+                "name": player["name"],
+                "text": message,
+            })
+            if len(room["chat"]) > MAX_CHAT_KEPT:
+                room["chat"] = room["chat"][-MAX_CHAT_KEPT:]
+            room["updated"] = now
+            return self._payload(room, user)
+
+    def rematch(self, code: str, user: Dict[str, Any], ready: bool = True) -> Dict[str, Any]:
         """Игрок готов к новой партии; она начинается, когда готовы все.
 
         Иначе выходило бы так: один нажал «Ещё игра» и уже угадывает, пока
-        остальные дочитывают итог. Теперь нажатие — это только «готов».
+        остальные дочитывают итог. Теперь нажатие — это только «готов»,
+        а повторное нажатие готовность снимает.
         """
         now = time.time()
         with self._lock:
@@ -1133,8 +1314,11 @@ class Narutodle:
             player = self._player(room, user)
             if room["status"] != "finished":
                 raise NarutodleError("Партия ещё идёт")
-            room["ready"].add(user["id"])
-            player["ready"] = True
+            if ready:
+                room["ready"].add(user["id"])
+            else:
+                room["ready"].discard(user["id"])
+            player["ready"] = bool(ready)
             present = set(room["players"])
             if present and present <= room["ready"]:
                 self._start_match(room, now)

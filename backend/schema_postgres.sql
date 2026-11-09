@@ -83,6 +83,32 @@ CREATE TABLE IF NOT EXISTS user_states (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Профиль игрока: имя, описание, любимая игра, цвет и аватар. Отдельная
+-- таблица, чтобы картинка не попадала в каждый SELECT списка пользователей.
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id       BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    display_name  TEXT NOT NULL DEFAULT '',
+    bio           TEXT NOT NULL DEFAULT '',
+    favorite_game TEXT NOT NULL DEFAULT '',
+    accent        TEXT NOT NULL DEFAULT '',
+    frame         TEXT NOT NULL DEFAULT '',
+    card          TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT '',
+    avatar_mime   TEXT NOT NULL DEFAULT '',
+    avatar_data   BYTEA,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Достижения игрока: выданное один раз не отбирается. Награды (статус,
+-- ободок, оформление) выводятся из этого набора по каталогу
+-- backend/achievements.py, поэтому дублировать их в таблице не нужно.
+CREATE TABLE IF NOT EXISTS user_achievements (
+    user_id        BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    achievement_id TEXT NOT NULL,
+    unlocked_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, achievement_id)
+);
+
 CREATE TABLE IF NOT EXISTS secret_data (
     id         BIGSERIAL PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -128,6 +154,10 @@ CREATE TABLE IF NOT EXISTS narutodle_matches (
     loser_name      TEXT NOT NULL DEFAULT '',
     winner_attempts INTEGER NOT NULL DEFAULT 0,
     loser_attempts  INTEGER NOT NULL DEFAULT 0,
+    -- Итог для скрытых достижений: победившая команда и доски с тем, кто
+    -- закрывал персонажа и с какой попытки (JSON, см. _log_match).
+    winner_team     TEXT NOT NULL DEFAULT '',
+    boards_json     TEXT NOT NULL DEFAULT '',
     reason          TEXT NOT NULL DEFAULT '',
     played_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -136,21 +166,44 @@ CREATE INDEX IF NOT EXISTS idx_narutodle_matches_played ON narutodle_matches (id
 CREATE INDEX IF NOT EXISTS idx_narutodle_matches_players ON narutodle_matches (player1_id, player2_id);
 
 -- Игра «Аниме-сонглесс»: справочные сведения о треках и запись, которую слушают.
--- Самих записей в репозитории нет: audio указывает на свой файл в папке игры
--- или на внешнюю ссылку, и пока он пуст, раунд на треке не строится.
+-- Самих записей в репозитории нет: audio указывает на свой файл в папке игры,
+-- на внешнюю ссылку или на db:clip (MP3 лежит в audio_clips). Пока он пуст,
+-- раунд на треке не строится.
 CREATE TABLE IF NOT EXISTS songless_tracks (
     id          BIGSERIAL PRIMARY KEY,
+    track_key   TEXT NOT NULL DEFAULT '',
     anime       TEXT NOT NULL,
     song        TEXT NOT NULL DEFAULT '',
     artist      TEXT NOT NULL DEFAULT '',
     year        TEXT NOT NULL DEFAULT '',
     audio       TEXT NOT NULL DEFAULT '',
+    cover       TEXT NOT NULL DEFAULT '',
+    video       TEXT NOT NULL DEFAULT '',
     clip_start  DOUBLE PRECISION NOT NULL DEFAULT 0,
     clip_length DOUBLE PRECISION NOT NULL DEFAULT 8,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_songless_tracks_anime ON songless_tracks (anime);
+CREATE INDEX IF NOT EXISTS idx_songless_tracks_anime ON songless_tracks (anime);
+
+-- Итоги заходов «Аниме-сонглесса»: по ним считаются достижения.
+CREATE TABLE IF NOT EXISTS songless_runs (
+    id         BIGSERIAL PRIMARY KEY,
+    username   TEXT NOT NULL DEFAULT '',
+    user_id    BIGINT,
+    mode       TEXT NOT NULL DEFAULT 'solo',
+    rounds     INTEGER NOT NULL DEFAULT 0,
+    correct    INTEGER NOT NULL DEFAULT 0,
+    score      INTEGER NOT NULL DEFAULT 0,
+    perfect    INTEGER NOT NULL DEFAULT 0,
+    fast       INTEGER NOT NULL DEFAULT 0,
+    place      INTEGER NOT NULL DEFAULT 0,
+    winner     INTEGER NOT NULL DEFAULT 0,
+    detail     TEXT NOT NULL DEFAULT '[]',
+    played_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_songless_runs_user ON songless_runs (user_id, id DESC);
 
 -- Очередь команд домашнему агенту: сервер на VPS не держит COM-порт, поэтому
 -- записывает команду сюда, агент забирает её, применяет к плате и подтверждает.
@@ -270,7 +323,8 @@ CREATE TABLE IF NOT EXISTS dotadraft_player_heroes (
 );
 
 -- «Угадай песню за 10 секунд»: песни по темам (аниме, русский рэп, хип-хоп)
--- и журнал заходов. Записи добавляет владелец сайта — файлами или ссылками.
+-- и журнал заходов. Записи добавляет владелец сайта — файлами, ссылками или
+-- через songs.py прямо в audio_clips (тогда в audio стоит db:clip).
 CREATE TABLE IF NOT EXISTS songguess_tracks (
     id          TEXT PRIMARY KEY,
     category    TEXT NOT NULL DEFAULT 'anime',
@@ -302,3 +356,17 @@ CREATE TABLE IF NOT EXISTS songguess_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_songguess_runs_user ON songguess_runs (user_id, id DESC);
+
+-- Аудиофрагменты игр («Угадай песню» и «Аниме-сонглесс») прямо в базе:
+-- game — ключ игры, track_key — id песни или название аниме, data — MP3-байты.
+CREATE TABLE IF NOT EXISTS audio_clips (
+    id          BIGSERIAL PRIMARY KEY,
+    game        TEXT NOT NULL,
+    track_key   TEXT NOT NULL,
+    mime        TEXT NOT NULL DEFAULT 'audio/mpeg',
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    source      TEXT NOT NULL DEFAULT '',
+    data        BYTEA NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (game, track_key)
+);

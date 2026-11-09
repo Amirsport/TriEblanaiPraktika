@@ -43,10 +43,13 @@ TAKI = "Таки"
 KUSA = "Куса"
 UZUSHIO = "Узушио"
 NO_VILLAGE = "нет деревни"
+YU = "Ю"
+IRON = "Страна Железа"
 
 # Арки сюжета по порядку. «Первая арка» — это место персонажа в истории, а не
 # серия («Классика»/«Шиппуден»): границы взяты по манге — Naruto главы 1–699 и
-# Boruto: Naruto Next Generations. Списком ARCS проверяются данные.
+# Boruto: Naruto Next Generations. Список задаёт порядок для подсказки «раньше
+# или позже»: арки вне него подсказку не дают.
 WAVES = "Страна Волн"
 CHUNIN = "Экзамен на чунина"
 KONOHA_CRUSH = "Вторжение в Коноху"
@@ -56,6 +59,10 @@ KAZEKAGE = "Спасение Гаары"
 REUNION = "Воссоединение с Саске"
 AKATSUKI = "Хидан и Какудзу"
 ITACHI = "Погоня за Итачи"
+# Рассказ Джирайи о Нагато и Яхико идёт в начале арки Пейна, а бой братьев
+# Учиха (Саске против Итачи) — сразу после него, до нападения Пейна на Коноху.
+JIRAIYA = "История о Джирайе"
+BROTHERS = "Битва братьев"
 PAIN = "Вторжение Пейна"
 KAGE = "Совет пяти Каге"
 WAR = "Четвёртая мировая война"
@@ -64,7 +71,7 @@ BORUTO = "Боруто"
 
 ARCS: List[str] = [
     WAVES, CHUNIN, KONOHA_CRUSH, TSUNADE, RETRIEVAL, KAZEKAGE, REUNION,
-    AKATSUKI, ITACHI, PAIN, KAGE, WAR, KAGUYA, BORUTO,
+    AKATSUKI, ITACHI, JIRAIYA, BROTHERS, PAIN, KAGE, WAR, KAGUYA, BORUTO,
 ]
 
 NO_CLAN = "нет клана"
@@ -85,6 +92,8 @@ VILLAGE_COLORS: Dict[str, str] = {
     KUSA: "#6f8f2f",
     UZUSHIO: "#b8455f",
     NO_VILLAGE: "#6d5a8f",
+    YU: "#7a6a5f",
+    IRON: "#5c6b7a",
     UNKNOWN: "#7a6a5f",
 }
 DEFAULT_COLOR = "#8a5a3c"
@@ -97,136 +106,156 @@ PORTRAIT_PATH = "/api/games/narutodle/portrait/%s"
 
 # name, gender, village, clan, nature, kekkei, jinchuriki, debut (арка)
 ROWS: List[tuple] = [
-    # --- Коноха: команда 7 и наставники
-    ("Наруто Узумаки", MALE, KONOHA, "Узумаки", ["Ветер"], NO_KEKKEI, "Девятихвостый", WAVES),
-    ("Саске Учиха", MALE, KONOHA, "Учиха", ["Огонь", "Молния"], "Шаринган", NO_BEAST, WAVES),
+    # Набор из выгрузки narutochars_fixed.csv (148 персонажей, id по
+    # возрастанию). Кеккей генкай Наруто оставлен прежним — «нет».
+    ("Наруто Узумаки", MALE, KONOHA, "Узумаки", ["Ветер", "Молния", "Земля", "Вода", "Огонь"], NO_KEKKEI, "Девятихвостый", WAVES),
+    ("Саске Учиха", MALE, KONOHA, "Учиха", ["Огонь", "Молния", "Ветер", "Земля", "Вода"], "Шаринган, Риннеган", NO_BEAST, WAVES),
     ("Сакура Харуно", FEMALE, KONOHA, NO_CLAN, ["Земля", "Вода"], NO_KEKKEI, NO_BEAST, WAVES),
-    ("Какаши Хатаке", MALE, KONOHA, NO_CLAN, ["Молния"], "Шаринган", NO_BEAST, WAVES),
+    ("Какаши Хатаке", MALE, KONOHA, NO_CLAN, ["Молния", "Земля", "Вода", "Огонь"], "Шаринган", NO_BEAST, WAVES),
     ("Ямато", MALE, KONOHA, NO_CLAN, ["Земля", "Вода"], "Деревянный выпуск", NO_BEAST, REUNION),
-    ("Сай", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, REUNION),
-    ("Кабуто Якуши", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-
-    # --- Коноха: сверстники и выпуск
-    ("Хината Хьюга", FEMALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, CHUNIN),
-    ("Неджи Хьюга", MALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, CHUNIN),
+    ("Сай", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KAZEKAGE),
+    ("Кабуто Якуши", MALE, KONOHA, NO_CLAN, ["Земля", "Вода", "Ветер", "Огонь", "Молния"], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Хината Хьюга", FEMALE, KONOHA, "Хьюга", ["Огонь", "Молния"], "Бьякуган", NO_BEAST, WAVES),
+    ("Неджи Хьюга", MALE, KONOHA, "Хьюга", ["Огонь", "Земля", "Вода"], "Бьякуган", NO_BEAST, CHUNIN),
     ("Ханаби Хьюга", FEMALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, CHUNIN),
     ("Хиаши Хьюга", MALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, CHUNIN),
-    ("Рок Ли", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Рок Ли", MALE, KONOHA, NO_CLAN, ["нет"], NO_KEKKEI, NO_BEAST, CHUNIN),
     ("Тентен", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Майто Гай", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Шикамару Нара", MALE, KONOHA, "Нара", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Тёджи Акимичи", MALE, KONOHA, "Акимичи", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Ино Яманака", FEMALE, KONOHA, "Яманака", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Киба Инузука", MALE, KONOHA, "Инузука", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Шино Абураме", MALE, KONOHA, "Абураме", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-
-    # --- Коноха: кланы и старшее поколение
-    ("Шикаку Нара", MALE, KONOHA, "Нара", [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
-    ("Тёдза Акимичи", MALE, KONOHA, "Акимичи", [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
-    ("Иноичи Яманака", MALE, KONOHA, "Яманака", [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
+    ("Майто Гай", MALE, KONOHA, NO_CLAN, ["Огонь", "Молния"], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Шикамару Нара", MALE, KONOHA, "Нара", ["Огонь", "Земля"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Чоджи Акимичи", MALE, KONOHA, "Акимичи", ["Огонь", "Земля"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Ино Яманака", FEMALE, KONOHA, "Яманака", ["Земля", "Вода"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Киба Инузука", MALE, KONOHA, "Инузука", [UNKNOWN], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Шино Абураме", MALE, KONOHA, "Абураме", [UNKNOWN], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Шикаку Нара", MALE, KONOHA, "Нара", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Чоза Акимичи", MALE, KONOHA, "Акимичи", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Иноичи Яманака", MALE, KONOHA, "Яманака", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
     ("Цуме Инузука", FEMALE, KONOHA, "Инузука", [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
     ("Шиби Абураме", MALE, KONOHA, "Абураме", [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
-    ("Хирузен Сарутоби", MALE, KONOHA, "Сарутоби", ["Огонь", "Земля"], NO_KEKKEI, NO_BEAST, WAVES),
-    ("Асума Сарутоби", MALE, KONOHA, "Сарутоби", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Конахамару Сарутоби", MALE, KONOHA, "Сарутоби", [UNKNOWN], NO_KEKKEI, NO_BEAST, WAVES),
-    ("Куренай Юхи", FEMALE, KONOHA, "Юхи", [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Хирузен Сарутоби", MALE, KONOHA, "Сарутоби", ["Огонь", "Ветер", "Молния", "Земля", "Вода"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Асума Сарутоби", MALE, KONOHA, "Сарутоби", ["Ветер", "Огонь"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Конохамару Сарутоби", MALE, KONOHA, "Сарутоби", ["Огонь", "Ветер"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Куренай Юхи", FEMALE, KONOHA, NO_CLAN, ["Огонь"], NO_KEKKEI, NO_BEAST, WAVES),
     ("Шизуне", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, TSUNADE),
-    ("Митараши Анко", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Умино Ирука", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAVES),
-    ("Джирайя", MALE, KONOHA, NO_CLAN, ["Огонь"], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Цунаде", FEMALE, KONOHA, "Сенджу", [UNKNOWN], NO_KEKKEI, NO_BEAST, TSUNADE),
-    ("Орочимару", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Минато Намиказе", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, RETRIEVAL),
-    ("Хатаке Сакумо", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, PAIN),
-    ("Гекко Хаяте", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Дан Като", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, TSUNADE),
-    ("Рин Нохара", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Трёххвостый", RETRIEVAL),
-    ("Шимура Данзо", MALE, KONOHA, "Шимура", ["Ветер"], "Шаринган", NO_BEAST, REUNION),
-
-    # --- Коноха: Сенджу, Учиха, Узумаки
-    ("Хаширама Сенджу", MALE, KONOHA, "Сенджу", ["Земля", "Вода"], "Деревянный выпуск", NO_BEAST, KONOHA_CRUSH),
-    ("Тобирама Сенджу", MALE, KONOHA, "Сенджу", ["Вода"], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
-    ("Итачи Учиха", MALE, KONOHA, "Учиха", ["Огонь", "Вода"], "Шаринган", NO_BEAST, TSUNADE),
-    ("Мадара Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Риннеган", NO_BEAST, PAIN),
-    ("Изуна Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, ITACHI),
-    ("Обито Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, RETRIEVAL),
+    ("Анко Митараши", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Ирука Умино", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Джирайя", MALE, KONOHA, NO_CLAN, ["Огонь", "Земля", "Вода", "Ветер"], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Цунаде", FEMALE, KONOHA, "Сенджу", ["Молния", "Земля", "Вода", "Огонь"], NO_KEKKEI, NO_BEAST, TSUNADE),
+    ("Орочимару", MALE, KONOHA, NO_CLAN, ["Огонь", "Ветер", "Молния", "Земля", "Вода"], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Минато Намиказе", MALE, KONOHA, NO_CLAN, ["Огонь", "Ветер", "Молния"], NO_KEKKEI, "Девятихвостый (половина Инь)", WAVES),
+    ("Сакумо Хатаке", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, PAIN),
+    ("Хаяте Гекко", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Дан Като", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, TSUNADE),
+    ("Рин Нохара", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Трёххвостый", ITACHI),
+    ("Данзо Шимура", MALE, KONOHA, NO_CLAN, ["Ветер", "Огонь", "Земля", "Вода"], "Шаринган, Деревянный выпуск", NO_BEAST, KAZEKAGE),
+    ("Хаширама Сенджу", MALE, KONOHA, "Сенджу", ["Земля", "Вода", "Огонь"], "Деревянный выпуск", NO_BEAST, KONOHA_CRUSH),
+    ("Тобирама Сенджу", MALE, KONOHA, "Сенджу", ["Вода", "Земля", "Огонь", "Молния"], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
+    ("Итачи Учиха", MALE, KONOHA, "Учиха", ["Огонь", "Вода", "Ветер"], "Шаринган", NO_BEAST, KONOHA_CRUSH),
+    ("Мадара Учиха", MALE, KONOHA, "Учиха", ["Огонь", "Ветер", "Молния", "Земля", "Вода"], "Шаринган, Риннеган, Деревянный выпуск", NO_BEAST, "История о Джирайе"),
+    ("Изуна Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, "Битва братьев"),
+    ("Обито Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган, Риннеган, Деревянный выпуск", NO_BEAST, KAZEKAGE),
     ("Шисуи Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, KAGE),
     ("Фугаку Учиха", MALE, KONOHA, "Учиха", ["Огонь"], "Шаринган", NO_BEAST, TSUNADE),
     ("Микото Учиха", FEMALE, KONOHA, "Учиха", [UNKNOWN], "Шаринган", NO_BEAST, TSUNADE),
-    ("Кушина Узумаки", FEMALE, UZUSHIO, "Узумаки", [UNKNOWN], NO_KEKKEI, "Девятихвостый", PAIN),
+    ("Кушина Узумаки", FEMALE, UZUSHIO, "Узумаки", [UNKNOWN], NO_KEKKEI, "Девятихвостый", "История о Джирайе"),
     ("Мито Узумаки", FEMALE, UZUSHIO, "Узумаки", [UNKNOWN], NO_KEKKEI, "Девятихвостый", WAR),
-
-    # --- Суна
-    ("Гаара", MALE, SUNA, NO_CLAN, ["Земля", "Ветер"], NO_KEKKEI, "Однохвостый", CHUNIN),
+    ("Гаара", MALE, SUNA, NO_CLAN, ["Земля", "Ветер", "Молния"], "Магнитный выпуск", "Однохвостый", CHUNIN),
     ("Темари", FEMALE, SUNA, NO_CLAN, ["Ветер"], NO_KEKKEI, NO_BEAST, CHUNIN),
     ("Канкуро", MALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
     ("Баки", MALE, SUNA, NO_CLAN, ["Ветер"], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Раса", MALE, SUNA, NO_CLAN, ["Земля"], "Магнитный выпуск", NO_BEAST, CHUNIN),
+    ("Раса", MALE, SUNA, NO_CLAN, ["Ветер", "Земля"], "Магнитный выпуск", NO_BEAST, CHUNIN),
     ("Карура", FEMALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
     ("Чиё", FEMALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KAZEKAGE),
     ("Сасори", MALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KAZEKAGE),
-
-    # --- Кири
-    ("Забуза Момоти", MALE, KIRI, NO_CLAN, ["Вода"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Забуза Момочи", MALE, KIRI, NO_CLAN, ["Вода"], NO_KEKKEI, NO_BEAST, WAVES),
     ("Хаку", MALE, KIRI, NO_CLAN, ["Вода", "Ветер"], "Ледяной выпуск", NO_BEAST, WAVES),
-    ("Кисаме Хосигаки", MALE, KIRI, "Хосигаки", ["Вода"], NO_KEKKEI, NO_BEAST, TSUNADE),
-    ("Кимимаро Кагуя", MALE, KIRI, "Кагуя", [UNKNOWN], "Шикоцумьяку", NO_BEAST, RETRIEVAL),
-    ("Мэй Тэруми", FEMALE, KIRI, NO_CLAN, ["Вода", "Огонь"], "Кипящий выпуск", NO_BEAST, KAGE),
+    ("Кисаме Хошигаки", MALE, KIRI, NO_CLAN, ["Вода"], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
+    ("Кимимаро Кагуя", MALE, OTO, "Кагуя", [UNKNOWN], "Шикоцумьяку", NO_BEAST, RETRIEVAL),
+    ("Мэй Тэруми", FEMALE, KIRI, NO_CLAN, ["Вода", "Огонь", "Земля"], "Кипящий выпуск, Лавовый выпуск", NO_BEAST, KAGE),
     ("Ао", MALE, KIRI, NO_CLAN, ["Вода"], "Бьякуган", NO_BEAST, KAGE),
-    ("Тёдзиро", MALE, KIRI, NO_CLAN, ["Вода"], NO_KEKKEI, NO_BEAST, KAGE),
+    ("Чоджуро", MALE, KIRI, NO_CLAN, ["Вода"], NO_KEKKEI, NO_BEAST, KAGE),
     ("Суйгецу Хозуки", MALE, KIRI, "Хозуки", ["Вода"], NO_KEKKEI, NO_BEAST, ITACHI),
-    ("Мангетсу Хозуки", MALE, KIRI, "Хозуки", ["Вода"], NO_KEKKEI, NO_BEAST, WAR),
+    ("Мангецу Хозуки", MALE, KIRI, "Хозуки", ["Вода"], NO_KEKKEI, NO_BEAST, WAR),
     ("Ягура Каратачи", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Трёххвостый", KAGE),
     ("Утаката", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Шестихвостый", WAR),
-
-    # --- Кумо
-    ("Киллер Би", MALE, KUMO, NO_CLAN, ["Молния"], NO_KEKKEI, "Восьмихвостый", ITACHI),
-    ("Эй", MALE, KUMO, NO_CLAN, ["Молния"], NO_KEKKEI, NO_BEAST, PAIN),
+    ("Киллер Би", MALE, KUMO, NO_CLAN, ["Молния"], NO_KEKKEI, "Восьмихвостый", "Битва братьев"),
+    ("Эй (Четвёртый Райкаге)", MALE, KUMO, NO_CLAN, ["Молния"], NO_KEKKEI, NO_BEAST, PAIN),
     ("Югито Нии", FEMALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Двухвостый", AKATSUKI),
-    ("Мабуи", MALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, PAIN),
+    ("Мабуи", FEMALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, PAIN),
     ("Омои", MALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, PAIN),
     ("Каруи", FEMALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, PAIN),
-
-    # --- Ива
     ("Дейдара", MALE, IWA, NO_CLAN, ["Земля"], "Взрывной выпуск", NO_BEAST, KAZEKAGE),
-    ("Ооноки", MALE, IWA, NO_CLAN, ["Земля"], NO_KEKKEI, NO_BEAST, KAGE),
-    ("Куротсучи", FEMALE, IWA, NO_CLAN, ["Земля", "Огонь"], "Лавовый выпуск", NO_BEAST, KAGE),
-    ("Роши", MALE, IWA, NO_CLAN, ["Земля"], NO_KEKKEI, "Четырёххвостый", ITACHI),
-    ("Хан", MALE, IWA, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Пятихвостый", WAR),
-
-    # --- Ото: подручные Орочимару
-    ("Таюя", FEMALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Дзюго", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, ITACHI),
+    ("Ооноки", MALE, IWA, NO_CLAN, ["Земля", "Огонь", "Ветер"], "Пылевой выпуск", NO_BEAST, KAGE),
+    ("Куроцучи", FEMALE, IWA, NO_CLAN, ["Земля", "Огонь", "Вода"], "Лавовый выпуск", NO_BEAST, KAGE),
+    ("Роши", MALE, IWA, NO_CLAN, ["Земля", "Огонь"], "Лавовый выпуск", "Четырёххвостый", ITACHI),
+    ("Хан", MALE, IWA, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Пятихвостый", KAGE),
+    ("Таюя", FEMALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
+    ("Джуго", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, ITACHI),
     ("Карин", FEMALE, KUSA, "Узумаки", [UNKNOWN], NO_KEKKEI, NO_BEAST, ITACHI),
-    ("Кидомару", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Сакон", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-    ("Джиробо", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Кидомару", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
+    ("Сакон", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
+    ("Джиробо", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KONOHA_CRUSH),
     ("Заку Абуми", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
     ("Досу Кинута", MALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
-
-    # --- Аме, Таки, прочие
-    ("Нагато", MALE, AME, "Узумаки", [UNKNOWN], "Риннеган", NO_BEAST, PAIN),
+    ("Нагато", MALE, AME, "Узумаки", ["Огонь", "Ветер", "Молния", "Земля", "Вода"], "Риннеган", NO_BEAST, "История о Джирайе"),
     ("Конан", FEMALE, AME, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, ITACHI),
-    ("Яхико", MALE, AME, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, PAIN),
-    ("Какузу", MALE, TAKI, NO_CLAN, ["Земля"], NO_KEKKEI, NO_BEAST, AKATSUKI),
-    ("Фу", FEMALE, TAKI, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Семихвостый", WAR),
-    ("Хидан", MALE, UNKNOWN, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, AKATSUKI),
+    ("Яхико", MALE, AME, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, "История о Джирайе"),
+    ("Какузу", MALE, TAKI, NO_CLAN, ["Земля", "Огонь", "Ветер", "Молния", "Вода"], NO_KEKKEI, NO_BEAST, AKATSUKI),
+    ("Фу", FEMALE, TAKI, NO_CLAN, [UNKNOWN], NO_KEKKEI, "Семихвостый", KAGE),
+    ("Хидан", MALE, YU, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, AKATSUKI),
     ("Зецу", MALE, NO_VILLAGE, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, RETRIEVAL),
-
-    # --- Ооцуцуки и поколение Боруто
-    ("Кагуя Ооцуцуки", FEMALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Бьякуган", NO_BEAST, KAGUYA),
-    ("Хагаромо Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Риннеган", "Десятихвостый", WAR),
+    ("Кагуя Ооцуцуки", FEMALE, NO_VILLAGE, "Ооцуцуки", ["Огонь", "Ветер", "Молния", "Земля", "Вода"], "Бьякуган, Риннешаринган", "Десятихвостый", KAGUYA),
+    ("Хагоромо Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", ["Огонь", "Ветер", "Молния", "Земля", "Вода"], "Риннеган", "Десятихвостый", WAR),
     ("Хамура Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Бьякуган", NO_BEAST, WAR),
-    ("Момошики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Бьякуган", NO_BEAST, BORUTO),
-    ("Урашики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO),
-    ("Ишики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO),
+    ("Момошики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Бьякуган, Риннеган", NO_BEAST, BORUTO),
+    ("Урашики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], "Бьякуган, Риннеган", NO_BEAST, BORUTO),
+    ("Иссики Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO),
     ("Каваки", MALE, NO_VILLAGE, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO),
-    ("Боруто Узумаки", MALE, KONOHA, "Узумаки", ["Ветер", "Молния"], NO_KEKKEI, NO_BEAST, BORUTO),
+    ("Боруто Узумаки", MALE, KONOHA, "Узумаки", ["Ветер", "Молния", "Вода"], NO_KEKKEI, NO_BEAST, BORUTO),
     ("Сарада Учиха", FEMALE, KONOHA, "Учиха", ["Огонь", "Молния"], "Шаринган", NO_BEAST, BORUTO),
-    ("Мицуки", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO),
-    ("Химавари Узумаки", FEMALE, KONOHA, "Узумаки", [UNKNOWN], "Бьякуган", NO_BEAST, BORUTO),
-    ("Чёчо Акимичи", FEMALE, KONOHA, "Акимичи", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO),
+    ("Мицуки", MALE, KONOHA, NO_CLAN, ["Ветер", "Молния"], NO_KEKKEI, NO_BEAST, BORUTO),
+    ("Химавари Узумаки", FEMALE, KONOHA, "Узумаки", [UNKNOWN], "Бьякуган", "Девятихвостый", BORUTO),
+    ("Чочо Акимичи", FEMALE, KONOHA, "Акимичи", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO),
     ("Шикадай Нара", MALE, KONOHA, "Нара", [UNKNOWN], NO_KEKKEI, NO_BEAST, BORUTO),
+    ("Даруи", MALE, KUMO, NO_CLAN, ["Молния", "Вода", "Ветер"], "Штормовой выпуск", NO_BEAST, KAGE),
+    ("Ши", MALE, KUMO, NO_CLAN, ["Молния"], NO_KEKKEI, NO_BEAST, KAGE),
+    ("Самуи", FEMALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, PAIN),
+    ("Эй (Третий Райкаге)", MALE, KUMO, NO_CLAN, ["Молния", "Огонь", "Земля"], NO_KEKKEI, NO_BEAST, WAR),
+    ("Кинкаку", MALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
+    ("Гинкаку", MALE, KUMO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
+    ("Му", MALE, IWA, NO_CLAN, ["Огонь", "Земля", "Вода", "Ветер", "Молния"], "Пылевой выпуск", NO_BEAST, WAR),
+    ("Ишикава", MALE, IWA, NO_CLAN, ["Земля"], NO_KEKKEI, NO_BEAST, WAR),
+    ("Акацучи", MALE, IWA, NO_CLAN, ["Земля"], NO_KEKKEI, NO_BEAST, KAGE),
+    ("Генгецу Хозуки", MALE, KIRI, "Хозуки", ["Огонь", "Земля", "Вода", "Молния"], NO_KEKKEI, NO_BEAST, WAR),
+    ("Бьякурен", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
+    ("Рето", MALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
+    ("Шамон", MALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
+    ("Пакура", FEMALE, SUNA, NO_CLAN, ["Огонь", "Ветер"], "Выпуск Жара", NO_BEAST, WAR),
+    ("Яшамару", MALE, SUNA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Ханзо", MALE, AME, NO_CLAN, ["Огонь"], NO_KEKKEI, NO_BEAST, "История о Джирайе"),
+    ("Мифуне", MALE, IRON, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, KAGE),
+    ("Ибики Морино", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Хизаши Хьюга", MALE, KONOHA, "Хьюга", [UNKNOWN], "Бьякуган", NO_BEAST, CHUNIN),
+    ("Мизуки", MALE, KONOHA, NO_CLAN, ["Земля"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Кин Цучи", FEMALE, OTO, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Индра Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", ["Огонь", "Молния"], "Шаринган", NO_BEAST, KAGE),
+    ("Ашура Ооцуцуки", MALE, NO_VILLAGE, "Ооцуцуки", ["Огонь", "Земля", "Вода", "Ветер", "Молния"], NO_KEKKEI, NO_BEAST, KAGE),
+    ("Генма Ширануи", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Эбису", MALE, KONOHA, NO_CLAN, ["Огонь"], NO_KEKKEI, NO_BEAST, WAVES),
+    ("Хомура Митокадо", MALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Кохару Утатане", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Торуне Абураме", MALE, KONOHA, "Абураме", [UNKNOWN], NO_KEKKEI, NO_BEAST, KAGE),
+    ("Югао Узуки", FEMALE, KONOHA, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Аоба Ямаширо", MALE, KONOHA, NO_CLAN, ["Огонь"], NO_KEKKEI, NO_BEAST, CHUNIN),
+    ("Наваки", MALE, KONOHA, "Сенджу", [UNKNOWN], NO_KEKKEI, NO_BEAST, TSUNADE),
+    ("Кагами Учиха", MALE, KONOHA, "Учиха", [UNKNOWN], "Шаринган", NO_BEAST, KAGE),
+    ("Ацуи", MALE, KUMO, NO_CLAN, ["Огонь"], NO_KEKKEI, NO_BEAST, WAR),
+    ("Гари", MALE, IWA, NO_CLAN, ["Земля", "Молния"], "Взрывной выпуск", NO_BEAST, WAR),
+    ("Фугуки Суйказан", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
+    ("Амеюри Ринго", FEMALE, KIRI, NO_CLAN, ["Молния"], NO_KEKKEI, NO_BEAST, WAR),
+    ("Кушимару Куриараре", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
+    ("Джинин Акебино", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
+    ("Джинпачи Мунаши", MALE, KIRI, NO_CLAN, [UNKNOWN], NO_KEKKEI, NO_BEAST, WAR),
 ]
 
 CHARACTERS: List[Dict[str, Any]] = [dict(zip(FIELDS, row)) for row in ROWS]

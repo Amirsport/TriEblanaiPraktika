@@ -1,0 +1,10 @@
+[Unit]
+Description=Anime songless: фрагменты на всю длину раунда (обновление по таймеру)
+After=network-online.target
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+
+[Install]
+WantedBy=timers.target

@@ -8,9 +8,10 @@
 Здесь **только справочные сведения** — название аниме, название опенинга,
 исполнитель и год. Самих записей нет и быть не может: музыка защищена авторским
 правом, поэтому аудио добавляет владелец сайта — своими файлами в
-`front/games/animesongless/audio/` или ссылками на файлы (см. README и
-`backend/seed_songless.py --audio` / `--url`). Пока у трека нет аудио, раунд
-на нём не строится.
+`front/games/animesongless/audio/`, ссылками на файлы (см. README и
+`backend/seed_songless.py --audio` / `--url`) или фрагментами прямо в базе
+(`songs.py` кладёт MP3 в `audio_clips`). Пока у трека нет аудио, раунд на нём
+не строится.
 
 `clip` — сколько секунд звучит фрагмент, `start` — с какого места записи
 начинать (удобно ставить на припев). Значения по умолчанию подходят почти
@@ -18,18 +19,25 @@
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Сколько вариантов ответа показывать (один верный и три «обманки»).
 OPTION_COUNT = 4
 
-FIELDS = ("anime", "song", "artist", "year", "audio", "clip_start", "clip_length")
+FIELDS = ("anime", "song", "artist", "year", "audio", "cover", "video",
+          "clip_start", "clip_length")
+
+# С какого места показывать видео в разборе: обычно это уже припев/самый
+# узнаваемый кусок опенинга, а не самое начало.
+REVEAL_START = 30.0
 
 DEFAULT_START = 0.0
 DEFAULT_CLIP = 8.0
 
-# Аниме, опенинг, исполнитель, год. Одна запись — одно аниме: ответом всегда
-# служит название аниме, и варианты ответа не должны повторяться.
+# Аниме, опенинг, исполнитель, год. В этом коротком справочнике одна запись —
+# одно аниме; полный набор с несколькими OP на сериал лежит в songless_catalog.json.
 ROWS = (
     ("Наруто", "R★O★C★K★S", "Hound Dog", "2002"),
     ("Наруто: Ураганные хроники", "Hero's Come Back!!", "nobodyknows+", "2007"),
@@ -106,16 +114,58 @@ ROWS = (
 
 TRACKS: List[Dict[str, Any]] = [
     {
+        "track_key": anime,
         "anime": anime,
         "song": song,
         "artist": artist,
         "year": year,
         "audio": "",
+        "cover": "",
+        "video": "",
         "clip_start": DEFAULT_START,
         "clip_length": DEFAULT_CLIP,
     }
     for anime, song, artist, year in ROWS
 ]
+
+
+def _load_catalog() -> List[Dict[str, Any]]:
+    """Полный набор из JSON, если он есть: 500 треков и несколько OP на аниме.
+
+    JSON выгружается из рабочей базы (`_export_songless_catalog.py`), поэтому
+    новый сервер получает сразу полный набор. Если файла нет, остаётся
+    встроенный справочник ROWS — игра всё равно запустится.
+    """
+    path = Path(__file__).with_name("songless_catalog.json")
+    try:
+        items = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(items, list):
+        return []
+    tracks: List[Dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("anime"):
+            continue
+        track = {
+            "track_key": str(item.get("track_key") or item.get("anime") or ""),
+            "anime": str(item.get("anime") or ""),
+            "song": str(item.get("song") or ""),
+            "artist": str(item.get("artist") or ""),
+            "year": str(item.get("year") or ""),
+            "audio": str(item.get("audio") or ""),
+            "cover": str(item.get("cover") or ""),
+            "video": str(item.get("video") or ""),
+            "clip_start": item.get("clip_start", DEFAULT_START),
+            "clip_length": item.get("clip_length", DEFAULT_CLIP),
+        }
+        tracks.append(track)
+    return tracks
+
+
+_CATALOG = _load_catalog()
+if _CATALOG:
+    TRACKS = _CATALOG
 
 
 def anime_names() -> List[str]:
@@ -134,7 +184,9 @@ def find_track(anime: str) -> Optional[Dict[str, Any]]:
 
 def public_track(track: Dict[str, Any]) -> Dict[str, Any]:
     """Трек для отправки клиенту после угаданного раунда."""
-    return {key: track[key] for key in FIELDS}
+    data = {key: track.get(key, "") for key in FIELDS}
+    data["highlight"] = float(track.get("highlight") or REVEAL_START)
+    return data
 
 
 def playable(track: Dict[str, Any]) -> bool:

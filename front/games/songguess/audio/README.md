@@ -36,6 +36,16 @@ py backend/seed_songguess.py --dsn "..." --clear-audio "hiphop-lose-yourself"
 py backend/seed_songguess.py --dsn "..." --list
 ```
 
+**Можно вообще не копировать файлы в эту папку.** Скрипт
+[`songs.py`](../../../../songs.py) берёт песни из базы, нарезает ваши записи и
+кладёт MP3 прямо в таблицу `audio_clips`; сервер отдаёт фрагмент из базы, а в
+колонке `audio` остаётся маркер `db:clip`:
+
+```powershell
+py songs.py --only songguess --audio C:\music
+py songs.py --only songguess --audio C:\music --map music.json --force
+```
+
 **Важно про авторские права.** Используйте только те записи, на которые у вас
 есть право: свои файлы, материалы с разрешения правообладателя или записи
 со свободной лицензией. Песни защищены авторским правом, и выкладывать их на

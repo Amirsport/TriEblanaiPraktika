@@ -6,8 +6,8 @@
   <title>Угадай песню за 10 секунд · фрагмент и таймер · Умная AI-Теплица</title>
   <meta name="robots" content="noindex, nofollow">
   <meta name="theme-color" content="#c5342b">
-  <link rel="icon" type="image/png" sizes="192x192" href="../../icons/icon-192.png">
-  <link rel="stylesheet" href="../../css/main.css?v=21">
+  <link rel="icon" type="image/png" href="../../icons/logo.png?v=2">
+  <link rel="stylesheet" href="../../css/main.css?v=32">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -161,7 +161,7 @@
     <!-- ===== Шапка ===== -->
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true"><img src="../../icons/icon-192.png" alt=""></div>
+        <a class="brand-mark" href="../" title="AmrGames — главное меню" aria-label="AmrGames — главное меню"><img src="../../icons/logo.png?v=2" alt=""></a>
         <div class="brand-text">
           <h1>Угадай песню за 10 секунд</h1>
           <p>Тема, короткий фрагмент и таймер: 5, 10 или 15 секунд на ответ</p>
@@ -173,10 +173,11 @@
           <span class="dot"></span>
           <span id="conn-text">подключаемся…</span>
         </button>
-        <div class="user-pill" id="user-pill" hidden>
-          <span aria-hidden="true">👤</span>
+        <a class="user-pill" id="user-pill" href="../profile/" title="Мой профиль" hidden>
+          <img class="user-avatar" id="user-avatar" alt="" hidden>
+          <span class="user-avatar-fallback" id="user-avatar-fallback" aria-hidden="true">👤</span>
           <span id="user-name">—</span>
-        </div>
+        </a>
         <button class="icon-btn" type="button" id="logout" title="Выйти из аккаунта" hidden>⎋</button>
         <button class="icon-btn" type="button" id="toggle-theme" title="Светлая / тёмная тема">◐</button>
         <a class="icon-btn" href="../" title="Вернуться в игровую комнату">←</a>
@@ -206,7 +207,7 @@
     <section class="card auth-card" id="auth-card" hidden>
       <h2 id="auth-title">Регистрация</h2>
       <p class="muted" id="auth-hint">
-        Аккаунт нужен, чтобы заходы сохранялись за вами. Он же открывает панель теплицы.
+        Аккаунт нужен, чтобы заходы сохранялись за вами.
       </p>
       <label class="field">
         <span>Логин</span>
@@ -333,6 +334,7 @@
 
   <div class="toasts" id="toasts" aria-live="polite"></div>
 
+  <script src="../profile/pill.js?v=5"></script>
   <script>
     'use strict';
 
@@ -558,7 +560,7 @@
       for (const candidate of list) {
         if (await pingServer(candidate)) {
           apiBase = candidate;
-          if (candidate !== stored) toast('Адрес сервера взят из настроек панели теплицы');
+          if (candidate !== stored) toast('Адрес сервера взят из сохранённых настроек');
           return apiBase;
         }
       }
@@ -609,6 +611,7 @@
       $('#user-name').textContent = name || '—';
       show('#user-pill', Boolean(name));
       show('#logout', Boolean(auth.token));
+      if (window.AmrProfile) AmrProfile.render(auth.user);
     }
 
     function setAuthMode(form) {
@@ -617,8 +620,8 @@
       $('#auth-submit').textContent = register ? 'Зарегистрироваться' : 'Войти';
       $('#auth-toggle').textContent = register ? 'У меня уже есть аккаунт' : 'Создать аккаунт';
       $('#auth-hint').textContent = register
-        ? 'Аккаунт нужен, чтобы заходы сохранялись за вами. Он же открывает панель теплицы.'
-        : 'Войдите тем же логином, что и в панели теплицы.';
+        ? 'Аккаунт нужен, чтобы заходы сохранялись за вами.'
+        : 'Войдите своим логином и паролем.';
       show('#auth-confirm-field', register);
       show('#auth-error', false);
       $('#auth-submit').dataset.mode = register ? 'register' : 'login';
@@ -712,13 +715,15 @@
       if (problems.length) {
         note.innerHTML = '<b>Что мешает игре</b><br>'
           + problems.map((text) => escapeHtml(text)).join('<br>')
-          + '<br>Записи кладут в <code>front/games/songguess/audio</code> (или ссылкой в базе):'
+          + '<br>Записи кладут в <code>front/games/songguess/audio</code>, ссылкой в базе'
+          + ' или прямо в базу через <code>songs.py</code>:'
           + '<code>py backend/seed_songguess.py --dsn "..." --audio C:\\music --category rusrap</code>'
           + '<code>py backend/seed_songguess.py --dsn "..." --url "rusrap-имя-песни=https://адрес/запись.mp3"</code>';
       } else {
         note.innerHTML = 'Все темы с записями — можно играть. Новые записи кладут в '
-          + '<code>front/games/songguess/audio</code>'
-          + ' или прописывают ссылкой через <code>backend/seed_songguess.py</code>.';
+          + '<code>front/games/songguess/audio</code>, прописывают ссылкой через '
+          + '<code>backend/seed_songguess.py</code> или сохраняют в базу через '
+          + '<code>songs.py</code>.';
       }
       note.hidden = false;
 

@@ -24,6 +24,29 @@ py backend/seed_songless.py --dsn "..." --clear-audio "Наруто"
 `--start` задаёт, с какого места звучит фрагмент (удобно ставить на припев),
 `--length` — сколько секунд он длится (по умолчанию 8).
 
+**Можно вообще не копировать файлы в эту папку.** Скрипт
+[`songs.py`](../../../../songs.py) берёт треки из базы, нарезает ваши записи и
+кладёт MP3 прямо в таблицу `audio_clips`; сервер отдаёт фрагмент из базы, а в
+колонке `audio` остаётся маркер `db:clip`:
+
+```powershell
+py songs.py --only songless --audio C:\music
+py songs.py --only songless --audio C:\music --map music.json --force
+```
+
+Записи можно не искать руками: скрипт
+[`_fetch_songless_audio.py`](../../../../_fetch_songless_audio.py) ищет опенинги
+на YouTube через **YouTube Data API v3**, скачивает звук (`yt-dlp`) и кладёт
+фрагменты прямо в базу — тем же `songs.py` и тоже без файлов в этой папке:
+
+```powershell
+py _fetch_songless_audio.py --attach --dsn "postgresql://greenhouse@localhost:5432/greenhouse"
+```
+
+Ключ API задаётся аргументом `--api-key`, переменной `YOUTUBE_API_KEY` или
+файлом `data/youtube-api-key.txt`. Нужен `yt-dlp` (см. `requirements-fetch.txt`) —
+он скачивает звук, чтобы `songs.py` нарезал из него 8-секундный фрагмент.
+
 **Важно про авторские права.** Используйте только те записи, на которые у вас
 есть право: свои файлы, материалы с разрешением правообладателя или записи
 со свободной лицензией. Официальные опенинги защищены авторским правом, и
