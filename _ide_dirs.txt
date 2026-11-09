@@ -1,0 +1,7 @@
+﻿
+FullName                                           
+--------                                           
+C:\Users\Amir\AppData\Roaming\Code                 
+C:\Users\Amir\AppData\Roaming\vscode-java-installer
+
+

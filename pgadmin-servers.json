@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Теплица (PostgreSQL 17)",
+      "Group": "Servers",
+      "Host": "localhost",
+      "Port": 5432,
+      "MaintenanceDB": "greenhouse",
+      "Username": "greenhouse",
+      "SSLMode": "prefer",
+      "Comment": "База умной теплицы: zones, readings, zone_devices, settings, state, logs"
+    }
+  }
+}

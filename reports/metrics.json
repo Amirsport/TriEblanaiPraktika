@@ -1,0 +1,57 @@
+{
+  "startup_s": 1.04,
+  "state_latency": {
+    "n": 300,
+    "mean_ms": 25.92,
+    "median_ms": 30.44,
+    "p95_ms": 33.35,
+    "max_ms": 107.63
+  },
+  "history_latency": {
+    "n": 200,
+    "mean_ms": 15.36,
+    "median_ms": 15.65,
+    "p95_ms": 27.04,
+    "max_ms": 77.72
+  },
+  "command_post_latency": {
+    "n": 20,
+    "mean_ms": 35.42,
+    "median_ms": 39.87,
+    "p95_ms": 43.01,
+    "max_ms": 43.22
+  },
+  "command_cycle_latency": {
+    "n": 20,
+    "mean_ms": 53.86,
+    "median_ms": 58.71,
+    "p95_ms": 64.37,
+    "max_ms": 65.08
+  },
+  "automation_first_on_s": 1.54,
+  "automation_all_on_s": 1.67,
+  "automation_zones_on": 12,
+  "arduino": {
+    "source": "simulator",
+    "connected": false,
+    "port": null,
+    "firmware": null,
+    "last_seen": 1792477860.1822214,
+    "frames": 58,
+    "errors": 0
+  },
+  "uptime_s": 120.3,
+  "db": {
+    "size_bytes": 724992,
+    "readings": 696,
+    "zones": 12,
+    "min_ts": "2026-10-20T06:29:02.483Z",
+    "max_ts": "2026-10-20T06:31:00.179Z",
+    "per_zone_min_max": [
+      58,
+      58
+    ],
+    "readings_per_s": 5.79,
+    "sampling_period_s": 2.04
+  }
+}

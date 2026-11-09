@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark" data-palette="red">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Игровая комната · Умная AI-Теплица</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#c5342b">
+  <link rel="icon" type="image/png" href="../icons/logo.png?v=2">
+  <link rel="stylesheet" href="../css/main.css?v=32">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Раздел игр использует общую тему проекта (css/main.css), но в красной
+       палитре: data-palette="red" выше в <html>. Здесь — только раскладка.
+       Игры идут онлайн, поэтому связь с сервером обязательна: без неё запуск
+       закрыт. Адрес API и ключ страница определяет сама — из настроек панели
+       теплицы и файла api-address.json на сайте. */
+
+    .brand-mark img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+
+    /* У карточек и кнопок свой display, поэтому hidden задаём явно. */
+    [hidden] { display: none !important; }
+
+    button.status-pill { font-family: inherit; cursor: pointer; }
+    button.status-pill:hover { color: var(--text); border-color: var(--accent); }
+    a.icon-btn { display: inline-grid; place-items: center; text-decoration: none; }
+
+    /* Три показателя витрины — всегда в одном ряду: в main.css .kpis рассчитан
+       на четыре карточки панели и сворачивается в две. */
+    .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    @media (max-width: 560px) {
+      .kpis { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    .games-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+
+    .game {
+      display: flex; flex-direction: column; gap: 11px; padding: 20px;
+      border-radius: var(--radius); border: 1px solid var(--border);
+      background: var(--surface); backdrop-filter: blur(14px); box-shadow: var(--shadow);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .game:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+    .game-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .game-icon { font-size: 26px; line-height: 1; }
+    .game h2 { font-family: 'Playfair Display', Georgia, serif; font-size: 19px; font-weight: 600; }
+    .game-desc { margin: 0; font-size: 13.5px; color: var(--text-dim); flex: 1 1 auto; }
+    .game-desc.pending { font-style: italic; }
+    .game-foot { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+    .game-foot .btn { flex: 1 1 auto; display: inline-block; text-align: center; text-decoration: none; }
+    .game-foot .btn-primary { color: #fff; }
+    .game-foot .btn[disabled] { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    .tag {
+      font-size: 11.5px; padding: 3px 8px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--text-dim); white-space: nowrap;
+    }
+    .tag.ready { background: var(--accent); color: #fff; }
+
+    .note { font-size: 12.5px; color: var(--text-dim); }
+
+    @media (max-width: 560px) {
+      .brand-text h1 { font-size: 19px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Декоративный фон -->
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+  </div>
+
+  <div class="app">
+
+    <!-- ===== Шапка ===== -->
+    <header class="topbar">
+      <div class="brand">
+        <a class="brand-mark" href="./" title="AmrGames — главное меню" aria-label="AmrGames — главное меню"><img src="../icons/logo.png?v=2" alt=""></a>
+        <div class="brand-text">
+          <h1>Игровая комната</h1>
+          <p>Онлайн мини-игры проекта «Умная AI-Теплица»</p>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="status-pill" type="button" id="conn-pill" title="Проверить связь с сервером">
+          <span class="dot"></span>
+          <span id="conn-text">проверяем связь…</span>
+        </button>
+        <a class="user-pill" id="user-pill" href="profile/" title="Мой профиль" hidden>
+          <img class="user-avatar" id="user-avatar" alt="" hidden>
+          <span class="user-avatar-fallback" id="user-avatar-fallback" aria-hidden="true">👤</span>
+          <span id="user-name">—</span>
+        </a>
+        <a class="icon-btn" id="login-link" href="profile/" title="Войти в аккаунт или открыть профиль">👤</a>
+        <button class="icon-btn" type="button" data-action="toggle-theme" title="Светлая / тёмная тема">◐</button>
+      </div>
+    </header>
+
+    <!-- ===== Показатели раздела ===== -->
+    <section class="kpis">
+      <article class="kpi">
+        <div class="kpi-head"><span class="kpi-icon">🎮</span><span class="kpi-label">Игр в списке</span></div>
+        <div class="kpi-value"><b id="games-count">0</b></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-head"><span class="kpi-icon">✅</span><span class="kpi-label">Готовы к запуску</span></div>
+        <div class="kpi-value"><b id="games-ready">0</b></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-head"><span class="kpi-icon">📡</span><span class="kpi-label">Отклик сервера</span></div>
+        <div class="kpi-value"><b id="conn-ms">—</b><i>мс</i></div>
+      </article>
+    </section>
+
+    <!-- ===== Список игр ===== -->
+    <main class="games-grid" id="games-grid"></main>
+
+    <p class="note">
+      Описания игр появятся позже — сейчас на их месте заготовки. Чтобы вписать описание
+      или открыть игру, отредактируйте список <code>GAMES</code> в коде этой страницы:
+      поля <code>description</code> и <code>href</code>.
+    </p>
+
+    <footer class="footer">
+      <span>игровая комната · доступ по прямой ссылке</span>
+      <span id="clock">—</span>
+    </footer>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="profile/pill.js?v=5"></script>
+  <script>
+    'use strict';
+
+    /* Список миниигр. Игры онлайн — запуск возможен только при связи с сервером.
+       Для каждой игры:
+         title       — название;
+         icon        — эмодзи-иконка;
+         description — описание; пустая строка показывает заглушку «Описание появится позже»;
+         href        — путь к странице игры; пока не задан, кнопка неактивна. */
+    const GAMES = [
+      { id: 'narutodle', title: 'Narutodle: игра на шестерых', icon: '🌀',
+        description: 'Комната до шести игроков и три режима: дуэль за одного общего '
+          + 'персонажа, гонка на пять персонажей и игра командами с общей доской. '
+          + 'Подсказки — пол, деревня, клан, стихии, кеккей генкай и другие графы. '
+          + 'Нужен аккаунт: друзей приглашайте ссылкой.',
+        href: 'narutodle/' },
+      { id: 'animesongless', title: 'Аниме-сонглесс', icon: '🎧',
+        description: 'Угадайте аниме по фрагменту опенинга: четыре варианта, один верный. '
+          + 'Соло — заход на три жизни с очками за скорость. Онлайн — комната на несколько '
+          + 'человек, пять раундов на всех и общая таблица очков. Нужен аккаунт, '
+          + 'записи добавляет владелец сайта.',
+        href: 'animesongless/' },
+      { id: 'csdraft', title: '87-0: драфт по CS', icon: '🔫',
+        description: 'Драфт-рогалик по Counter-Strike: собери состав мечты из реальных '
+          + 'составов легендарных турниров — пять ролей, маппул и сыгранность. Из пака '
+          + 'берут только одного игрока или одну карту. Затем прогон по сетке мейджора: '
+          + 'поражение — конец прогона. Нужен аккаунт.',
+        href: 'csdraft/' },
+      { id: 'songguess', title: 'Угадай песню за 10 секунд', icon: '🎵',
+        description: 'Быстрая игра на слух: пять секунд музыки и жёсткий таймер — 5, 10 '
+          + 'или 15 секунд на ответ. Четыре варианта, один верный, очки за скорость. '
+          + 'Темы: аниме, русский рэп и хип-хоп. Нужен аккаунт, записи добавляет '
+          + 'владелец сайта.',
+        href: 'songguess/' },
+      { id: 'valorant', title: '13-0: драфт по Valorant', icon: '🎯',
+        description: 'Драфт-рогалик по Valorant: состав из реальных команд VCT '
+          + '(Champions), пятеро игроков по ролям — дуэлист, инициатор, контроллер, '
+          + 'часовой и флекс — и карты их маппула. Карта играется до 13 побед, '
+          + 'поражение заканчивает прогон. Нужен аккаунт.',
+        href: 'valorant/' },
+      { id: 'rl', title: '4-0: драфт по Rocket League', icon: '⚽',
+        description: 'Драфт-рогалик по Rocket League: тройка из реальных составов RLCS '
+          + '(Worlds) — атакующий, полузащитник и защитник — и арены их пула. Серии '
+          + 'до победы в Bo5 и Bo7, игра — до трёх голов. Нужен аккаунт.',
+        href: 'rl/' },
+      { id: 'raporder', title: 'Рэп-хронология', icon: '🎤',
+        description: 'Расставьте треки русского рэпа от самого старого к самому новому: '
+          + 'пять треков разных годов в раунде, очко за каждое верное место. Соло — пять '
+          + 'раундов, онлайн — комната по коду на три раунда, где у всех один и тот же '
+          + 'раунд. Нужен аккаунт.',
+        href: 'raporder/' },
+      { id: 'dota322', title: '322-0: драфт по Dota 2', icon: '🧙',
+        description: 'Фэнтези-драфт по Streamers Battle 13: берите из пака одного '
+          + 'игрока или одного героя — пак сразу меняется, — соберите пять игроков '
+          + 'в бюджет (хардкор — 300 очков) и закройте героями все пять позиций; '
+          + 'на мид берут только дешёвого игрока. Дальше турнир: группы по четыре '
+          + 'команды и плей-офф с правом на ошибку. Нужен аккаунт.',
+        href: 'dota322/' }
+    ];
+
+    const THEME_KEY = 'greenhouse.games.theme';
+    /* Настройки подключения. Свои значения страница игр хранит отдельно:
+       панель теплицы пишет своё состояние в localStorage каждые пару секунд
+       и иначе стирала бы введённый здесь ключ. Пока своих значений нет,
+       адрес и ключ берутся из настроек панели. */
+    const PANEL_STATE_KEY = 'greenhouse.state.v1';
+    const CONN_KEY = 'greenhouse.games.conn.v1';
+    const CHECK_MS = 30000;  // как часто связь проверяется сама
+    const TIMEOUT_MS = 4000; // сколько ждём ответа /api/health
+
+    const $ = (selector) => document.querySelector(selector);
+
+    let online = false;   // сервер ответил на последнюю проверку
+    let checking = false; // запрос уже в пути — второй не нужен
+
+    function escapeHtml(text) {
+      return String(text == null ? '' : text).replace(/[&<>"']/g, (char) => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
+      ));
+    }
+
+    function toast(message, kind) {
+      const box = $('#toasts');
+      const node = document.createElement('div');
+      node.className = `toast${kind ? ` ${kind}` : ''}`;
+      node.textContent = message;
+      box.appendChild(node);
+      setTimeout(() => {
+        node.classList.add('out');
+        setTimeout(() => node.remove(), 320);
+      }, 4200);
+    }
+
+    /* ------------------------ связь с сервером ------------------------------ */
+
+    function readJson(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || 'null');
+        return value && typeof value === 'object' ? value : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function panelConnection() {
+      const state = readJson(PANEL_STATE_KEY) || {};
+      return { apiBase: state.apiBase || '', apiToken: state.apiToken || '' };
+    }
+
+    function loadConnection() {
+      const own = readJson(CONN_KEY);
+      return own
+        ? { apiBase: own.apiBase || '', apiToken: own.apiToken || '' }
+        : panelConnection();
+    }
+
+    function storeConnection(values) {
+      try {
+        localStorage.setItem(CONN_KEY, JSON.stringify(values));
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    /* Действующее подключение страницы: свои сохранённые значения, иначе
+       настройки панели теплицы. Пустой адрес значит «тот же домен». */
+    const connection = loadConnection();
+
+    const apiBase = () => connection.apiBase;
+    const apiToken = () => connection.apiToken;
+
+    function healthUrl() {
+      const base = apiBase();
+      if (base) return `${base}/api/health`;
+      const served = location.protocol === 'http:' || location.protocol === 'https:';
+      return served ? '/api/health' : null;
+    }
+
+    function setStatus(kind, text) {
+      const pill = $('#conn-pill');
+      pill.classList.toggle('online', kind === 'online');
+      pill.classList.toggle('err', kind === 'err');
+      $('#conn-text').textContent = text;
+    }
+
+    /* Состояние связи. /api/health закрыт API-ключом, поэтому 401 значит
+       «сервер жив, а ключ не подошёл», а не «сервера нет». */
+    async function checkConnection(notify = false, recheck = false) {
+      if (checking) return online;
+
+      const url = healthUrl();
+      if (!url) {
+        online = false;
+        setStatus('err', 'адрес сервера не определён');
+        $('#conn-ms').textContent = '—';
+        renderGames();
+        if (notify) toast('Не удалось определить адрес сервера теплицы', 'warn');
+        return false;
+      }
+
+      checking = true;
+      const started = Date.now();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      let kind = 'err';
+      let text = 'сервер не отвечает';
+      let ms = null;
+      let keyRejected = false;
+
+      try {
+        const headers = {};
+        const token = apiToken();
+        if (token) headers['X-Api-Token'] = token;
+        const response = await fetch(url, { signal: controller.signal, headers, cache: 'no-store' });
+        ms = Date.now() - started;
+        if (response.ok) {
+          kind = 'online';
+          text = 'сервер на связи';
+        } else if (response.status === 401) {
+          // Сервер жив — он лишь закрыт общим ключом панели. Играм этот ключ
+          // не нужен (в них пускает аккаунт), поэтому доступ не закрываем.
+          kind = 'online';
+          text = token ? 'на связи, ключ доступа не подошёл' : 'на связи, ключ доступа не задан';
+          // Ключ либо не задан, либо сменился на сервере: свежий лежит на сайте.
+          keyRejected = true;
+        } else if (response.status === 404 && !apiBase()) {
+          // Хостинг статики: API живёт дома, а опубликованного адреса нет.
+          text = 'API на этом домене нет';
+        } else {
+          text = `сервер ответил HTTP ${response.status}`;
+        }
+      } catch (error) {
+        text = 'сервер не отвечает';
+      } finally {
+        clearTimeout(timer);
+        checking = false;
+      }
+
+      online = kind === 'online';
+      setStatus(kind, text);
+      $('#conn-ms').textContent = ms == null ? '—' : String(ms);
+      renderGames();
+      if (notify) {
+        toast(online ? `Связь есть: ${url} — ${ms} мс` : `Нет связи: ${text}`, online ? '' : 'warn');
+      }
+      /* Адрес в браузере мог устареть (поддомен туннеля меняется при
+         перезапуске), а ключ — не задаваться или смениться: если на сайте
+         опубликованы свежие, пробуем их один раз. */
+      if (!recheck && (keyRejected || !online) && await healFromPublished(keyRejected)) {
+        return checkConnection(notify, true);
+      }
+      return online;
+    }
+
+    /* Файл, опубликованный при выгрузке (_publish_address.py): в нём и адрес
+       сервера, и ключ панели, поэтому браузеру не нужно спрашивать их у
+       пользователя. */
+    async function publishedConnection() {
+      const empty = { apiBase: '', apiToken: '' };
+      if (location.protocol !== 'http:' && location.protocol !== 'https:') return empty;
+      try {
+        const response = await fetch('api-address.json', { cache: 'no-store' });
+        if (!response.ok) return empty;
+        const data = await response.json();
+        return {
+          apiBase: String((data && data.apiBase) || '').trim().replace(/\/+$/, ''),
+          apiToken: String((data && data.apiKey) || '').trim()
+        };
+      } catch (error) {
+        return empty;
+      }
+    }
+
+    /* Значения из файла ставим, когда своих нет, а силу применяем, если ключ
+       из браузера сервер не принял (401). */
+    async function healFromPublished(force = false) {
+      const fresh = await publishedConnection();
+      let changed = false;
+      if (fresh.apiBase && fresh.apiBase !== connection.apiBase) {
+        connection.apiBase = fresh.apiBase;
+        toast('Адрес сервера обновлён: туннель перезапускался');
+        changed = true;
+      }
+      /* Ключ берём, когда своего нет или когда сервер его не принял. */
+      if (fresh.apiToken && (force || !connection.apiToken) && fresh.apiToken !== connection.apiToken) {
+        connection.apiToken = fresh.apiToken;
+        if (!changed) toast('Ключ доступа взят из файла на сайте');
+        changed = true;
+      }
+      if (!changed) return false;
+      storeConnection(connection);
+      return true;
+    }
+
+    /* Карточки игр. Игры онлайн, поэтому без связи «Играть» закрыта. */
+    function renderGames() {
+      const grid = $('#games-grid');
+      const ready = GAMES.filter((game) => Boolean(game.href)).length;
+      $('#games-count').textContent = GAMES.length;
+      $('#games-ready').textContent = ready;
+
+      grid.innerHTML = GAMES.map((game) => {
+        const pending = !game.description;
+        const description = pending
+          ? 'Описание появится позже'
+          : escapeHtml(game.description);
+        let tag = 'в разработке';
+        let action = '<button class="btn btn-ghost btn-sm" type="button" disabled>скоро</button>';
+
+        if (game.href) {
+          if (online) {
+            tag = 'доступна';
+            action = `<a class="btn btn-primary btn-sm" href="${escapeHtml(game.href)}" target="_blank" rel="noopener">Играть</a>`;
+          } else {
+            tag = 'нужна связь';
+            action = '<button class="btn btn-ghost btn-sm" type="button" disabled>Играть</button>';
+          }
+        }
+
+        return `
+          <article class="game" id="game-${escapeHtml(game.id)}">
+            <div class="game-top">
+              <span class="game-icon" aria-hidden="true">${game.icon}</span>
+              <span class="tag${game.href && online ? ' ready' : ''}">${tag}</span>
+            </div>
+            <h2>${escapeHtml(game.title)}</h2>
+            <p class="game-desc${pending ? ' pending' : ''}">${description}</p>
+            <div class="game-foot">${action}</div>
+          </article>`;
+      }).join('');
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+    }
+
+    /* Тема хранится тем же ключом и в том же виде, что на страницах игр
+       (`{"theme":"dark"}`), иначе они не увидели бы выбор витрины. Строку от
+       прошлых версий страницы тоже понимаем, сразу перезаписав её объектом. */
+    function storedTheme() {
+      const own = localStorage.getItem(THEME_KEY);
+      if (own) {
+        const parsed = readJson(THEME_KEY);
+        if (parsed && typeof parsed.theme === 'string') return parsed.theme;
+        try {
+          localStorage.setItem(THEME_KEY, JSON.stringify({ theme: own }));
+        } catch (error) {
+          /* приватный режим — обойдёмся без перезаписи */
+        }
+        return own;
+      }
+      const panel = readJson(PANEL_STATE_KEY) || {};
+      return typeof panel.theme === 'string' ? panel.theme : '';
+    }
+
+    function initTheme() {
+      let theme = '';
+      try {
+        theme = storedTheme();
+      } catch (error) {
+        theme = '';
+      }
+      applyTheme(theme);
+      $('[data-action="toggle-theme"]').addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+        applyTheme(next);
+        try {
+          localStorage.setItem(THEME_KEY, JSON.stringify({ theme: next }));
+        } catch (error) {
+          /* приватный режим — тема просто не сохранится */
+        }
+      });
+    }
+
+    function initClock() {
+      const node = $('#clock');
+      const update = () => {
+        node.textContent = new Date().toLocaleString('ru-RU', {
+          day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+      };
+      update();
+      setInterval(update, 1000);
+    }
+
+    /* Адрес и ключ страница определяет сама, поэтому здесь только проверка связи. */
+    function initConnection() {
+      $('#conn-pill').addEventListener('click', () => checkConnection(true));
+
+      window.addEventListener('online', () => checkConnection(false));
+      window.addEventListener('offline', () => {
+        online = false;
+        setStatus('err', 'нет сети');
+        renderGames();
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) checkConnection(false);
+      });
+
+      checkConnection(false);
+      setInterval(() => {
+        if (!document.hidden) checkConnection(false);
+      }, CHECK_MS);
+    }
+
+    function init() {
+      initTheme();
+      initClock();
+      renderGames();
+      initConnection();
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

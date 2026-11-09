@@ -1,0 +1,1469 @@
+/* ==========================================================================
+   Умная AI-Теплица — тема оформления
+   ========================================================================== */
+
+:root {
+  --bg: #eef3ea;
+  --bg-2: #f7faf5;
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-solid: #ffffff;
+  --border: rgba(60, 90, 55, 0.14);
+  --text: #1f2b1c;
+  --text-dim: #5d6b57;
+  --accent: #4f9a48;
+  --accent-2: #78c257;
+  /* Тот же акцент в виде rgb(r, g, b): нужен там, где полупрозрачность
+     задаётся в CSS (свечение кнопок, пульсация индикатора связи). */
+  --accent-rgb: 79, 154, 72;
+  --accent-soft: rgba(79, 154, 72, 0.12);
+  --water: #3a9bd9;
+  --sun: #e5a72c;
+  --danger: #d9564f;
+  --warn: #d9913c;
+  --warn-rgb: 217, 145, 60;
+  --radius: 20px;
+  --radius-sm: 12px;
+  --shadow: 0 10px 30px rgba(35, 60, 30, 0.10);
+  --shadow-lg: 0 18px 45px rgba(35, 60, 30, 0.16);
+  --grid: rgba(60, 90, 55, 0.12);
+}
+
+[data-theme="dark"] {
+  --bg: #0e1511;
+  --bg-2: #131d17;
+  --surface: rgba(28, 40, 32, 0.72);
+  --surface-solid: #1a241d;
+  --border: rgba(150, 210, 150, 0.14);
+  --text: #e8f2e4;
+  --text-dim: #9db096;
+  --accent: #6fc25f;
+  --accent-2: #9ade7a;
+  --accent-rgb: 111, 194, 95;
+  --accent-soft: rgba(111, 194, 95, 0.16);
+  --water: #57b6ef;
+  --sun: #f0bb4b;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 18px 45px rgba(0, 0, 0, 0.55);
+  --grid: rgba(150, 210, 150, 0.12);
+}
+
+/* ===== Красная палитра раздела игр =====
+   Включается атрибутом data-palette="red" у <html> (только /games).
+   Панель теплицы и служебная консоль остаются в зелёной теме. */
+:root[data-palette="red"] {
+  --bg: #f2ebea;
+  --bg-2: #faf5f4;
+  --surface: rgba(255, 255, 255, 0.78);
+  --surface-solid: #ffffff;
+  --border: rgba(95, 50, 45, 0.14);
+  --text: #2a1c1a;
+  --text-dim: #6b5854;
+  --accent: #c5342b;
+  --accent-2: #e8735c;
+  --accent-rgb: 197, 52, 43;
+  --accent-soft: rgba(197, 52, 43, 0.12);
+  --water: #b8404a;
+  --sun: #e5903c;
+  --shadow: 0 10px 30px rgba(70, 32, 28, 0.10);
+  --shadow-lg: 0 18px 45px rgba(70, 32, 28, 0.16);
+  --grid: rgba(95, 50, 45, 0.12);
+}
+
+:root[data-palette="red"][data-theme="dark"] {
+  --bg: #150f0e;
+  --bg-2: #1d1413;
+  --surface: rgba(46, 29, 27, 0.72);
+  --surface-solid: #271a18;
+  --border: rgba(235, 160, 150, 0.14);
+  --text: #f7eae7;
+  --text-dim: #b49a95;
+  --accent: #e2554a;
+  --accent-2: #ff9075;
+  --accent-rgb: 226, 85, 74;
+  --accent-soft: rgba(226, 85, 74, 0.16);
+  --water: #e0707f;
+  --sun: #f0b060;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 18px 45px rgba(0, 0, 0, 0.55);
+  --grid: rgba(235, 160, 150, 0.12);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background: radial-gradient(1200px 600px at 15% -10%, var(--bg-2), var(--bg) 60%);
+  color: var(--text);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.4s ease, color 0.4s ease;
+}
+
+/* ===== Декоративный фон ===== */
+.bg-orbs {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.5;
+  animation: float 18s ease-in-out infinite;
+}
+
+.orb-1 { width: 420px; height: 420px; background: var(--accent-2); top: -140px; left: -120px; }
+.orb-2 { width: 360px; height: 360px; background: var(--water); bottom: -140px; right: -100px; animation-delay: -6s; }
+.orb-3 { width: 300px; height: 300px; background: var(--sun); top: 45%; left: 55%; opacity: 0.22; animation-delay: -11s; }
+
+@keyframes float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(20px, -30px, 0) scale(1.08); }
+}
+
+/* ===== Каркас ===== */
+.app {
+  position: relative;
+  z-index: 1;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ===== Шапка ===== */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-mark {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  border-radius: 18px;
+  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  box-shadow: var(--shadow);
+}
+
+/* Логотип на страницах AmrGames — ссылка на главное меню. У картинки свой
+   фон и скругление, поэтому подложку .brand-mark у ссылки убираем. */
+a.brand-mark {
+  background: none;
+  box-shadow: none;
+  text-decoration: none;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+a.brand-mark:hover,
+a.brand-mark:focus-visible {
+  transform: translateY(-1px) scale(1.04);
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.18));
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+}
+
+.brand-text h1 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: clamp(24px, 3.4vw, 36px);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  line-height: 1.15;
+}
+
+.brand-text p {
+  color: var(--text-dim);
+  font-size: 13.5px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.status-pill .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 4px rgba(var(--warn-rgb), 0.18);
+}
+
+.status-pill.online .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  animation: pulse 2s ease-out infinite;
+}
+
+.status-pill.err .dot {
+  background: var(--danger);
+  box-shadow: 0 0 0 4px rgba(217, 86, 79, 0.18);
+}
+
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.5); }
+  100% { box-shadow: 0 0 0 14px rgba(var(--accent-rgb), 0); }
+}
+
+.icon-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  font-size: 17px;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.icon-btn:hover {
+  transform: translateY(-2px);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ===== Навигация ===== */
+.tabs {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar { display: none; }
+
+.tab {
+  flex: 0 0 auto;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.tab:hover { color: var(--text); background: var(--accent-soft); }
+
+.tab.active {
+  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.32);
+}
+
+/* ===== Представления ===== */
+.views { display: flex; flex-direction: column; }
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: appear 0.35s ease both;
+}
+
+.view[hidden] { display: none; }
+
+@keyframes appear {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ===== Показатели ===== */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1080px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .kpis { grid-template-columns: minmax(0, 1fr); }
+}
+
+.kpi {
+  position: relative;
+  padding: 18px 18px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.kpi:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+
+.kpi::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--accent);
+}
+
+.kpi-temp::before  { background: var(--warn); }
+.kpi-moist::before { background: var(--water); }
+.kpi-light::before { background: var(--sun); }
+.kpi-tank::before  { background: var(--accent-2); }
+
+.kpi-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.kpi-icon { font-size: 15px; }
+
+.kpi-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+
+.kpi-value b {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi-value i {
+  font-style: normal;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.spark { display: block; width: 100%; height: 46px; }
+
+/* ===== Сетка карточек ===== */
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  padding: 20px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-center { align-items: center; text-align: center; }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.card-head h2 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.badge {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.chart { display: block; width: 100%; height: 220px; }
+
+.legend {
+  display: flex;
+  gap: 18px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+
+.sw { width: 22px; height: 3px; border-radius: 3px; background: var(--accent); }
+.sw-dash {
+  background: repeating-linear-gradient(90deg, var(--text-dim) 0 5px, transparent 5px 9px);
+}
+
+/* ===== Устройства ===== */
+.device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 13px 15px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.device.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.device-info { display: flex; align-items: center; gap: 12px; flex: 1 1 150px; min-width: 0; }
+
+.device-icon { font-size: 22px; }
+
+.device-info b { display: block; font-size: 14.5px; font-weight: 600; }
+.device-info small { color: var(--text-dim); font-size: 12.5px; }
+
+.device-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.device-actions .btn { white-space: nowrap; }
+
+/* Переключатель */
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(120, 140, 120, 0.28);
+  cursor: pointer;
+  transition: background 0.25s ease;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+  transition: transform 0.25s ease;
+}
+
+.switch.on { background: linear-gradient(140deg, var(--accent), var(--accent-2)); }
+.switch.on::after { transform: translateX(22px); }
+
+/* ===== Кнопки ===== */
+.btn {
+  padding: 11px 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.btn:hover { transform: translateY(-2px); }
+.btn:active { transform: translateY(0); }
+
+.btn-primary {
+  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(var(--accent-rgb), 0.30);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.btn-ghost:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+.btn-sm { padding: 7px 13px; font-size: 12.5px; }
+
+.btn-wide { width: 100%; margin-top: auto; }
+
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.row-tight { gap: 6px; }
+
+/* ===== Формы ===== */
+.field { display: flex; flex-direction: column; gap: 9px; }
+.field[hidden] { display: none; }
+.field > span { font-size: 13.5px; color: var(--text-dim); }
+.field > span b { color: var(--text); }
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(140deg, var(--accent), var(--accent-2));
+  border: 3px solid var(--surface-solid);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--surface-solid);
+  cursor: pointer;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="search"],
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 84px;
+  line-height: 1.5;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="email"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Браузер подсвечивает автозаполнение своим цветом и ломает вид поля:
+   возвращаем оформление панели. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  -webkit-box-shadow: 0 0 0 1000px var(--surface-solid) inset;
+  box-shadow: 0 0 0 1000px var(--surface-solid) inset;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* ===== Датчик влажности ===== */
+.gauge-wrap { position: relative; width: 180px; height: 180px; }
+.gauge { width: 100%; height: 100%; transform: rotate(-90deg); }
+
+.gauge circle {
+  fill: none;
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+
+.gauge-track { stroke: var(--accent-soft); }
+
+.gauge-value {
+  stroke: var(--water);
+  stroke-dasharray: 326.7;
+  stroke-dashoffset: 326.7;
+  transition: stroke-dashoffset 0.6s ease;
+}
+
+.gauge-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.gauge-text b { font-size: 34px; font-weight: 700; }
+.gauge-text i { font-style: normal; color: var(--text-dim); }
+.gauge-text small {
+  flex-basis: 100%;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.big-number {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.big-number b { font-size: 46px; font-weight: 700; }
+.big-number i { font-style: normal; color: var(--text-dim); }
+
+.meter { display: flex; flex-direction: column; gap: 8px; }
+.meter-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13.5px;
+  color: var(--text-dim);
+}
+
+.meter-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+
+.meter-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--water), var(--accent-2));
+  transition: width 0.6s ease;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.stat-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ===== Режимы ===== */
+.modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.mode {
+  padding: 18px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mode b { display: block; font-size: 16px; margin-bottom: 3px; }
+.mode small { color: var(--text-dim); font-size: 12.5px; }
+.mode:hover { transform: translateY(-3px); border-color: var(--accent); }
+
+.mode.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ===== Журнал ===== */
+.log-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+
+.log-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--accent);
+  background: var(--surface-solid);
+  font-size: 13.5px;
+}
+
+.log-item.warn { border-left-color: var(--warn); }
+.log-item.err  { border-left-color: var(--danger); }
+
+.log-time {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+}
+
+.log-msg { color: var(--text); }
+
+.log-list-full .log-item { border-left-width: 4px; }
+
+.empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13.5px;
+}
+
+/* ===== Подвал ===== */
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+/* ===== Всплывающие уведомления ===== */
+.toasts {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 320px;
+}
+
+.toast {
+  padding: 13px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-lg);
+  font-size: 13.5px;
+  animation: toast-in 0.3s ease both;
+}
+
+.toast.warn { border-left-color: var(--warn); }
+.toast.err  { border-left-color: var(--danger); }
+.toast.out  { animation: toast-out 0.3s ease both; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(30px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(30px); }
+}
+
+.muted { color: var(--text-dim); font-size: 13px; }
+
+/* ===== Участки теплицы (12 секций) ===== */
+.zone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.zone-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.zone-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+.zone-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.zone-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+.zone-title {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--text); font-family: inherit; font-size: 14.5px; text-align: left;
+}
+
+.zone-title b { font-weight: 600; }
+
+.zone-status {
+  font-size: 11.5px; padding: 3px 8px; border-radius: 999px;
+  white-space: nowrap; background: var(--accent-soft); color: var(--text-dim);
+}
+
+.zone-status.ok   { color: #2f7d32; }
+.zone-status.dry  { background: rgba(58, 155, 217, 0.16); color: #2b7cb0; }
+.zone-status.hot  { background: rgba(229, 167, 44, 0.18); color: #b07b12; }
+.zone-status.dark { background: rgba(120, 120, 140, 0.18); color: #5a5a72; }
+
+.zone-metrics { display: flex; flex-wrap: wrap; gap: 10px 14px; font-size: 13px; color: var(--text-dim); }
+.zone-metrics b { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.zone-bar { height: 7px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; }
+.zone-bar span {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--water), var(--accent));
+  transition: width 0.4s ease;
+}
+
+.zone-actions { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+.zone-actions .btn { flex: 1 1 auto; }
+
+.switch-sm { width: 40px; height: 22px; flex: 0 0 auto; }
+.switch-sm::after { width: 16px; height: 16px; }
+.switch-sm.on::after { transform: translateX(18px); }
+
+#pwa-install[hidden] { display: none; }
+body.pwa-standalone .app { padding-top: max(18px, env(safe-area-inset-top)); }
+
+/* ===== Вход в аккаунт и профиль ===== */
+.login-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow: auto;
+  background: radial-gradient(900px 500px at 20% -10%, var(--bg-2), var(--bg) 65%);
+  backdrop-filter: blur(6px);
+}
+
+.login-gate[hidden] { display: none; }
+
+body.auth-locked .app { filter: blur(3px); pointer-events: none; user-select: none; }
+
+.login-card {
+  width: min(400px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-lg);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.login-card h2 { font-size: 21px; }
+.login-card .muted { font-size: 13px; }
+.login-hint { font-size: 12.5px; }
+
+.login-error {
+  font-size: 13px;
+  color: var(--danger);
+  background: rgba(217, 86, 79, 0.12);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+.login-error[hidden] { display: none; }
+.login-card .btn[disabled] { opacity: 0.6; cursor: default; }
+
+.user-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Ссылка на профиль ведёт себя как пилюля, а не как текстовая ссылка. */
+a.user-pill {
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+a.user-pill:hover,
+a.user-pill:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.user-pill[data-accent="custom"] { border-color: var(--profile-accent, var(--accent)); }
+
+.user-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  background: var(--accent-soft);
+}
+
+.user-avatar-fallback {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--profile-accent, var(--accent));
+}
+
+.user-avatar[hidden],
+.user-avatar-fallback[hidden] { display: none; }
+
+.user-pill[hidden] { display: none; }
+.user-pill.admin { border-color: var(--accent); color: var(--accent); }
+.user-pill #user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Аватар игрока в комнатах игр AmrGames: картинка профиля или инициалы. */
+.amr-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  overflow: hidden;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.amr-avatar.lg { width: 46px; height: 46px; font-size: 16px; }
+.amr-avatar.sm { width: 21px; height: 21px; font-size: 9px; }
+.amr-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.amr-person { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Аватар и имя ведут в профиль игрока: подчёркивание только у имени. */
+.amr-avatar-link { display: inline-flex; flex: 0 0 auto; line-height: 0; text-decoration: none; }
+.amr-name {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in srgb, currentColor 45%, transparent);
+}
+.amr-name:hover, .amr-name:focus-visible { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ======================= Персонализация профиля =======================
+   Ободок вокруг аватара и оформление карточки профиля. Идентификаторы
+   совпадают со списками FRAMES и CARDS в backend/auth.py — там же проверка
+   того, что игрок вообще может поставить этот ободок.
+
+   Ободок — это кольцо вокруг картинки: рамка получает отступ и рисует фон,
+   а сам аватар лежит внутри. Пока ободок не выбран, отступа нет, поэтому
+   размеры в комнатах и в шапке не меняются. */
+
+.amr-frame {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+/* Кольцо рисуется отдельным слоем: аватар остаётся сверху и не растягивается. */
+.amr-frame[data-frame]:not([data-frame=""]) { padding: 3px; }
+.amr-frame[data-frame]:not([data-frame=""])::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--amr-ring, var(--accent));
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12), 0 2px 10px -3px rgba(0, 0, 0, 0.45);
+}
+.amr-frame > * { position: relative; z-index: 1; }
+
+/* Блики на кольце: конусный градиент даёт «вихрь», как у знаков игр. */
+.amr-frame[data-frame="narutodle"] {
+  --amr-ring: conic-gradient(from 30deg, #ff8a1f, #ffd400, #ff5a00, #ffc400, #ff8a1f);
+}
+.amr-frame[data-frame="animesongless"] {
+  --amr-ring: conic-gradient(from 0deg, #a855f7, #22d3ee, #f472b6, #7c3aed, #a855f7);
+}
+.amr-frame[data-frame="csdraft"] {
+  --amr-ring: linear-gradient(140deg, #1f3d2b, #4fd18a 45%, #e2cf7a 70%, #1f3d2b);
+}
+.amr-frame[data-frame="dota322"] {
+  --amr-ring: conic-gradient(from 90deg, #d32b2b, #2b0b0b, #ff7a45, #7a0f0f, #d32b2b);
+}
+.amr-frame[data-frame="valorant"] {
+  --amr-ring: conic-gradient(from 210deg, #ff4655, #0f1923, #18e0c8, #ff4655);
+}
+.amr-frame[data-frame="rl"] {
+  --amr-ring: linear-gradient(150deg, #2b6cff, #7fb2ff 40%, #ff8a1f 75%, #2b6cff);
+}
+.amr-frame[data-frame="songguess"] {
+  --amr-ring: conic-gradient(from 60deg, #a855f7, #22d3ee, #f472b6, #7c3aed, #a855f7);
+}
+.amr-frame[data-frame="raporder"] {
+  --amr-ring: linear-gradient(145deg, #ffe9a8, #d4af37 45%, #8a6410 70%, #ffd76a);
+}
+.amr-frame[data-frame="greenhouse"] {
+  --amr-ring: conic-gradient(from 120deg, #2e7d32, #9ccc65, #1b5e20, #8bc34a, #2e7d32);
+}
+.amr-frame[data-frame="legend"] {
+  --amr-ring: conic-gradient(#ff5c5c, #ffd400, #59d18a, #22d3ee, #a855f7, #ff5c5c);
+}
+.amr-frame[data-frame="admin"] {
+  --amr-ring: conic-gradient(from 200deg, #b8121b, #ffd700, #8a0f16, #ffe9a8, #b8121b);
+}
+/* «Основатель» — админский ободок: тёмная медь с золотом, заметно строже. */
+.amr-frame[data-frame="founder"] {
+  --amr-ring: conic-gradient(from 70deg, #7c2d12, #fbbf24, #431407, #fde68a, #7c2d12);
+}
+.amr-frame[data-frame="founder"]::before { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 0 12px -2px rgba(251, 191, 36, 0.7); }
+/* «Коноха» — награда за знание персонажей: лист и оранжевый вихрь. */
+.amr-frame[data-frame="konoha"] {
+  --amr-ring: conic-gradient(from 140deg, #14532d, #84cc16, #ff8a1f, #166534, #84cc16);
+}
+
+/* «Легенда» медленно вращает кольцо — аватар при этом стоит на месте. */
+.amr-frame[data-frame="legend"]::before { animation: amr-ring-spin 7s linear infinite; }
+@keyframes amr-ring-spin { to { transform: rotate(1turn); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .amr-frame[data-frame="legend"]::before { animation: none; }
+}
+
+/* Ободок заметнее на крупном аватаре страницы профиля. */
+.avatar-frame[data-frame]:not([data-frame=""]) { padding: 5px; }
+
+/* Оформление карточки профиля: вместо обычного фона — свой градиент и рамка. */
+.amr-card[data-card="greenhouse"] {
+  background: linear-gradient(158deg, color-mix(in srgb, #2e7d32 26%, var(--surface-solid)), var(--surface-solid) 72%);
+  border-color: color-mix(in srgb, #4caf50 45%, var(--border));
+}
+.amr-card[data-card="neon"] {
+  background:
+    radial-gradient(120% 90% at 12% 0%, rgba(168, 85, 247, 0.32), transparent 62%),
+    radial-gradient(90% 80% at 100% 100%, rgba(34, 211, 238, 0.26), transparent 58%),
+    var(--surface-solid);
+  border-color: color-mix(in srgb, #a855f7 50%, var(--border));
+}
+.amr-card[data-card="gold"] {
+  background:
+    linear-gradient(150deg, rgba(245, 214, 123, 0.34), rgba(184, 134, 11, 0.2) 45%, rgba(255, 233, 168, 0.3)),
+    var(--surface-solid);
+  border-color: color-mix(in srgb, #d4af37 60%, var(--border));
+}
+.amr-card[data-card="pixel"] {
+  background-color: var(--surface-solid);
+  background-image:
+    linear-gradient(45deg, rgba(127, 127, 127, 0.14) 25%, transparent 25%, transparent 75%, rgba(127, 127, 127, 0.14) 75%),
+    linear-gradient(45deg, rgba(127, 127, 127, 0.14) 25%, transparent 25%, transparent 75%, rgba(127, 127, 127, 0.14) 75%);
+  background-size: 22px 22px;
+  background-position: 0 0, 11px 11px;
+}
+.amr-card[data-card="spotlight"] {
+  background:
+    radial-gradient(70% 55% at 50% 0%, color-mix(in srgb, var(--profile-accent, var(--accent)) 32%, transparent), transparent 72%),
+    var(--surface-solid);
+  border-color: color-mix(in srgb, var(--profile-accent, var(--accent)) 40%, var(--border));
+}
+/* «Корона» — награда за победы в турнирах: тёплое золото с блеском. */
+.amr-card[data-card="crown"] {
+  background:
+    linear-gradient(160deg, rgba(251, 191, 36, 0.42), rgba(146, 64, 14, 0.26) 45%, rgba(254, 243, 199, 0.38)),
+    var(--surface-solid);
+  border-color: color-mix(in srgb, #fbbf24 65%, var(--border));
+}
+/* «Архитектор» — админское оформление: синька с сеткой. */
+.amr-card[data-card="architect"] {
+  background-color: var(--surface-solid);
+  background-image:
+    linear-gradient(rgba(56, 189, 248, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56, 189, 248, 0.16) 1px, transparent 1px);
+  background-size: 26px 26px;
+  border-color: color-mix(in srgb, #38bdf8 45%, var(--border));
+  box-shadow: inset 0 0 44px -22px rgba(56, 189, 248, 0.85);
+}
+/* «Свиток» — награда за коллекцию персонажей: пергамент с полосками. */
+.amr-card[data-card="scroll"] {
+  background:
+    repeating-linear-gradient(180deg, rgba(120, 83, 40, 0.12) 0 2px, transparent 2px 26px),
+    linear-gradient(160deg, rgba(253, 230, 138, 0.4), rgba(180, 83, 9, 0.22) 60%, rgba(254, 243, 199, 0.34)),
+    var(--surface-solid);
+  border-color: color-mix(in srgb, #b45309 55%, var(--border));
+}
+
+/* ==================== Кастомизация профиля ====================
+   Блок свёрнут, пока в него не зашли: по нажатию на заголовок
+   раскрываются ободки, оформления карточки и статусы. */
+.customize {
+  margin: 6px 0 2px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+}
+.customize > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.customize > summary::-webkit-details-marker { display: none; }
+.customize > summary::before {
+  content: '▸';
+  color: var(--accent);
+  transition: transform 0.2s ease;
+}
+.customize[open] > summary::before { transform: rotate(90deg); }
+.customize > summary small { color: var(--text-dim); font-size: 12px; font-weight: 400; }
+.customize-body { display: flex; flex-direction: column; gap: 16px; margin-top: 12px; }
+
+/* Выбор персонализации: плитки с образцом ободка или фона карточки. */
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(94px, 1fr));
+  gap: 8px;
+}
+.picker-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-solid);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.picker-chip:hover { border-color: var(--accent); }
+.picker-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.picker-chip b { font-weight: 600; }
+.picker-chip small { color: var(--text-dim); font-size: 10.5px; }
+
+/* Образец ободка: пустое кольцо пунктиром, а с ободком — настоящий градиент. */
+.picker-sample {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.picker-sample[data-frame]:not([data-frame=""]) { border: none; }
+/* Сердцевина образца: кольцо остаётся снаружи, как у настоящего аватара. */
+.picker-sample > i {
+  width: 60%;
+  height: 60%;
+  border-radius: 50%;
+  background: var(--surface-solid);
+}
+/* Образец фона карточки — прямоугольник с тем же оформлением. */
+.picker-sample.card-sample {
+  width: 48px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+}
+
+/* Закрытый предмет в кастомизации не показывается: список собирается только
+   из доступного, поэтому стили для неактивной плитки здесь не нужны. */
+
+/* Статус рядом с ником: маленькая плашка, цвет задаёт сам статус. */
+.amr-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* В колонке лобби плашка иначе растягивается на всю строку. */
+  width: fit-content;
+  align-self: center;
+  max-width: 100%;
+  padding: 0 7px 0 5px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--status-color, var(--accent)) 60%, transparent);
+  background: color-mix(in srgb, var(--status-color, var(--accent)) 16%, transparent);
+  color: var(--status-color, var(--accent));
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* В шапке и комнатах места мало — там только значок статуса. */
+.amr-status.icon-only { padding: 0; border: none; background: none; font-size: 12px; }
+/* Значок-картинка (например, эмблема Субару) вместо emoji. */
+.amr-status .amr-status-img {
+  display: inline-block; width: 1.35em; height: 1.35em;
+  object-fit: contain; vertical-align: -0.3em; border-radius: 3px;
+}
+.amr-status.icon-only .amr-status-img { width: 16px; height: 16px; vertical-align: -3px; }
+
+/* Строка «ник + статус»: статус стоит справа от имени, а не под ним. */
+.amr-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  align-self: flex-start;
+}
+
+/* Достижения: строка с иконкой, прогрессом и наградой. Список длинный,
+   поэтому живёт в своём прокручиваемом контейнере, а не растягивает профиль. */
+.ach-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 440px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.ach-list::-webkit-scrollbar { width: 8px; }
+.ach-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--border);
+}
+.ach-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-solid);
+}
+.ach-row.done {
+  border-color: color-mix(in srgb, #22c55e 50%, var(--border));
+  background: color-mix(in srgb, #22c55e 9%, var(--surface-solid));
+}
+/* Скрытое достижение: условие не раскрыто — рамка пунктиром, без прогресса. */
+.ach-row.secret { border-style: dashed; }
+.ach-row.secret.done { border-style: solid; }
+.ach-icon { font-size: 18px; line-height: 1; text-align: center; }
+.ach-body b { display: block; font-size: 13.5px; }
+.ach-body small { color: var(--text-dim); font-size: 11.5px; }
+.ach-bar {
+  height: 5px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.ach-bar span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }
+.ach-row.done .ach-bar span { background: #22c55e; }
+.ach-goal {
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ach-goal b { display: block; color: var(--text); font-size: 12.5px; }
+
+.link-btn {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ===== Гостевой режим ===== */
+.limit-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 11px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(217, 145, 60, 0.35);
+  background: rgba(217, 145, 60, 0.12);
+  font-size: 14px;
+}
+
+.limit-banner[hidden] { display: none; }
+.limit-banner > span:nth-child(2) { flex: 1 1 220px; }
+
+.limit-banner.flash { animation: limit-flash 0.9s ease 2; }
+
+@keyframes limit-flash {
+  0%, 100% { background: rgba(217, 145, 60, 0.12); }
+  50%      { background: rgba(217, 145, 60, 0.32); }
+}
+
+/* Заблокированные в гостевом режиме элементы остаются видимыми,
+   чтобы было понятно, что откроется после входа в аккаунт. */
+body.limited .modes .mode,
+body.limited .switch,
+body.limited .btn.blocked {
+  opacity: 0.5;
+}
+
+body.limited .modes .mode,
+body.limited .btn.blocked { cursor: not-allowed; }
+
+body.limited .modes .mode.active {
+  outline: 1px dashed var(--border);
+}
+
+/* ===== Адаптивность ===== */
+@media (max-width: 760px) {
+  .app { padding: 18px 14px 32px; }
+  .kpi-value b { font-size: 28px; }
+  .brand-text h1 { font-size: 24px; }
+  .topbar { gap: 12px; }
+  .toasts { left: 14px; right: 14px; max-width: none; }
+  .zone-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .zone-card { padding: 11px; }
+  .zone-metrics { font-size: 12px; gap: 6px 10px; }
+  .zone-actions .btn { padding: 7px 9px; font-size: 12px; }
+}
+
+@media (max-width: 380px) {
+  .zone-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

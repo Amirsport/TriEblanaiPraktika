@@ -1,0 +1,11 @@
+# Зависимости _fetch_songless_audio.py: поиск опенингов на YouTube и скачивание
+# звука для игры «Аниме-сонглесс». Нужны только этому скрипту — сервер работает
+# без них.
+# yt-dlp скачивает лучшую звуковую дорожку ролика, imageio-ffmpeg приносит
+# бинарник ffmpeg для перегонки в mp3 (он же нужен songs.py). psycopg нужен для
+# PostgreSQL (у SQLite драйвер встроенный).
+yt-dlp>=2025.1
+imageio-ffmpeg>=0.5
+psycopg[binary]>=3.1
+# PySocks нужен, если YouTube доступен только через socks-прокси (--proxy socks5://…).
+PySocks>=1.7

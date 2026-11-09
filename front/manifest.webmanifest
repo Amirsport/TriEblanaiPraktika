@@ -1,0 +1,24 @@
+{
+  "name": "Умная AI-Теплица",
+  "short_name": "AI-Теплица",
+  "description": "Панель управления теплицей из 12 участков: влага, свет, полив и проветривание.",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f6f7f4",
+  "theme_color": "#4f9a48",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Участки (12)", "short_name": "Участки", "url": "./index.html#zones" },
+    { "name": "Полив", "short_name": "Полив", "url": "./index.html#watering" },
+    { "name": "Журнал", "short_name": "Журнал", "url": "./index.html#logs" }
+  ]
+}
