@@ -45,6 +45,12 @@ API (JSON):
     GET  /api/auth/state                 (Bearer) сохранённое состояние панели
     POST /api/auth/state                 (Bearer) {"...": "..."} сохранить состояние
     POST /api/auth/password              (Bearer) {"current":"...","new":"..."} смена пароля
+    GET  /api/profile                    (Bearer) свой профиль и статистика
+    POST /api/profile                    (Bearer) {"display_name","bio","favorite_game","accent"}
+    POST /api/profile/avatar             (Bearer) {"image":"data:image/png;base64,..."}
+    DELETE /api/profile/avatar           (Bearer) удалить аватар
+    GET  /api/profile/<username>         публичный профиль игрока
+    GET  /api/profiles/<id>/avatar       картинка аватара
     GET  /api/admin/users                (admin) список аккаунтов
     POST /api/admin/users                (admin) {"username":"...","password":"...","role":"user"}
     POST /api/admin/users/<id>/password  (admin) {"new":"..."} сброс пароля
@@ -63,22 +69,28 @@ API (JSON):
     POST /api/games/narutodle/rooms/<код>/mode     {"mode":"duel|race|teams"} — режим (хозяин)
     POST /api/games/narutodle/rooms/<код>/team     {"total":9} — сколько персонажей на команду (хозяин)
     POST /api/games/narutodle/rooms/<код>/side     {"team":"a|b"} — перейти в другую команду в лобби
-    POST /api/games/narutodle/rooms/<код>/start    начать игру (хозяин)
+    POST /api/games/narutodle/rooms/<код>/ready    {"ready":true} — готовность; партия стартует, когда готовы все
+    POST /api/games/narutodle/rooms/<код>/start    начать игру сразу (хозяин)
     POST /api/games/narutodle/rooms/<код>/lobby    вернуться в лобби после партии
     GET  /api/games/narutodle/rooms/<код>          состояние комнаты (опрос страницей)
     GET  /api/games/narutodle/rooms/<код>/watch    наблюдение за комнатой
     POST /api/games/narutodle/rooms/<код>/guess    {"name":"..."} догадка
     POST /api/games/narutodle/rooms/<код>/giveup   сдаться
-    POST /api/games/narutodle/rooms/<код>/rematch  новая партия
+    POST /api/games/narutodle/rooms/<код>/say      {"text":"..."} — чат комнаты
+    POST /api/games/narutodle/rooms/<код>/kick     {"user_id":N} — исключить игрока (хозяин)
+    POST /api/games/narutodle/rooms/<код>/rematch  {"ready":true|false} — готовность к новой партии
 
 Игры «Аниме-сонглесс» (тоже по аккаунту):
     GET  /api/games/songless/status                 сколько треков и что можно играть
+    GET  /api/games/songless/leaderboard            ?mode=solo|online&today=1&limit=N
     POST /api/games/songless/solo                   начать соло-заход
     GET  /api/games/songless/solo/<id>              состояние захода
     POST /api/games/songless/solo/<id>/answer       {"choice": номер варианта}
+    POST /api/games/songless/solo/<id>/skip         пропустить ожидание следующего раунда
     GET  /api/games/songless/solo/<id>/clip?round=  фрагмент текущего раунда
     POST /api/games/songless/rooms                  создать комнату
     POST /api/games/songless/rooms/<код>/join       войти в комнату
+    POST /api/games/songless/rooms/<код>/ready      {"ready":true} — готовность в лобби
     POST /api/games/songless/rooms/<код>/start      начать партию (хозяин комнаты)
     GET  /api/games/songless/rooms/<код>            состояние партии (опрос страницей)
     POST /api/games/songless/rooms/<код>/answer     {"choice": номер варианта}
@@ -119,7 +131,9 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+import hashlib
 import hmac
+import ipaddress
 import json
 import mimetypes
 import os
@@ -133,14 +147,27 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 try:  # запуск как модуль: python -m backend.server
     from .auth import (
-        ROLES, SESSION_DAYS, hash_password, new_token, normalize_username, public_user,
-        validate_password, validate_role, validate_username, verify_password,
+        ROLES, SESSION_DAYS, hash_password, new_token, normalize_username, parse_avatar,
+        public_user, validate_accent, validate_bio, validate_card, validate_display_name,
+        validate_frame, validate_password, validate_role, validate_username, verify_password,
     )
-    from .db import DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, DeviceLink, open_database
+    from .achievements import (
+        ACHIEVEMENTS, STATUSES, check_item, progress as achievement_progress,
+        rewards_status, unlocked_cards, unlocked_frames, validate_status,
+    )
+    from .db import (
+        AUDIO_IN_DB,
+        DEFAULT_SETTINGS,
+        DEVICES,
+        ZONE_COUNT,
+        DatabaseLike,
+        DeviceLink,
+        open_database,
+    )
     from .arduino import ArduinoLink
     from .device_link import RemoteDeviceLink
     from .csdraft import (
@@ -215,11 +242,17 @@ try:  # запуск как модуль: python -m backend.server
 except ImportError:  # запуск как файл: python backend/server.py
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from auth import (  # type: ignore
-        ROLES, SESSION_DAYS, hash_password, new_token, normalize_username, public_user,
-        validate_password, validate_role, validate_username, verify_password,
+        ROLES, SESSION_DAYS, hash_password, new_token, normalize_username, parse_avatar,
+        public_user, validate_accent, validate_bio, validate_card, validate_display_name,
+        validate_frame, validate_password, validate_role, validate_username, verify_password,
+    )
+    from achievements import (  # type: ignore
+        ACHIEVEMENTS, STATUSES, check_item, progress as achievement_progress,
+        rewards_status, unlocked_cards, unlocked_frames, validate_status,
     )
     from db import (  # type: ignore
-        DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, DeviceLink, open_database,
+        AUDIO_IN_DB, DEFAULT_SETTINGS, DEVICES, ZONE_COUNT, DatabaseLike, DeviceLink,
+        open_database,
     )
     from arduino import ArduinoLink  # type: ignore
     from device_link import RemoteDeviceLink  # type: ignore
@@ -300,6 +333,11 @@ DEFAULT_DB = ROOT / "data" / "greenhouse.sqlite3"
 # Логин администратора, который создаётся при первом запуске сервера.
 ADMIN_NAME = "admin"
 
+# Игры витрины AmrGames: любимую игру профиля сверяем с этим списком (id из
+# массива GAMES на странице front/games/index.html).
+PROFILE_GAMES = ("narutodle", "animesongless", "csdraft", "songguess",
+                 "valorant", "rl", "raporder", "dota322")
+
 # Ограничитель попыток входа и регистрации: не больше N за окно, в расчёте на адрес.
 AUTH_ATTEMPTS = 10
 AUTH_WINDOW_SECONDS = 60
@@ -345,6 +383,10 @@ class Application:
         self.device_link: Optional[RemoteDeviceLink] = (
             arduino if isinstance(arduino, RemoteDeviceLink) else None)
         self.token = token or None
+        # Секрет для коротких подписей ссылок на фрагменты: <audio> не умеет
+        # отправлять Bearer, а ссылка должна работать без входа и не раскрывать
+        # название трека. Подпись живёт час и привязана к комнате/заходу.
+        self.clip_secret = secrets.token_urlsafe(24)
         self._timers: Dict[Tuple[int, str], float] = {}
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -355,7 +397,9 @@ class Application:
                                    on_finish=self._log_narutodle_match,
                                    provider=self.db.narutodle_characters)
         self.songless = Songless(tracks=self._songless_tracks(),
-                                 provider=self.db.songless_tracks)
+                                 provider=self.db.songless_tracks,
+                                 on_finish=self._log_songless_run,
+                                 clip_signer=self.clip_sign)
         # «Угадай песню за 10 секунд»: своя таблица песен по темам, но записи
         # владелец сайта кладёт так же — файлами или ссылками.
         self.songguess = SongGuess(tracks=self._songguess_tracks(),
@@ -416,6 +460,29 @@ class Application:
 
     def user_by_token(self, token: str) -> Optional[Dict[str, Any]]:
         return self.db.session_user(token) if token else None
+
+    def clip_sign(self, scope: str, number: int, user_id: int) -> str:
+        """Подпись ссылки на фрагмент: годится для <audio> без заголовков."""
+        expires = int(time.time()) + 3600
+        message = f"{scope}:{int(number)}:{int(user_id)}:{expires}".encode("utf-8")
+        digest = hmac.new(self.clip_secret.encode("utf-8"), message,
+                          hashlib.sha256).hexdigest()[:32]
+        return f"{int(user_id)}.{expires}.{digest}"
+
+    def clip_verify(self, scope: str, number: int, token: str) -> Optional[int]:
+        """Проверяет подпись ссылки; возвращает id игрока или None."""
+        try:
+            user_id, expires, digest = str(token or "").split(".", 2)
+            user_id = int(user_id)
+            expires = int(expires)
+        except (TypeError, ValueError):
+            return None
+        if expires < int(time.time()):
+            return None
+        message = f"{scope}:{int(number)}:{user_id}:{expires}".encode("utf-8")
+        expected = hmac.new(self.clip_secret.encode("utf-8"), message,
+                            hashlib.sha256).hexdigest()[:32]
+        return user_id if hmac.compare_digest(expected, digest) else None
 
     def allow_attempt(self, client: str) -> bool:
         """Свободная регистрация и вход открыты всем, поэтому попытки ограничиваем.
@@ -504,6 +571,16 @@ class Application:
             f"{entry['correct']} из {entry['rounds']} верных, {entry['score']} очков "
             f"(тема «{record.get('category_label') or entry['category']}», "
             f"{entry['difficulty']}{note})",
+            "info",
+        )
+
+    def _log_songless_run(self, record: Dict[str, Any]) -> None:
+        """Пишет итог «Аниме-сонглесса»: по нему считаются достижения."""
+        entry = self.db.songless_add_run(record)
+        where = "соло" if entry["mode"] == "solo" else "онлайн"
+        self.db.add_log(
+            f"Аниме-сонглесс: заход #{entry['id']} ({where}) у {entry['username']} — "
+            f"{entry['correct']} из {entry['rounds']} верных, {entry['score']} очков",
             "info",
         )
 
@@ -650,7 +727,7 @@ class Application:
         self.db.add_log(f"Вход в панель: {user['username']}", "info")
         return {
             "token": token,
-            "user": public_user(user),
+            "user": self.user_payload(user),
             "state": self.db.user_state(user["id"]),
             "expires_in_days": SESSION_DAYS,
         }
@@ -706,6 +783,134 @@ class Application:
 
     def save_user_state(self, user_id: int, payload: Dict[str, Any]) -> None:
         self.db.save_user_state(user_id, payload)
+
+    # ---------------------------------------------------------------- профили
+    @staticmethod
+    def _avatar_version(updated_at: Any) -> str:
+        """Версия картинки для ссылки: браузер не покажет старый аватар из кэша."""
+        return re.sub(r"\D", "", str(updated_at or ""))[-14:] or "0"
+
+    def profile_payload(self, user: Dict[str, Any], with_stats: bool = False) -> Dict[str, Any]:
+        """Профиль игрока для страницы и для шапки: пустые поля — не заполнено."""
+        profile = self.db.user_profile(int(user["id"]))
+        has_avatar = bool(profile.get("has_avatar"))
+        payload: Dict[str, Any] = {
+            "id": user.get("id"),
+            "username": user.get("username"),
+            "role": user.get("role"),
+            "created_at": user.get("created_at"),
+            "display_name": profile.get("display_name") or "",
+            "bio": profile.get("bio") or "",
+            "favorite_game": profile.get("favorite_game") or "",
+            "accent": profile.get("accent") or "",
+            "frame": profile.get("frame") or "",
+            "card": profile.get("card") or "",
+            "status": profile.get("status") or "",
+            "has_avatar": has_avatar,
+            "avatar_url": (
+                f"/api/profiles/{int(user['id'])}/avatar"
+                f"?v={self._avatar_version(profile.get('updated_at'))}"
+            ) if has_avatar else "",
+            "updated_at": profile.get("updated_at"),
+        }
+        if with_stats:
+            payload["stats"] = self.db.profile_stats(int(user["id"]))
+        return payload
+
+    def user_payload(self, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Строка пользователя для ответов входа: профиль нужен шапке страниц."""
+        data = public_user(user)
+        profile = self.profile_payload(user)
+        data["display_name"] = profile["display_name"]
+        data["avatar_url"] = profile["avatar_url"]
+        data["accent"] = profile["accent"]
+        data["frame"] = profile["frame"]
+        data["card"] = profile["card"]
+        data["status"] = profile["status"]
+        data["status_view"] = STATUSES.get(str(profile["status"] or "")) or None
+        return data
+
+    def update_profile(self, user_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        favorite = str(data.get("favorite_game") or "").strip().lower()
+        if favorite and favorite not in PROFILE_GAMES:
+            raise ValueError("Неизвестная игра в профиле")
+        # Роль нужна до проверки: ободок «смотрителя» выдаётся только админам.
+        user = self.db.get_user(int(user_id)) or {"id": user_id}
+        current = self.db.user_profile(int(user_id))
+        earned = set(self.db.achievements_unlocked(int(user_id)))
+
+        # Уже выбранный предмет не отбираем: закрытым он мог стать позже.
+        frame = validate_frame(data.get("frame"), str(user.get("role") or ""))
+        if frame and frame != str(current.get("frame") or ""):
+            frame = check_item(frame, unlocked_frames(earned), "Ободок")
+        card = validate_card(data.get("card"), str(user.get("role") or ""))
+        if card and card != str(current.get("card") or ""):
+            card = check_item(card, unlocked_cards(earned), "Оформление карточки")
+        status = str(data.get("status") or "").strip().lower()
+        if status and status != str(current.get("status") or ""):
+            status = validate_status(status, rewards_status(earned),
+                                 str(user.get("role") or ""))
+
+        values = {
+            "display_name": validate_display_name(data.get("display_name")),
+            "bio": validate_bio(data.get("bio")),
+            "favorite_game": favorite,
+            "accent": validate_accent(data.get("accent")),
+            "frame": frame,
+            "card": card,
+            "status": status,
+        }
+        self.db.save_user_profile(int(user_id), values)
+        return self.profile_payload(user, with_stats=True)
+
+    def set_avatar(self, user_id: int, value: Any) -> Dict[str, Any]:
+        mime, blob = parse_avatar(value)
+        self.db.set_user_avatar(int(user_id), mime, blob)
+        user = self.db.get_user(int(user_id)) or {"id": user_id}
+        return self.profile_payload(user, with_stats=True)
+
+    def clear_avatar(self, user_id: int) -> Dict[str, Any]:
+        self.db.clear_user_avatar(int(user_id))
+        user = self.db.get_user(int(user_id)) or {"id": user_id}
+        return self.profile_payload(user, with_stats=True)
+
+    def achievements_payload(self, user: Dict[str, Any]) -> Dict[str, Any]:
+        """Достижения игрока с прогрессом; новые награды выдаются здесь же.
+
+        Считаем по уже записанным партиям, поэтому отдельного журнала событий
+        не нужно: как только условие выполнено, достижение фиксируется в
+        `user_achievements` и больше не проверяется — награда не отбирается.
+        """
+        user_id = int(user["id"])
+        metrics = self.db.game_metrics(user_id)
+        unlocked = self.db.achievements_unlocked(user_id)
+        items = achievement_progress(metrics, unlocked)
+        gained: List[str] = []
+        for item in items:
+            if item["done"] and not item["unlocked"]:
+                if self.db.achievement_unlock(user_id, str(item["id"])):
+                    gained.append(str(item["id"]))
+        if gained:
+            unlocked = self.db.achievements_unlocked(user_id)
+            items = achievement_progress(metrics, unlocked)
+        earned = set(unlocked)
+        # Метрики скрытых достижений тоже не отдаём: по их именам видно условие.
+        secret_metrics = {str(item["metric"]) for item in ACHIEVEMENTS
+                          if item.get("secret")}
+        public_metrics = {key: value for key, value in metrics.items()
+                          if key not in secret_metrics}
+        return {
+            "achievements": items,
+            "unlocked": {
+                "statuses": sorted(rewards_status(earned)),
+                "frames": unlocked_frames(earned),
+                "cards": unlocked_cards(earned),
+            },
+            "statuses": STATUSES,
+            "counts": {"unlocked": len(earned), "total": len(ACHIEVEMENTS)},
+            "gained": gained,
+            "metrics": public_metrics,
+        }
 
     # ---------------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -1037,6 +1242,37 @@ class Handler(BaseHTTPRequestHandler):
         params = parse_qs(urlparse(self.path).query)
         return {key: values[0] for key, values in params.items() if values}
 
+    # ---------------------------------------------------- адрес пользователя
+    @staticmethod
+    def _valid_ip(value: str) -> bool:
+        try:
+            ipaddress.ip_address(value)
+            return True
+        except ValueError:
+            return False
+
+    def client_ip(self) -> str:
+        """Адрес посетителя. На VPS сервер слушает только 127.0.0.1, и все
+        запросы приходят от nginx, поэтому настоящий адрес берём из заголовка:
+        nginx подставляет его из $remote_addr и подделать его нельзя."""
+        for header in ("X-Real-IP", "X-Forwarded-For"):
+            value = (self.headers.get(header) or "").split(",")[0].strip()
+            if value and self._valid_ip(value):
+                return value
+        return self.client_address[0] if self.client_address else "?"
+
+    def rate_client(self) -> str:
+        """Ключ ограничителя для игровых действий.
+
+        За одним адресом может сидеть несколько человек (NAT, общий выход VPN),
+        поэтому при входе считаем попытки по аккаунту, а адрес оставляем только
+        гостям — иначе общий счётчик упирался бы в лимит на первой же комнате.
+        """
+        token = self._bearer_token()
+        if token:
+            return "u:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+        return "ip:" + self.client_ip()
+
     # ------------------------------------------------------------- verbs
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
@@ -1082,9 +1318,11 @@ class Handler(BaseHTTPRequestHandler):
         app = self.app
         query = self._query()
 
-        # Вход и секретная страница защищены паролем пользователя, а не общим
-        # ключом, иначе войти было бы невозможно. Общий ключ их не закрывает.
-        if path.startswith(("/api/auth/", "/api/admin/", "/api/secret/")):
+        # Вход, профили и секретная страница защищены паролем пользователя, а не
+        # общим ключом, иначе войти было бы невозможно. Общий ключ их не закрывает.
+        if path.startswith(("/api/auth/", "/api/admin/", "/api/secret/",
+                            "/api/profile/", "/api/profiles/")) \
+                or path in ("/api/profile", "/api/profiles", "/api/achievements"):
             return self._handle_accounts_api(method, path)
 
         # Игры: в них пускает аккаунт (Bearer), а общий ключ не нужен — он попал бы
@@ -1174,7 +1412,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             token = self._bearer_token()
             user = app.user_by_token(token)
-            client = self.client_address[0] if self.client_address else "?"
+            client = self.client_ip()
 
             if method == "POST" and path == "/api/auth/login":
                 if not app.allow_attempt(client):
@@ -1203,7 +1441,8 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and path == "/api/auth/me":
                 if not user:
                     return self._error("Требуется вход", 401)
-                return self._json({"user": user})
+                return self._json({"user": app.user_payload(user),
+                                   "profile": app.profile_payload(user, with_stats=True)})
 
             if path == "/api/auth/state":
                 if not user:
@@ -1221,6 +1460,81 @@ class Handler(BaseHTTPRequestHandler):
                 app.change_password(user["id"], str(data.get("current") or ""), str(data.get("new") or ""))
                 app.logout(token)  # после смены пароля токен закрываем: нужен новый вход
                 return self._json({"ok": True, "relogin": True})
+
+            # Профиль: свои поля меняются по токену входа, чужие — только чтение.
+            if path == "/api/profile":
+                if not user:
+                    return self._error("Требуется вход", 401)
+                if method == "GET":
+                    return self._json({"profile": app.profile_payload(user, with_stats=True)})
+                if method == "POST":
+                    return self._json({"profile": app.update_profile(user["id"], self._body())})
+
+            if path == "/api/profile/avatar":
+                if not user:
+                    return self._error("Требуется вход", 401)
+                if method == "POST":
+                    data = self._body()
+                    value = data.get("image") or data.get("dataUrl") or data.get("avatar")
+                    return self._json({"profile": app.set_avatar(user["id"], value)})
+                if method == "DELETE":
+                    return self._json({"profile": app.clear_avatar(user["id"])})
+
+            match = re.fullmatch(r"/api/profiles/(\d+)/avatar", path)
+            if method == "GET" and match:
+                avatar = app.db.user_avatar(int(match.group(1)))
+                if not avatar:
+                    return self._error("У игрока нет аватара", 404)
+                return self._image(avatar["data"], avatar["mime"], 300)
+
+            # Список профилей для комнат игр: аватары участников подтягиваются
+            # одним запросом, а не по одному на каждого игрока.
+            if method == "GET" and path == "/api/profiles":
+                ids: List[int] = []
+                for part in (self._query().get("ids") or "").split(","):
+                    part = part.strip()
+                    if part.isdigit():
+                        ids.append(int(part))
+                    if len(ids) >= 60:
+                        break
+                profiles = []
+                for user_id in dict.fromkeys(ids):
+                    other = app.db.get_user(user_id)
+                    if not other:
+                        continue
+                    item = app.profile_payload(other)
+                    profiles.append({
+                        "id": item["id"],
+                        "username": item["username"],
+                        "display_name": item["display_name"],
+                        "accent": item["accent"],
+                        "frame": item["frame"],
+                        "status": item["status"],
+                        "status_view": STATUSES.get(str(item["status"] or "")) or None,
+                        "has_avatar": item["has_avatar"],
+                        "avatar_url": item["avatar_url"],
+                    })
+                return self._json({"profiles": profiles})
+
+            # Достижения: свои (Bearer) или чужого игрока через ?u=логин.
+            if method == "GET" and path == "/api/achievements":
+                name = (self._query().get("u") or "").strip()
+                target = user
+                if name:
+                    target = app.db.find_user(name)
+                    if not target:
+                        return self._error("Игрок не найден", 404)
+                if not target:
+                    return self._error("Требуется вход", 401)
+                return self._json(app.achievements_payload(target))
+
+            match = re.fullmatch(r"/api/profile/([^/]+)", path)
+            if method == "GET" and match:
+                name = unquote(match.group(1)).strip()
+                other = app.db.find_user(normalize_username(name)) if name else None
+                if not other:
+                    return self._error("Игрок не найден", 404)
+                return self._json({"profile": app.profile_payload(other, with_stats=True)})
 
             if path == "/api/admin/users":
                 if not self._require_admin(user):
@@ -1286,7 +1600,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         app = self.app
         prefix = "/api/games/narutodle"
-        client = self.client_address[0] if self.client_address else "?"
+        client = self.rate_client()
         query = self._query()
 
         if path.startswith("/api/games/songless"):
@@ -1397,6 +1711,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"state": app.narutodle.move_team(
                     match.group(1), user, team)})
 
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/ready", path)
+            if method == "POST" and match:
+                if not user:
+                    return self._error("Требуется вход", 401)
+                ready = self._body().get("ready", True)
+                return self._json({"state": app.narutodle.set_ready(
+                    match.group(1), user, bool(ready))})
+
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/start", path)
             if method == "POST" and match:
                 return self._json({"state": app.narutodle.start(match.group(1), user)})
@@ -1414,9 +1736,25 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST" and match:
                 return self._json({"state": app.narutodle.give_up(match.group(1), user)})
 
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/kick", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком часто — подождите минуту", 429)
+                target = self._body().get("user_id")
+                return self._json({"state": app.narutodle.kick(match.group(1), user, target)})
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/say", path)
+            if method == "POST" and match:
+                if not app.allow_game_action(client):
+                    return self._error("Слишком часто пишете — подождите минуту", 429)
+                text = str(self._body().get("text") or "")
+                return self._json({"state": app.narutodle.say(match.group(1), user, text)})
+
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/rematch", path)
             if method == "POST" and match:
-                return self._json({"state": app.narutodle.rematch(match.group(1), user)})
+                ready = self._body().get("ready", True)
+                return self._json({"state": app.narutodle.rematch(
+                    match.group(1), user, bool(ready))})
 
             return self._error(f"Не найдено: {method} {path}", 404)
         except NarutodleError as exc:
@@ -1483,6 +1821,17 @@ class Handler(BaseHTTPRequestHandler):
             return default
         return max(1, min(value, 500))
 
+    @staticmethod
+    def _day_start() -> datetime:
+        """Начало сегодняшнего дня по часам сервера.
+
+        «Лучшие за сегодня» считаются от местной полуночи: на сервере в UTC это
+        не то же самое, что полночь у игрока, поэтому границу берём из местного
+        часового пояса процесса, а сравнение в базе идёт уже в UTC.
+        """
+        now = datetime.now().astimezone()
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
     def _handle_draft_api(self, method: str, path: str, game: str = "cs",
                           prefix: str = "/api/games/csdraft") -> None:
         """Драфт-рогалик: драфт состава из прошлых турниров и прогон по сетке.
@@ -1498,7 +1847,7 @@ class Handler(BaseHTTPRequestHandler):
         переживает перезапуск.
         """
         app = self.app
-        client = self.client_address[0] if self.client_address else "?"
+        client = self.rate_client()
         query = self._query()
 
         try:
@@ -1619,7 +1968,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         app = self.app
         prefix = "/api/games/dota322"
-        client = self.client_address[0] if self.client_address else "?"
+        client = self.rate_client()
         query = self._query()
 
         try:
@@ -1729,7 +2078,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         app = self.app
         prefix = "/api/games/raporder"
-        client = self.client_address[0] if self.client_address else "?"
+        client = self.rate_client()
         query = self._query()
 
         try:
@@ -1829,7 +2178,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         app = self.app
         prefix = "/api/games/songguess"
-        client = self.client_address[0] if self.client_address else "?"
+        client = self.rate_client()
         query = self._query()
 
         try:
@@ -1907,11 +2256,24 @@ class Handler(BaseHTTPRequestHandler):
         """
         app = self.app
         prefix = "/api/games/songless"
-        client = self.client_address[0] if self.client_address else "?"
+        client = self.rate_client()
         query = self._query()
 
         try:
             user = app.user_by_token(self._bearer_token())
+
+            # Ссылка на фрагмент может быть подписана: <audio> не отправляет
+            # Authorization, а запись нужна и без заголовка. Подпись привязана
+            # к комнате/заходу, раунду и игроку и живёт час.
+            if not user:
+                signature = str(query.get("sig") or "")
+                clip_match = re.fullmatch(
+                    rf"{prefix}/(solo|rooms)/([A-Za-z0-9]+)/clip", path)
+                if signature and clip_match:
+                    signed_user = app.clip_verify(
+                        clip_match.group(2), self._round_param(query) or 0, signature)
+                    if signed_user:
+                        user = {"id": signed_user, "username": ""}
 
             # Состояние набора открыто: страница должна объяснить, что играть
             # пока нечего, ещё до входа в аккаунт.
@@ -1922,10 +2284,25 @@ class Handler(BaseHTTPRequestHandler):
                     "playable": app.songless.playable_count(),
                     "ready": app.songless.ready(),
                     "rounds": ROUNDS_PER_GAME,
+                    "rounds_min": 1,
+                    "rounds_max": 100,
                     "min_players": MIN_PLAYERS,
                     "max_players": MAX_PLAYERS,
                     "answer_seconds": ANSWER_SECONDS,
                     "solo_lives": SOLO_LIVES,
+                })
+
+            if method == "GET" and path == f"{prefix}/leaderboard":
+                mode = str(query.get("mode") or "").strip().lower()
+                if mode not in ("solo", "online"):
+                    mode = ""
+                today = str(query.get("today") or "").strip().lower() in ("1", "true", "yes")
+                return self._json({
+                    "mode": mode or "all",
+                    "today": today,
+                    "leaderboard": app.db.songless_leaderboard(
+                        self._limit_arg(query), mode=mode or None,
+                        since=self._day_start() if today else None),
                 })
 
             if not user:
@@ -1934,7 +2311,9 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST" and path == f"{prefix}/solo":
                 if not app.allow_game_action(client):
                     return self._error("Слишком много попыток за минуту — подождите немного", 429)
-                return self._json({"state": app.songless.solo_start(user)}, 201)
+                data = self._body()
+                return self._json({"state": app.songless.solo_start(
+                    user, data.get("rounds"))}, 201)
 
             match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)", path)
             if method == "GET" and match:
@@ -1943,7 +2322,12 @@ class Handler(BaseHTTPRequestHandler):
             match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)/answer", path)
             if method == "POST" and match:
                 choice = self._body().get("choice")
-                return self._json({"state": app.songless.solo_answer(match.group(1), user, choice)})
+                return self._json({"state": app.songless.solo_answer(
+                    match.group(1), user, choice, self._body().get("elapsed"))})
+
+            match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)/skip", path)
+            if method == "POST" and match:
+                return self._json({"state": app.songless.solo_skip(match.group(1), user)})
 
             match = re.fullmatch(rf"{prefix}/solo/([A-Za-z0-9]+)/clip", path)
             if method == "GET" and match:
@@ -1953,7 +2337,13 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST" and path == f"{prefix}/rooms":
                 if not app.allow_game_action(client):
                     return self._error("Слишком много комнат за минуту — подождите немного", 429)
-                return self._json({"state": app.songless.create(user)}, 201)
+                return self._json({"state": app.songless.create(
+                    user, self._body().get("rounds"))}, 201)
+
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/rounds", path)
+            if method == "POST" and match:
+                return self._json({"state": app.songless.set_rounds(
+                    match.group(1), user, self._body().get("rounds"))})
 
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})", path)
             if method == "GET" and match:
@@ -1965,6 +2355,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self._error("Слишком много попыток войти — подождите минуту", 429)
                 return self._json({"state": app.songless.join(match.group(1), user)})
 
+            match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/ready", path)
+            if method == "POST" and match:
+                ready = self._body().get("ready", True)
+                return self._json({"state": app.songless.set_ready(
+                    match.group(1), user, bool(ready))})
+
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/start", path)
             if method == "POST" and match:
                 return self._json({"state": app.songless.start(match.group(1), user)})
@@ -1972,7 +2368,9 @@ class Handler(BaseHTTPRequestHandler):
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/answer", path)
             if method == "POST" and match:
                 choice = self._body().get("choice")
-                return self._json({"state": app.songless.answer(match.group(1), user, choice)})
+                elapsed = self._body().get("elapsed")
+                return self._json({"state": app.songless.answer(
+                    match.group(1), user, choice, elapsed)})
 
             match = re.fullmatch(rf"{prefix}/rooms/([A-Za-z0-9]{{4}})/rematch", path)
             if method == "POST" and match:
@@ -2035,15 +2433,37 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------- songless files
     def _send_clip(self, track: Dict[str, Any], game: str = "animesongless") -> None:
-        """Отдаёт запись трека: свой файл — потоком, внешнюю ссылку — перенаправлением.
+        """Отдаёт запись трека: из базы, файлом или перенаправлением на ссылку.
 
         Адрес фрагмента не выдаёт, что за песня играет: клиент получает не имя
         файла из базы, а служебный путь комнаты или захода. У игры свои записи
         (`front/games/<игра>/audio`), поэтому каталог передаётся аргументом.
+        Запись из songs.py лежит в таблице audio_clips, а в колонке audio
+        стоит маркер AUDIO_IN_DB.
         """
         audio = str(track.get("audio") or "")
         if not audio:
             return self._error("У этой песни нет записи", 404)
+
+        if audio == AUDIO_IN_DB:
+            game_key = "songless" if game in ("animesongless", "songless") else game
+            track_key = str(track.get("track_key") or track.get("anime")
+                            or track.get("id") or "")
+            clip = self.app.db.audio_clip_get(game_key, track_key) if track_key else None
+            if not clip or not clip.get("data"):
+                video = str(track.get("video") or "")
+                if video.startswith(("http://", "https://")):
+                    # Кэш неполный: отдаём хотя бы внешний опенинг, чтобы
+                    # раунд не остался совсем без звука.
+                    self.send_response(302)
+                    self.send_header("Location", video)
+                    self.send_header("Content-Length", "0")
+                    self.send_header("Cache-Control", "no-store")
+                    self._cors()
+                    self.end_headers()
+                    return
+                return self._error("Запись не найдена в базе — запустите songs.py", 404)
+            return self._send_audio_bytes(clip["data"], str(clip.get("mime") or "audio/mpeg"))
 
         if audio.startswith(("http://", "https://")):
             self.send_response(302)
@@ -2065,6 +2485,10 @@ class Handler(BaseHTTPRequestHandler):
 
         body = target.read_bytes()
         mime = AUDIO_TYPES.get(target.suffix.lower(), "application/octet-stream")
+        self._send_audio_bytes(body, mime)
+
+    def _send_audio_bytes(self, body: bytes, mime: str) -> None:
+        """Отдаёт готовые аудиобайты с браузерным кэшем (файл или запись из базы)."""
         self.send_response(200)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(body)))

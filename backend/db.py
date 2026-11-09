@@ -14,6 +14,8 @@
     secret_data  — именованные записи секретной страницы /TriEblanaiPraktika;
     narutodle_characters / narutodle_matches — игра «Narutodle» и её журнал;
     songless_tracks — игра «Аниме-сонглесс»: треки и записи к ним;
+    songguess_tracks — игра «Угадай песню»: песни и записи к ним;
+    audio_clips  — аудиофрагменты игр, сохранённые прямо в базе (MP3-байты);
     csdraft_packs / csdraft_runs — игра «87-0»: составы турниров и журнал прогонов;
     device_commands — очередь команд домашнему агенту (когда сервер не рядом с платой).
 
@@ -27,7 +29,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Union
 
 if TYPE_CHECKING:  # psycopg нужен только при работе с PostgreSQL
     from .arduino import ArduinoLink
@@ -40,6 +42,10 @@ ZONE_NAMES = [f"Участок {i}" for i in range(1, ZONE_COUNT + 1)]
 # Длина фрагмента трека по умолчанию («Аниме-сонглесс»), секунды.
 DEFAULT_CLIP_LENGTH = 8.0
 DEVICES = ("watering", "ventilation", "lighting")
+
+# Значение колонки audio, когда запись лежит не файлом и не ссылкой, а
+# в таблице audio_clips. Пишет его songs.py, читает раздача записей сервера.
+AUDIO_IN_DB = "db:clip"
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "mode": "auto",
@@ -137,6 +143,32 @@ CREATE TABLE IF NOT EXISTS user_states (
     updated_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+-- Профиль игрока: имя, описание, любимая игра, цвет и аватар. Отдельная
+-- таблица, чтобы картинка не попадала в каждый SELECT списка пользователей.
+CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    display_name  TEXT    NOT NULL DEFAULT '',
+    bio           TEXT    NOT NULL DEFAULT '',
+    favorite_game TEXT    NOT NULL DEFAULT '',
+    accent        TEXT    NOT NULL DEFAULT '',
+    frame         TEXT    NOT NULL DEFAULT '',
+    card          TEXT    NOT NULL DEFAULT '',
+    status        TEXT    NOT NULL DEFAULT '',
+    avatar_mime   TEXT    NOT NULL DEFAULT '',
+    avatar_data   BLOB,
+    updated_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+-- Достижения игрока: выданное один раз не отбирается, поэтому unlocked_at —
+-- момент первой выдачи. Награды (статус, ободок, оформление) не хранятся
+-- здесь: они выводятся из этого набора по каталогу backend/achievements.py.
+CREATE TABLE IF NOT EXISTS user_achievements (
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    achievement_id TEXT    NOT NULL,
+    unlocked_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    PRIMARY KEY (user_id, achievement_id)
+);
+
 CREATE TABLE IF NOT EXISTS secret_data (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT    NOT NULL,
@@ -186,6 +218,10 @@ CREATE TABLE IF NOT EXISTS narutodle_matches (
     loser_name      TEXT    NOT NULL DEFAULT '',
     winner_attempts INTEGER NOT NULL DEFAULT 0,
     loser_attempts  INTEGER NOT NULL DEFAULT 0,
+    -- Итог для скрытых достижений: победившая команда и доски с тем, кто
+    -- закрывал персонажа и с какой попытки (JSON, см. _log_match).
+    winner_team     TEXT    NOT NULL DEFAULT '',
+    boards_json     TEXT    NOT NULL DEFAULT '',
     reason          TEXT    NOT NULL DEFAULT '',
     played_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
@@ -193,20 +229,43 @@ CREATE INDEX IF NOT EXISTS idx_narutodle_matches_played ON narutodle_matches(id 
 CREATE INDEX IF NOT EXISTS idx_narutodle_matches_players ON narutodle_matches(player1_id, player2_id);
 
 -- Треки «Аниме-сонглесса»: справочные сведения плюс запись, которую слушают.
--- Самих записей в репозитории нет: audio указывает на свой файл в папке игры
--- или на внешнюю ссылку, и пока он пуст, раунд на треке не строится.
+-- Самих записей в репозитории нет: audio указывает на свой файл в папке игры,
+-- на внешнюю ссылку или на db:clip (MP3 лежит в audio_clips); пока он пуст,
+-- раунд на треке не строится.
 CREATE TABLE IF NOT EXISTS songless_tracks (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_key   TEXT    NOT NULL DEFAULT '',
     anime       TEXT    NOT NULL,
     song        TEXT    NOT NULL DEFAULT '',
     artist      TEXT    NOT NULL DEFAULT '',
     year        TEXT    NOT NULL DEFAULT '',
     audio       TEXT    NOT NULL DEFAULT '',
+    cover       TEXT    NOT NULL DEFAULT '',
+    video       TEXT    NOT NULL DEFAULT '',
     clip_start  REAL    NOT NULL DEFAULT 0,
     clip_length REAL    NOT NULL DEFAULT 8,
     updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_songless_tracks_anime ON songless_tracks(anime);
+CREATE INDEX IF NOT EXISTS idx_songless_tracks_anime ON songless_tracks(anime);
+
+-- Итоги заходов «Аниме-сонглесса»: по ним считаются достижения. detail —
+-- JSON-массив угаданных аниме, чтобы считать коллекцию без отдельной таблицы.
+CREATE TABLE IF NOT EXISTS songless_runs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT    NOT NULL DEFAULT '',
+    user_id    INTEGER,
+    mode       TEXT    NOT NULL DEFAULT 'solo',
+    rounds     INTEGER NOT NULL DEFAULT 0,
+    correct    INTEGER NOT NULL DEFAULT 0,
+    score      INTEGER NOT NULL DEFAULT 0,
+    perfect    INTEGER NOT NULL DEFAULT 0,
+    fast       INTEGER NOT NULL DEFAULT 0,
+    place      INTEGER NOT NULL DEFAULT 0,
+    winner     INTEGER NOT NULL DEFAULT 0,
+    detail     TEXT    NOT NULL DEFAULT '[]',
+    played_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_songless_runs_user ON songless_runs (user_id, id DESC);
 
 -- Очередь команд домашнему агенту: сервер на VPS не держит COM-порт, поэтому
 -- записывает команду сюда, агент забирает её, применяет к плате и подтверждает.
@@ -318,8 +377,9 @@ CREATE TABLE IF NOT EXISTS dotadraft_player_heroes (
 );
 
 -- «Угадай песню за 10 секунд»: песни по темам (аниме, русский рэп, хип-хоп)
--- и журнал заходов. Записи добавляет владелец сайта — файлами или ссылками;
--- пока записи нет, раунд на песне не строится.
+-- и журнал заходов. Записи добавляет владелец сайта — файлами, ссылками или
+-- через songs.py прямо в audio_clips (тогда в audio стоит db:clip); пока
+-- записи нет, раунд на песне не строится.
 CREATE TABLE IF NOT EXISTS songguess_tracks (
     id          TEXT    PRIMARY KEY,
     category    TEXT    NOT NULL DEFAULT 'anime',
@@ -348,6 +408,20 @@ CREATE TABLE IF NOT EXISTS songguess_runs (
     played_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_songguess_runs_user ON songguess_runs (user_id, id DESC);
+
+-- Аудиофрагменты игр («Угадай песню» и «Аниме-сонглесс») прямо в базе:
+-- game — ключ игры, track_key — id песни или название аниме, data — MP3-байты.
+CREATE TABLE IF NOT EXISTS audio_clips (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    game        TEXT    NOT NULL,
+    track_key   TEXT    NOT NULL,
+    mime        TEXT    NOT NULL DEFAULT 'audio/mpeg',
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    source      TEXT    NOT NULL DEFAULT '',
+    data        BLOB    NOT NULL,
+    updated_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    UNIQUE(game, track_key)
+);
 """
 
 # Колонки, появившиеся после первых версий базы: на старых базах их догоняет
@@ -359,6 +433,19 @@ LATE_COLUMNS: Tuple[Tuple[str, str, str], ...] = (
     ("narutodle_matches", "mode", "TEXT NOT NULL DEFAULT 'duel'"),
     ("narutodle_matches", "players", "TEXT NOT NULL DEFAULT ''"),
     ("narutodle_matches", "player_ids", "TEXT NOT NULL DEFAULT ''"),
+    # Скрытые достижения Narutodle: победившая команда и доски с попытками.
+    ("narutodle_matches", "winner_team", "TEXT NOT NULL DEFAULT ''"),
+    ("narutodle_matches", "boards_json", "TEXT NOT NULL DEFAULT ''"),
+    # Обложка и ссылка на опенинг для страницы «Аниме-сонглесса».
+    ("songless_tracks", "cover", "TEXT NOT NULL DEFAULT ''"),
+    ("songless_tracks", "video", "TEXT NOT NULL DEFAULT ''"),
+    # Аниме может встречаться несколько раз (разные опенинги): ключ трека.
+    ("songless_tracks", "track_key", "TEXT NOT NULL DEFAULT ''"),
+    # Персонализация профиля, появившаяся позже: ободок аватара и оформление
+    # карточки (см. backend/auth.py, FRAMES и CARDS).
+    ("user_profiles", "frame", "TEXT NOT NULL DEFAULT ''"),
+    ("user_profiles", "card", "TEXT NOT NULL DEFAULT ''"),
+    ("user_profiles", "status", "TEXT NOT NULL DEFAULT ''"),
 )
 
 # Индексы, которые зависят от поздних колонок: создаются после миграции, иначе
@@ -396,10 +483,104 @@ def _character(row: Dict[str, Any]) -> Dict[str, Any]:
 
 def _match(row: Dict[str, Any]) -> Dict[str, Any]:
     data = dict(row)
+    # Доски в JSON нужны только достижениям: в журнале матчей они лишние.
+    data.pop("boards_json", None)
     for key in ("id", "round_number", "winner_attempts", "loser_attempts"):
         if data.get(key) is not None:
             data[key] = int(data[key])
     return data
+
+
+# Персонаж, за угадывание которого с первой попытки дают скрытый титул.
+NARUTODLE_MADARA = "Мадара Учиха"
+
+
+def _as_int(value: Any) -> int:
+    """Число из журнала: JSON приходит без типов, пустое значение — ноль."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def narutodle_secret_metrics(rows: Iterable[Dict[str, Any]],
+                             user_id: int) -> Dict[str, int]:
+    """Счётчики скрытых титулов Narutodle по полю boards_json.
+
+    * narutodle_team_carry  — победа в командах, где игрок сам не закрыл ни
+      одного персонажа (доску могли закрыть товарищи);
+    * narutodle_madara_first — Мадара, угаданный этим игроком с первой попытки.
+
+    Старые записи журнала досок не хранят, поэтому в счёт не попадают.
+    """
+    uid = int(user_id)
+    carry = 0
+    madara = 0
+    for row in rows:
+        try:
+            boards = json.loads(str(row.get("boards_json") or "") or "[]")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(boards, list):
+            continue
+        mine = [board for board in boards
+                if isinstance(board, dict) and _as_int(board.get("id")) == uid]
+        personal = 0
+        for board in boards:
+            if not isinstance(board, dict):
+                continue
+            for step in board.get("history") or []:
+                if not isinstance(step, dict) or _as_int(step.get("by_id")) != uid:
+                    continue
+                personal += 1
+                if (str(step.get("target") or "") == NARUTODLE_MADARA
+                        and _as_int(step.get("attempts")) == 1):
+                    madara = 1
+        winner_team = str(row.get("winner_team") or "")
+        if (str(row.get("mode") or "") == "teams" and winner_team and personal == 0
+                and any(str(board.get("team") or "") == winner_team for board in mine)):
+            carry += 1
+    return {"narutodle_team_carry": carry, "narutodle_madara_first": madara}
+
+
+def songless_metrics_from_runs(rows: Iterable[Dict[str, Any]]) -> Dict[str, int]:
+    """Счётчики достижений «Аниме-сонглесса» по журналу заходов."""
+    played = wins = correct = best = perfect = fast = 0
+    guessed: Set[str] = set()
+    rezero: Set[str] = set()
+    for row in rows:
+        played += 1
+        wins += 1 if _as_int(row.get("winner")) else 0
+        correct += _as_int(row.get("correct"))
+        best = max(best, _as_int(row.get("score")))
+        perfect += 1 if _as_int(row.get("perfect")) else 0
+        fast += _as_int(row.get("fast"))
+        try:
+            detail = json.loads(str(row.get("detail") or "[]"))
+        except (TypeError, ValueError):
+            detail = []
+        if isinstance(detail, list):
+            for value in detail:
+                if isinstance(value, dict):
+                    anime = str(value.get("anime") or "")
+                    key = str(value.get("track_key") or value.get("song") or anime)
+                    if anime:
+                        guessed.add(anime)
+                    if "re:zero" in anime.casefold() or "rezero" in anime.casefold():
+                        if key:
+                            rezero.add(key)
+                elif value:
+                    guessed.add(str(value))
+    return {
+        "songless_played": played,
+        "songless_wins": wins,
+        "songless_correct": correct,
+        "songless_best": best,
+        "songless_perfect": perfect,
+        "songless_fast": fast,
+        "songless_guesses": len(guessed),
+        "songless_rezero": len(rezero),
+    }
 
 
 def _track(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -595,6 +776,14 @@ class Database:
                 db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         for statement in LATE_INDEXES:
             db.execute(statement)
+        # Аниме больше не уникально: один сериал может дать несколько опенингов.
+        # Старым строкам ключом становится само название, а ключ трека — уникален.
+        db.execute("UPDATE songless_tracks SET track_key = anime WHERE track_key = ''")
+        db.execute("DROP INDEX IF EXISTS idx_songless_tracks_anime")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_songless_tracks_anime "
+                   "ON songless_tracks(anime)")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_songless_tracks_key "
+                   "ON songless_tracks(track_key)")
 
     # ------------------------------------------------------------------ zones
     def zones(self) -> List[Dict[str, Any]]:
@@ -932,6 +1121,173 @@ class Database:
                 (user_id, text, _now()),
             )
 
+    # -------------------------------------------------------------- profiles
+    def user_profile(self, user_id: int) -> Dict[str, Any]:
+        """Поля профиля игрока; пустой словарь полей, если профиль не заполняли."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT display_name, bio, favorite_game, accent, frame, card, status, "
+                "CASE WHEN avatar_mime <> '' THEN 1 ELSE 0 END AS has_avatar, updated_at "
+                "FROM user_profiles WHERE user_id = ?",
+                (int(user_id),),
+            ).fetchone()
+        if not row:
+            return {"display_name": "", "bio": "", "favorite_game": "", "accent": "",
+                    "frame": "", "card": "", "status": "", "has_avatar": 0, "updated_at": None}
+        data = dict(row)
+        data["has_avatar"] = int(data.get("has_avatar") or 0)
+        return data
+
+    PROFILE_FIELDS = ("display_name", "bio", "favorite_game", "accent", "frame", "card", "status")
+
+    def save_user_profile(self, user_id: int, values: Dict[str, Any]) -> Dict[str, Any]:
+        fields = {name: str(values.get(name) or "") for name in self.PROFILE_FIELDS}
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO user_profiles (user_id, display_name, bio, favorite_game, accent, "
+                "frame, card, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET display_name = excluded.display_name, "
+                "bio = excluded.bio, favorite_game = excluded.favorite_game, "
+                "accent = excluded.accent, frame = excluded.frame, card = excluded.card, "
+                "status = excluded.status, updated_at = excluded.updated_at",
+                (int(user_id), fields["display_name"], fields["bio"],
+                 fields["favorite_game"], fields["accent"], fields["frame"], fields["card"],
+                 fields["status"], _now()),
+            )
+        return self.user_profile(user_id)
+
+    def set_user_avatar(self, user_id: int, mime: str, data: bytes) -> None:
+        """Сохраняет картинку профиля (BLOB в той же строке профиля)."""
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO user_profiles (user_id, avatar_mime, avatar_data, updated_at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET avatar_mime = excluded.avatar_mime, "
+                "avatar_data = excluded.avatar_data, updated_at = excluded.updated_at",
+                (int(user_id), str(mime), bytes(data), _now()),
+            )
+
+    def clear_user_avatar(self, user_id: int) -> bool:
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE user_profiles SET avatar_mime = '', avatar_data = NULL, updated_at = ? "
+                "WHERE user_id = ? AND avatar_mime <> ''",
+                (_now(), int(user_id)),
+            )
+            return cursor.rowcount > 0
+
+    def user_avatar(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Картинка профиля: {"mime": ..., "data": bytes} или None."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT avatar_mime AS mime, avatar_data AS data FROM user_profiles "
+                "WHERE user_id = ? AND avatar_mime <> ''",
+                (int(user_id),),
+            ).fetchone()
+        if not row or not row["data"]:
+            return None
+        return {"mime": str(row["mime"] or "image/png"), "data": bytes(row["data"])}
+
+    def profile_stats(self, user_id: int) -> Dict[str, int]:
+        """Счётчики для профиля: сколько партий и прогонов записано за игроком."""
+        uid = int(user_id)
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT "
+                "(SELECT COUNT(*) FROM narutodle_matches WHERE player_ids LIKE ? "
+                " OR player1_id = ? OR player2_id = ?) AS narutodle, "
+                "(SELECT COUNT(*) FROM csdraft_runs WHERE user_id = ?) AS drafts, "
+                "(SELECT COUNT(*) FROM songguess_runs WHERE user_id = ?) AS songguess, "
+                "(SELECT COUNT(*) FROM raporder_matches WHERE player1_id = ? "
+                " OR player2_id = ?) AS raporder",
+                (f"%,{uid},%", uid, uid, uid, uid, uid, uid),
+            ).fetchone()
+        data = {key: int(row[key] or 0) for key in ("narutodle", "drafts", "songguess", "raporder")}
+        data["total"] = sum(data.values())
+        return data
+
+    # ------------------------------------------------------------ достижения
+    def game_metrics(self, user_id: int) -> Dict[str, int]:
+        """Счётчики для достижений: партии, победы и очки по всем играм."""
+        uid = int(user_id)
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT "
+                "(SELECT COUNT(*) FROM narutodle_matches WHERE player_ids LIKE ? "
+                " OR player1_id = ? OR player2_id = ?) AS narutodle_played, "
+                "(SELECT COUNT(*) FROM narutodle_matches WHERE winner_id = ?) AS narutodle_wins, "
+                "(SELECT COUNT(*) FROM songguess_runs WHERE user_id = ?) AS songguess_runs, "
+                "(SELECT COALESCE(MAX(score), 0) FROM songguess_runs WHERE user_id = ?) AS songguess_best, "
+                "(SELECT COALESCE(SUM(correct), 0) FROM songguess_runs WHERE user_id = ?) AS songguess_correct, "
+                "(SELECT COUNT(*) FROM csdraft_runs WHERE user_id = ?) AS draft_runs, "
+                "(SELECT COUNT(*) FROM csdraft_runs WHERE user_id = ? AND champion = 1) AS draft_champions, "
+                "(SELECT COUNT(*) FROM raporder_matches WHERE player1_id = ? "
+                " OR player2_id = ?) AS raporder_played, "
+                "(SELECT COUNT(*) FROM raporder_matches WHERE winner_id = ?) AS raporder_wins",
+                (f"%,{uid},%",) + (uid,) * 11,
+            ).fetchone()
+            # Отдельный запрос: режимы, быстрые победы, коллекция персонажей.
+            detail = db.execute(
+                "SELECT "
+                "(SELECT COUNT(*) FROM narutodle_matches WHERE mode = 'duel' "
+                " AND (player_ids LIKE ? OR player1_id = ? OR player2_id = ?)) AS duel, "
+                "(SELECT COUNT(*) FROM narutodle_matches WHERE mode = 'race' "
+                " AND (player_ids LIKE ? OR player1_id = ? OR player2_id = ?)) AS race, "
+                "(SELECT COUNT(*) FROM narutodle_matches WHERE mode = 'teams' "
+                " AND (player_ids LIKE ? OR player1_id = ? OR player2_id = ?)) AS teams, "
+                "(SELECT COUNT(*) FROM narutodle_matches WHERE winner_id = ? "
+                " AND winner_attempts > 0 AND winner_attempts <= 3) AS fast_wins, "
+                "(SELECT COUNT(DISTINCT target) FROM narutodle_matches "
+                " WHERE winner_id = ? AND target <> '') AS guessed, "
+                "(SELECT COUNT(*) FROM narutodle_matches WHERE winner_id IS NOT NULL "
+                " AND winner_id <> ? AND (player_ids LIKE ? OR player1_id = ? "
+                " OR player2_id = ?)) AS losses",
+                (f"%,{uid},%", uid, uid) * 3 + (uid, uid, uid, f"%,{uid},%", uid, uid),
+            ).fetchone()
+            # Скрытые титулы: разбираем доски из JSON в Python, чтобы одинаково
+            # работать и на SQLite, и на PostgreSQL без JSON-функций.
+            secret_rows = db.execute(
+                "SELECT mode, winner_team, boards_json FROM narutodle_matches "
+                "WHERE boards_json <> '' AND player_ids LIKE ?",
+                (f"%,{uid},%",),
+            ).fetchall()
+        keys = ("narutodle_played", "narutodle_wins", "songguess_runs", "songguess_best",
+                "songguess_correct", "draft_runs", "draft_champions", "raporder_played",
+                "raporder_wins")
+        data = {key: int(row[key] or 0) for key in keys}
+        touched = (data["narutodle_played"], data["songguess_runs"],
+                   data["draft_runs"], data["raporder_played"])
+        data["games_touched"] = sum(1 for value in touched if value)
+        data["total_games"] = sum(touched)
+        data["narutodle_duel"] = int(detail["duel"] or 0)
+        data["narutodle_race"] = int(detail["race"] or 0)
+        data["narutodle_teams"] = int(detail["teams"] or 0)
+        data["narutodle_fast_wins"] = int(detail["fast_wins"] or 0)
+        data["narutodle_chars"] = int(detail["guessed"] or 0)
+        data["narutodle_losses"] = int(detail["losses"] or 0)
+        data.update(narutodle_secret_metrics([dict(item) for item in secret_rows], uid))
+        data.update(songless_metrics_from_runs(self.songless_metric_rows(uid)))
+        return data
+
+    def achievements_unlocked(self, user_id: int) -> Dict[str, Any]:
+        """Выданные достижения: {"идентификатор": момент выдачи}."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT achievement_id, unlocked_at FROM user_achievements WHERE user_id = ?",
+                (int(user_id),),
+            ).fetchall()
+        return {str(row["achievement_id"]): row["unlocked_at"] for row in rows}
+
+    def achievement_unlock(self, user_id: int, achievement_id: str) -> bool:
+        """Выдаёт достижение один раз; True, если оно выдано именно сейчас."""
+        with self.connect() as db:
+            cursor = db.execute(
+                "INSERT INTO user_achievements (user_id, achievement_id, unlocked_at) "
+                "VALUES (?, ?, ?) ON CONFLICT(user_id, achievement_id) DO NOTHING",
+                (int(user_id), str(achievement_id), _now()),
+            )
+            return cursor.rowcount > 0
+
     # ----------------------------------------------------------- secret data
     def secret_data(self) -> List[Dict[str, Any]]:
         with self.connect() as db:
@@ -1039,8 +1395,9 @@ class Database:
             entry_id = db.execute(
                 "INSERT INTO narutodle_matches (room, round_number, mode, target, players, "
                 "player_ids, player1_id, player1_name, player2_id, player2_name, winner_id, "
-                "winner_name, loser_name, winner_attempts, loser_attempts, reason, played_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "winner_name, loser_name, winner_attempts, loser_attempts, winner_team, "
+                "boards_json, reason, played_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     str(record.get("room") or ""),
                     int(record.get("round_number") or 1),
@@ -1057,6 +1414,8 @@ class Database:
                     str(record.get("loser_name") or ""),
                     int(record.get("winner_attempts") or 0),
                     int(record.get("loser_attempts") or 0),
+                    str(record.get("winner_team") or ""),
+                    str(record.get("boards_json") or ""),
                     str(record.get("reason") or ""),
                     _now(),
                 ),
@@ -1107,17 +1466,25 @@ class Database:
         with self.connect() as db:
             for row in rows:
                 db.execute(
-                    "INSERT INTO songless_tracks (anime, song, artist, year, audio, "
-                    "clip_start, clip_length, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(anime) DO UPDATE SET "
-                    "song = excluded.song, artist = excluded.artist, year = excluded.year, "
+                    "INSERT INTO songless_tracks (track_key, anime, song, artist, year, audio, cover, video, "
+                    "clip_start, clip_length, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(track_key) DO UPDATE SET "
+                    "anime = excluded.anime, song = excluded.song, artist = excluded.artist, "
+                    "year = excluded.year, "
+                    "cover = CASE WHEN excluded.cover <> '' THEN excluded.cover "
+                    "ELSE songless_tracks.cover END, "
+                    "video = CASE WHEN excluded.video <> '' THEN excluded.video "
+                    "ELSE songless_tracks.video END, "
                     "updated_at = excluded.updated_at",
                     (
+                        str(row.get("track_key") or row.get("anime") or ""),
                         str(row.get("anime") or ""),
                         str(row.get("song") or ""),
                         str(row.get("artist") or ""),
                         str(row.get("year") or ""),
                         str(row.get("audio") or ""),
+                        str(row.get("cover") or ""),
+                        str(row.get("video") or ""),
                         float(row.get("clip_start") or 0),
                         float(row.get("clip_length") or DEFAULT_CLIP_LENGTH),
                         _now(),
@@ -1128,8 +1495,13 @@ class Database:
 
     def songless_set_audio(self, anime: str, audio: str,
                            clip_start: Optional[float] = None,
-                           clip_length: Optional[float] = None) -> bool:
-        """Привязывает запись к треку; пустая строка — снова «без записи»."""
+                           clip_length: Optional[float] = None,
+                           track_key: Optional[str] = None) -> bool:
+        """Привязывает запись к треку; пустая строка — снова «без записи».
+
+        ``track_key`` нужен, когда у одного аниме несколько опенингов: иначе
+        одна запись привязалась бы ко всем строкам сериала.
+        """
         fields = ["audio = ?", "updated_at = ?"]
         values: List[Any] = [audio, _now()]
         if clip_start is not None:
@@ -1138,17 +1510,19 @@ class Database:
         if clip_length is not None:
             fields.append("clip_length = ?")
             values.append(float(clip_length))
-        values.append(anime)
+        where = "track_key = ?" if track_key is not None else "anime = ?"
+        values.append(str(track_key) if track_key is not None else anime)
         with self.connect() as db:
             cursor = db.execute(
-                "UPDATE songless_tracks SET " + ", ".join(fields) + " WHERE anime = ?",
+                "UPDATE songless_tracks SET " + ", ".join(fields) + " WHERE " + where,
                 tuple(values),
             )
             return cursor.rowcount > 0
 
     def songless_set_clip(self, anime: str,
                           clip_start: Optional[float] = None,
-                          clip_length: Optional[float] = None) -> bool:
+                          clip_length: Optional[float] = None,
+                          track_key: Optional[str] = None) -> bool:
         """Меняет место и длину фрагмента, не трогая саму запись."""
         fields = ["updated_at = ?"]
         values: List[Any] = [_now()]
@@ -1158,10 +1532,11 @@ class Database:
         if clip_length is not None:
             fields.append("clip_length = ?")
             values.append(float(clip_length))
-        values.append(anime)
+        where = "track_key = ?" if track_key is not None else "anime = ?"
+        values.append(str(track_key) if track_key is not None else anime)
         with self.connect() as db:
             cursor = db.execute(
-                "UPDATE songless_tracks SET " + ", ".join(fields) + " WHERE anime = ?",
+                "UPDATE songless_tracks SET " + ", ".join(fields) + " WHERE " + where,
                 tuple(values),
             )
             return cursor.rowcount > 0
@@ -1171,6 +1546,70 @@ class Database:
         with self.connect() as db:
             cursor = db.execute("DELETE FROM songless_tracks WHERE anime = ?", (anime,))
             return cursor.rowcount > 0
+
+    def songless_add_run(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """Пишет итог захода/партии «Аниме-сонглесса» для достижений."""
+        detail = record.get("detail") or []
+        with self.connect() as db:
+            entry_id = db.execute(
+                "INSERT INTO songless_runs (username, user_id, mode, rounds, correct, "
+                "score, perfect, fast, place, winner, detail, played_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(record.get("username") or ""),
+                    record.get("user_id"),
+                    str(record.get("mode") or "solo"),
+                    int(record.get("rounds") or 0),
+                    int(record.get("correct") or 0),
+                    int(record.get("score") or 0),
+                    1 if record.get("perfect") else 0,
+                    int(record.get("fast") or 0),
+                    int(record.get("place") or 0),
+                    1 if record.get("winner") else 0,
+                    json.dumps(list(detail), ensure_ascii=False),
+                    _now(),
+                ),
+            ).lastrowid
+            row = db.execute("SELECT * FROM songless_runs WHERE id = ?", (entry_id,)).fetchone()
+        return dict(row)
+
+    def songless_metric_rows(self, user_id: int) -> List[Dict[str, Any]]:
+        """Заходы игрока для метрик достижений (detail разбирается в Python)."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT rounds, correct, score, perfect, fast, winner, detail "
+                "FROM songless_runs WHERE user_id = ?",
+                (int(user_id),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def songless_leaderboard(self, limit: int = 20, mode: Optional[str] = None,
+                             since: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """Лидерборд: лучший результат, сумма верных ответов и число заходов.
+
+        ``mode`` — «solo» или «online»: соло-заходы и партии в комнатах считаются
+        отдельно. ``since`` — начало периода (для «лучших за сегодняшний день»).
+        """
+        size = max(1, min(int(limit), 100))
+        where = ["user_id IS NOT NULL"]
+        params: List[Any] = []
+        if mode in ("solo", "online"):
+            where.append("mode = ?")
+            params.append(mode)
+        if since is not None:
+            where.append("played_at >= ?")
+            params.append(_iso(since))
+        params.append(size)
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT MAX(username) AS username, user_id, MAX(score) AS best, "
+                "SUM(correct) AS correct, COUNT(1) AS games "
+                "FROM songless_runs WHERE " + " AND ".join(where) + " "
+                "GROUP BY user_id "
+                "ORDER BY best DESC, correct DESC, games ASC LIMIT ?",
+                tuple(params),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     # ------------------------------------------------- драфт-рогалики (игры)
     def csdraft_pack_count(self, game: Optional[str] = None) -> int:
@@ -1567,6 +2006,77 @@ class Database:
             else:
                 row = db.execute("SELECT COUNT(*) AS n FROM songguess_runs").fetchone()
         return int(row["n"])
+
+    # ------------------------------------------------------ записи игр в базе
+    def audio_clip_save(self, game: str, track_key: str, data: bytes,
+                        mime: str = "audio/mpeg", duration_ms: int = 0,
+                        source: str = "") -> None:
+        """Кладёт аудиофрагмент игры в базу, перезаписывая прежний."""
+        if not data:
+            raise ValueError("Пустая запись")
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO audio_clips (game, track_key, mime, duration_ms, source, data, "
+                "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(game, track_key) DO UPDATE SET mime = excluded.mime, "
+                "duration_ms = excluded.duration_ms, source = excluded.source, "
+                "data = excluded.data, updated_at = excluded.updated_at",
+                (
+                    str(game),
+                    str(track_key),
+                    str(mime or "audio/mpeg"),
+                    int(duration_ms or 0),
+                    str(source or ""),
+                    sqlite3.Binary(bytes(data)),
+                    _now(),
+                ),
+            )
+
+    def audio_clip_get(self, game: str, track_key: str) -> Optional[Dict[str, Any]]:
+        """Достаёт аудиофрагмент: байты, тип и длительность (None, если его нет)."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT mime, duration_ms, source, data, updated_at FROM audio_clips "
+                "WHERE game = ? AND track_key = ?",
+                (str(game), str(track_key)),
+            ).fetchone()
+        if not row:
+            return None
+        data = row["data"]
+        return {
+            "game": str(game),
+            "track_key": str(track_key),
+            "mime": str(row["mime"] or "audio/mpeg"),
+            "duration_ms": int(row["duration_ms"] or 0),
+            "source": str(row["source"] or ""),
+            "updated_at": row["updated_at"],
+            "data": bytes(data) if data is not None else b"",
+        }
+
+    def audio_clip_has(self, game: str, track_key: str) -> bool:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT 1 AS ok FROM audio_clips WHERE game = ? AND track_key = ? LIMIT 1",
+                (str(game), str(track_key)),
+            ).fetchone()
+        return bool(row)
+
+    def audio_clip_keys(self, game: str) -> List[str]:
+        """Ключи треков, у которых уже есть запись в базе (для отчётов и пропусков)."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT track_key FROM audio_clips WHERE game = ? ORDER BY track_key",
+                (str(game),),
+            ).fetchall()
+        return [str(row["track_key"]) for row in rows]
+
+    def audio_clip_delete(self, game: str, track_key: str) -> bool:
+        with self.connect() as db:
+            cursor = db.execute(
+                "DELETE FROM audio_clips WHERE game = ? AND track_key = ?",
+                (str(game), str(track_key)),
+            )
+            return cursor.rowcount > 0
 
     # ------------------------------------------- «Рэп-хронология» (порядок лет)
     def raporder_track_count(self) -> int:
